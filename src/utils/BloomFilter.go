@@ -1,22 +1,29 @@
 package utils
 
 import (
+	"context"
 	"encoding/binary"
+	"fmt"
 	"hash/fnv"
 	"math"
+
+	"github.com/redis/go-redis/v9"
 )
 
+// BloomFilter Redis分布式布隆过滤器
 type BloomFilter struct {
-	m        uint64                // 位数组大小
-	k        uint64                // 哈希函数数量
-	bits     []byte                // 位数组
-	hashFunc []func([]byte) uint64 // 哈希函数集
+	client *redis.Client // Redis 客户端
+	key    string        // Redis Key
+	m      uint64        // 位数组大小
+	k      uint64        // 哈希函数数量
 }
 
 // NewBloomFilter 创建新的布隆过滤器
+// client: Redis客户端
+// key: Redis键名
 // n: 预期元素数量
 // p: 期望的误判率 (0 < p < 1)
-func NewBloomFilter(n uint64, p float64) *BloomFilter {
+func NewBloomFilter(client *redis.Client, key string, n uint64, p float64) *BloomFilter {
 	if p <= 0 || p >= 1 {
 		panic("false positive rate must be between 0 and 1")
 	}
@@ -28,25 +35,67 @@ func NewBloomFilter(n uint64, p float64) *BloomFilter {
 	m := optimalM(n, p)
 	k := optimalK(n, m)
 
-	// 初始化位数组(按8位对齐)
-	bits := make([]byte, (m+7)/8)
+	return &BloomFilter{
+		client: client,
+		key:    key,
+		m:      m,
+		k:      k,
+	}
+}
 
-	// 初始化哈希函数
-	hashFunc := make([]func([]byte) uint64, k)
-	for i := range hashFunc {
-		seed := uint32(i)
-		hashFunc[i] = func(data []byte) uint64 {
-			return hashWithSeed(data, seed)
+// Add 添加元素到布隆过滤器
+func (bf *BloomFilter) Add(id int64) error {
+	ctx := context.Background()
+	pipe := bf.client.Pipeline()
+
+	data := make([]byte, 8)
+	binary.LittleEndian.PutUint64(data, uint64(id))
+
+	for i := uint64(0); i < bf.k; i++ {
+		// 计算哈希值
+		hash := hashWithSeed(data, uint32(i))
+		offset := hash % bf.m
+		pipe.SetBit(ctx, bf.key, int64(offset), 1)
+	}
+
+	_, err := pipe.Exec(ctx)
+	return err
+}
+
+// Contains 检查元素是否存在
+func (bf *BloomFilter) Contains(id int64) (bool, error) {
+	ctx := context.Background()
+	pipe := bf.client.Pipeline()
+
+	data := make([]byte, 8)
+	binary.LittleEndian.PutUint64(data, uint64(id))
+
+	// 收集所有 GETBIT 命令的结果
+	cmds := make([]*redis.IntCmd, bf.k)
+
+	for i := uint64(0); i < bf.k; i++ {
+		hash := hashWithSeed(data, uint32(i))
+		offset := hash % bf.m
+		cmds[i] = pipe.GetBit(ctx, bf.key, int64(offset))
+	}
+
+	_, err := pipe.Exec(ctx)
+	if err != nil {
+		return false, err
+	}
+
+	// 检查所有位是否都为 1
+	for _, cmd := range cmds {
+		val, err := cmd.Result()
+		if err != nil {
+			return false, err
+		}
+		if val == 0 {
+			return false, nil // 只要有一位是 0，则一定不存在
 		}
 	}
 
-	return &BloomFilter{
-		m:        m,
-		k:        k,
-		bits:     bits,
-		hashFunc: hashFunc,
-	}
-
+	return true, nil // 所有位都是 1，可能存在
 }
 
 // optimalM 计算最优的位数组大小
@@ -61,45 +110,15 @@ func optimalK(n, m uint64) uint64 {
 
 // hashWithSeed 使用种子创建哈希函数
 func hashWithSeed(data []byte, seed uint32) uint64 {
-	hasher := fnv.New64a() // 创建FNV-1a算法的64位版本
-
-	// 将种子写入哈希
+	hasher := fnv.New64a()
 	seedBytes := make([]byte, 4)
 	binary.BigEndian.PutUint32(seedBytes, seed)
 	hasher.Write(seedBytes)
-
-	// 写入实际数据
 	hasher.Write(data)
-	return hasher.Sum64() // 计算并返回64位无符号整数哈希值
-
+	return hasher.Sum64()
 }
 
-// Add 添加元素到布隆过滤器
-func (bf *BloomFilter) Add(data []byte) {
-	for _, hashFn := range bf.hashFunc {
-		// 计算哈希值并取模
-		hash := hashFn(data) % bf.m
-
-		// 计算位位置
-		byteIndex := hash / 8
-		bitIndex := hash % 8
-
-		// 设置位
-		bf.bits[byteIndex] |= 1 << bitIndex
-	}
-}
-
-// Contains 检查元素是否可能在布隆过滤器中
-func (bf *BloomFilter) Contains(data []byte) bool {
-	for _, hashFn := range bf.hashFunc {
-		hash := hashFn(data) % bf.m
-		byteIndex := hash / 8
-		bitIndex := hash % 8
-
-		// 如果任何一位未设置，元素肯定不存在
-		if bf.bits[byteIndex]&(1<<bitIndex) == 0 {
-			return false
-		}
-	}
-	return true
+// DebugInfo 获取调试信息
+func (bf *BloomFilter) DebugInfo() string {
+	return fmt.Sprintf("BloomFilter[Key=%s, m=%d, k=%d]", bf.key, bf.m, bf.k)
 }

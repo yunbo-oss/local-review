@@ -5,14 +5,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/jinzhu/gorm"
-	redisConfig "github.com/redis/go-redis/v9"
 	"local-review-go/src/config/mysql"
 	redisClient "local-review-go/src/config/redis"
 	"local-review-go/src/model"
 	"local-review-go/src/utils"
 	"strconv"
 	"time"
+
+	"github.com/jinzhu/gorm"
+	redisConfig "github.com/redis/go-redis/v9"
 )
 
 type ShopService struct {
@@ -21,6 +22,13 @@ type ShopService struct {
 var ShopManager *ShopService
 
 var distLock *utils.DistributedLock
+
+// Global BloomFilter instance
+var shopBloomFilter *utils.BloomFilter
+
+func SetShopBloomFilter(bf *utils.BloomFilter) {
+	shopBloomFilter = bf
+}
 
 const (
 	MAX_REDIS_DATA_QUEUE = 10
@@ -65,6 +73,20 @@ func (*ShopService) QueryByName(name string, current int) ([]model.Shop, error) 
 
 // QueryShopByIdWithCache 如果缓存未命中，则查询数据库，将数据库结果写入缓存，并设置超时时间
 func (*ShopService) QueryShopByIdWithCache(id int64) (model.Shop, error) {
+	// 1. Check Bloom Filter
+	if shopBloomFilter != nil {
+		exists, err := shopBloomFilter.Contains(id)
+		if err != nil {
+			// If Redis query fails, what to do? Log and proceed or fail?
+			// Usually safe to proceed to avoid false negative if network issue, but here we assume critical dependency or log error.
+			// Ideally log warning and proceed to cache/db
+			fmt.Printf("BloomFilter check failed: %v\n", err)
+		} else if !exists {
+			// If definitely not in Bloom Filter
+			return model.Shop{}, errors.New("shop not found (blocked by Bloom Filter)")
+		}
+	}
+
 	redisKey := utils.CACHE_SHOP_KEY + strconv.FormatInt(id, 10)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -139,6 +161,16 @@ func (*ShopService) UpdateShopWithCache(shop *model.Shop) error {
 
 // QueryShopByIdWithCacheNull 缓存穿透的解决方法: 缓存空对象
 func (*ShopService) QueryShopByIdWithCacheNull(id int64) (model.Shop, error) {
+	// 1. Check Bloom Filter
+	if shopBloomFilter != nil {
+		exists, err := shopBloomFilter.Contains(id)
+		if err != nil {
+			fmt.Printf("BloomFilter check failed: %v\n", err)
+		} else if !exists {
+			return model.Shop{}, errors.New("shop not found (blocked by Bloom Filter)")
+		}
+	}
+
 	redisKey := utils.CACHE_SHOP_KEY + strconv.FormatInt(id, 10)
 
 	ctx, cancel := context.WithCancel(context.Background())
