@@ -4,10 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/jinzhu/gorm"
-	"github.com/mitchellh/mapstructure"
-	redisConfig "github.com/redis/go-redis/v9"
-	"github.com/sirupsen/logrus"
 	"io/ioutil"
 	"local-review-go/src/config/mysql"
 	redisClient "local-review-go/src/config/redis"
@@ -16,6 +12,11 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/mitchellh/mapstructure"
+	redisConfig "github.com/redis/go-redis/v9"
+	"github.com/sirupsen/logrus"
+	"gorm.io/gorm"
 )
 
 type VoucherOrderService struct {

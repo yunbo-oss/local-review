@@ -1,9 +1,10 @@
 package model
 
 import (
-	"github.com/jinzhu/gorm"
 	"local-review-go/src/config/mysql"
 	"time"
+
+	"gorm.io/gorm"
 )
 
 const VOUCHER_TABLE_NAME = "tb_voucher"

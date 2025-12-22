@@ -3,13 +3,15 @@ package service
 import (
 	"context"
 	"fmt"
-	"github.com/sirupsen/logrus"
 	"local-review-go/src/config/mysql"
 	"local-review-go/src/config/redis"
 	"local-review-go/src/model"
 	"local-review-go/src/utils"
 	"strconv"
 	"time"
+
+	"github.com/sirupsen/logrus"
+	"gorm.io/gorm"
 )
 
 type VoucherService struct {
@@ -29,38 +31,29 @@ func (*VoucherService) QueryVoucherOfShop(shopId int64) ([]model.Voucher, error)
 }
 
 func (vs *VoucherService) AddSeckillVoucher(voucher *model.Voucher) error {
-	// 1. 开启数据库事务
-	tx := mysql.GetMysqlDB().Begin()
-	defer func() {
-		if r := recover(); r != nil {
-			tx.Rollback()
+	// 使用 GORM v2 的事务方式
+	return mysql.GetMysqlDB().Transaction(func(tx *gorm.DB) error {
+		// 1. 操作1：写入主表
+		if err := voucher.AddVoucher(tx); err != nil {
+			return fmt.Errorf("写入主表失败: %w", err)
 		}
-	}()
 
-	// 2. 操作1：写入主表
-	if err := voucher.AddVoucher(tx); err != nil {
-		tx.Rollback()
-		return fmt.Errorf("写入主表失败: %w", err)
-	}
+		// 2. 操作2：写入秒杀表
+		seckillVoucher := model.SecKillVoucher{
+			VoucherId:  voucher.Id,
+			Stock:      voucher.Stock,
+			BeginTime:  voucher.BeginTime,
+			EndTime:    voucher.EndTime,
+			CreateTime: voucher.CreateTime,
+			UpdateTime: voucher.UpdateTime,
+		}
+		if err := seckillVoucher.AddSeckillVoucher(tx); err != nil {
+			return fmt.Errorf("写入秒杀表失败: %w", err)
+		}
 
-	// 3. 操作2：写入秒杀表
-	seckillVoucher := model.SecKillVoucher{
-		VoucherId:  voucher.Id,
-		Stock:      voucher.Stock,
-		BeginTime:  voucher.BeginTime,
-		EndTime:    voucher.EndTime,
-		CreateTime: voucher.CreateTime,
-		UpdateTime: voucher.UpdateTime,
-	}
-	if err := seckillVoucher.AddSeckillVoucher(tx); err != nil {
-		tx.Rollback()
-		return fmt.Errorf("写入秒杀表失败: %w", err)
-	}
-
-	// 4. 提交数据库事务（确保前两步完全成功）
-	if err := tx.Commit().Error; err != nil {
-		return fmt.Errorf("事务提交失败: %w", err)
-	}
+		// 事务成功会自动提交，失败会自动回滚
+		return nil
+	})
 
 	// 5. 事务成功后，异步更新Redis
 	go func() {

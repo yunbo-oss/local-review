@@ -12,8 +12,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/jinzhu/gorm"
 	redisConfig "github.com/redis/go-redis/v9"
+	"github.com/sirupsen/logrus"
+	"gorm.io/gorm"
 )
 
 type ShopService struct {
@@ -23,9 +24,10 @@ var ShopManager *ShopService
 
 var distLock *utils.DistributedLock
 
-// Global BloomFilter instance
+// 全局布隆过滤器实例
 var shopBloomFilter *utils.BloomFilter
 
+// SetShopBloomFilter 设置布隆过滤器实例（由 main.go 在初始化时调用）
 func SetShopBloomFilter(bf *utils.BloomFilter) {
 	shopBloomFilter = bf
 }
@@ -51,7 +53,21 @@ func (*ShopService) QueryShopById(id int64) (model.Shop, error) {
 
 func (*ShopService) SaveShop(shop *model.Shop) error {
 	err := shop.SaveShop()
-	return err
+	if err != nil {
+		return err
+	}
+
+	// 数据库保存成功后，同步更新布隆过滤器
+	if shopBloomFilter != nil && shop.Id > 0 {
+		if err := shopBloomFilter.Add(shop.Id); err != nil {
+			// 布隆过滤器更新失败不影响主流程，但记录警告日志
+			logrus.Warnf("Failed to add shop %d to Bloom Filter after save: %v", shop.Id, err)
+		} else {
+			logrus.Debugf("Successfully added shop %d to Bloom Filter", shop.Id)
+		}
+	}
+
+	return nil
 }
 
 func (*ShopService) UpdateShop(shop *model.Shop) error {
@@ -77,12 +93,10 @@ func (*ShopService) QueryShopByIdWithCache(id int64) (model.Shop, error) {
 	if shopBloomFilter != nil {
 		exists, err := shopBloomFilter.Contains(id)
 		if err != nil {
-			// If Redis query fails, what to do? Log and proceed or fail?
-			// Usually safe to proceed to avoid false negative if network issue, but here we assume critical dependency or log error.
-			// Ideally log warning and proceed to cache/db
-			fmt.Printf("BloomFilter check failed: %v\n", err)
+			// Redis 查询失败时，记录警告但继续查询缓存/数据库，避免因网络问题导致误判
+			logrus.Warnf("BloomFilter check failed for shop %d: %v, proceeding to cache/DB", id, err)
 		} else if !exists {
-			// If definitely not in Bloom Filter
+			// 布隆过滤器判定不存在，直接返回错误
 			return model.Shop{}, errors.New("shop not found (blocked by Bloom Filter)")
 		}
 	}
@@ -107,6 +121,20 @@ func (*ShopService) QueryShopByIdWithCache(id int64) (model.Shop, error) {
 		err = shop.QueryShopById(id)
 		if err != nil {
 			return model.Shop{}, err
+		}
+
+		// 防御性编程：如果数据库查询成功，确保布隆过滤器中也存在
+		// 防止因预热遗漏或并发问题导致的数据不一致
+		if shopBloomFilter != nil && shop.Id > 0 {
+			exists, bfErr := shopBloomFilter.Contains(shop.Id)
+			if bfErr == nil && !exists {
+				// 布隆过滤器未命中但数据库有数据，添加到布隆过滤器
+				if addErr := shopBloomFilter.Add(shop.Id); addErr != nil {
+					logrus.Warnf("Failed to add shop %d to Bloom Filter after DB query: %v", shop.Id, addErr)
+				} else {
+					logrus.Debugf("Defensively added shop %d to Bloom Filter after DB query", shop.Id)
+				}
+			}
 		}
 
 		redisValue, err := json.Marshal(shop)
@@ -165,8 +193,10 @@ func (*ShopService) QueryShopByIdWithCacheNull(id int64) (model.Shop, error) {
 	if shopBloomFilter != nil {
 		exists, err := shopBloomFilter.Contains(id)
 		if err != nil {
-			fmt.Printf("BloomFilter check failed: %v\n", err)
+			// Redis 查询失败时，记录警告但继续查询缓存/数据库，避免因网络问题导致误判
+			logrus.Warnf("BloomFilter check failed for shop %d: %v, proceeding to cache/DB", id, err)
 		} else if !exists {
+			// 布隆过滤器判定不存在，直接返回错误
 			return model.Shop{}, errors.New("shop not found (blocked by Bloom Filter)")
 		}
 	}
@@ -195,11 +225,29 @@ func (*ShopService) QueryShopByIdWithCacheNull(id int64) (model.Shop, error) {
 		shopInfo.Id = id
 		err = shopInfo.QueryShopById(id)
 		if errors.Is(err, gorm.ErrRecordNotFound) {
+			// 数据库不存在，设置空缓存防止缓存穿透
 			err = redisClient.GetRedisClient().Set(ctx, redisKey, "", time.Minute).Err()
 			if err != nil {
 				return model.Shop{}, err
 			}
 			return model.Shop{}, nil
+		}
+
+		if err != nil {
+			return model.Shop{}, err
+		}
+
+		// 防御性编程：如果数据库查询成功，确保布隆过滤器中也存在
+		if shopBloomFilter != nil && shopInfo.Id > 0 {
+			exists, bfErr := shopBloomFilter.Contains(shopInfo.Id)
+			if bfErr == nil && !exists {
+				// 布隆过滤器未命中但数据库有数据，添加到布隆过滤器
+				if addErr := shopBloomFilter.Add(shopInfo.Id); addErr != nil {
+					logrus.Warnf("Failed to add shop %d to Bloom Filter after DB query: %v", shopInfo.Id, addErr)
+				} else {
+					logrus.Debugf("Defensively added shop %d to Bloom Filter after DB query", shopInfo.Id)
+				}
+			}
 		}
 
 		redisValue, err := json.Marshal(shopInfo)
@@ -262,6 +310,18 @@ func (*ShopService) QueryShopByIdPassThrough(id int64) (model.Shop, error) {
 
 		if err != nil {
 			return model.Shop{}, err
+		}
+
+		// 防御性编程：如果数据库查询成功，确保布隆过滤器中也存在
+		if shopBloomFilter != nil && shopInfo.Id > 0 {
+			exists, bfErr := shopBloomFilter.Contains(shopInfo.Id)
+			if bfErr == nil && !exists {
+				if addErr := shopBloomFilter.Add(shopInfo.Id); addErr != nil {
+					logrus.Warnf("Failed to add shop %d to Bloom Filter after DB query: %v", shopInfo.Id, addErr)
+				} else {
+					logrus.Debugf("Defensively added shop %d to Bloom Filter after DB query", shopInfo.Id)
+				}
+			}
 		}
 
 		redisValue, err := json.Marshal(shopInfo)
@@ -371,8 +431,13 @@ func (*ShopService) SyncUpdateCache() {
 		redisDataToSave.ExpireTime = time.Now().Add(time.Second * utils.HOT_KEY_EXISTS_TIME)
 
 		redisValue, err := json.Marshal(redisDataToSave)
+		if err != nil {
+			logrus.Warnf("Failed to marshal shop data for shop %d: %v", id, err)
+			continue
+		}
 		err = redisClient.GetRedisClient().Set(ctx, redisKey, string(redisValue), 0).Err()
 		if err != nil {
+			logrus.Warnf("Failed to set cache for shop %d: %v", id, err)
 			continue
 		}
 	}
@@ -410,7 +475,7 @@ func (s *ShopService) QueryShopByType(typeID, current int,
 	locs, err := redisClient.GetRedisClient().
 		GeoSearchLocation(ctx, key, query).Result()
 	if err != nil && !errors.Is(err, redisConfig.Nil) {
-		return nil, fmt.Errorf("Redis GEO 查询失败: %w", err)
+		return nil, fmt.Errorf("redis GEO 查询失败: %w", err)
 	}
 	if len(locs) == 0 || len(locs) <= from {
 		return []model.Shop{}, nil // 空页

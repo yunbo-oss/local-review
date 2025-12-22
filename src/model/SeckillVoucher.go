@@ -2,7 +2,7 @@ package model
 
 import (
 	"errors"
-	"github.com/jinzhu/gorm"
+	"gorm.io/gorm"
 	"local-review-go/src/config/mysql"
 	"time"
 )

@@ -1,13 +1,14 @@
 package handler
 
 import (
-	"github.com/gin-gonic/gin"
-	"github.com/sirupsen/logrus"
 	"local-review-go/src/dto"
 	"local-review-go/src/model"
 	"local-review-go/src/service"
 	"net/http"
 	"strconv"
+
+	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
 )
 
 type ShopHandler struct {
@@ -22,13 +23,13 @@ func (*ShopHandler) QueryShopById(c *gin.Context) {
 	idStr := c.Param("id")
 	if idStr == "" {
 		logrus.Error("id is empty!")
-		c.JSON(http.StatusOK, dto.Fail[string]("id is emtpy!"))
+		c.JSON(http.StatusBadRequest, dto.Fail[string]("id is emtpy!"))
 		return
 	}
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		logrus.Error("transform failed!")
-		c.JSON(http.StatusOK, dto.Fail[string]("transform type failed!"))
+		c.JSON(http.StatusBadRequest, dto.Fail[string]("transform type failed!"))
 		return
 	}
 	// shop, err := service.ShopManager.QueryShopById(id)
@@ -38,7 +39,12 @@ func (*ShopHandler) QueryShopById(c *gin.Context) {
 
 	if err != nil {
 		logrus.Error("query failed!")
-		c.JSON(http.StatusOK, dto.Fail[string]("query failed!"))
+		// 根据错误类型判断状态码
+		if err.Error() == "shop not found (blocked by Bloom Filter)" {
+			c.JSON(http.StatusNotFound, dto.Fail[string]("shop not found"))
+		} else {
+			c.JSON(http.StatusInternalServerError, dto.Fail[string]("query failed!"))
+		}
 		return
 	}
 	c.JSON(http.StatusOK, dto.OkWithData[model.Shop](shop))
@@ -51,13 +57,13 @@ func (*ShopHandler) SaveShop(c *gin.Context) {
 	err := c.ShouldBindJSON(&shop)
 	if err != nil {
 		logrus.Error("bind json failed")
-		c.JSON(http.StatusOK, dto.Fail[string]("bind json failed!"))
+		c.JSON(http.StatusBadRequest, dto.Fail[string]("bind json failed!"))
 		return
 	}
 	err = service.ShopManager.SaveShop(&shop)
 	if err != nil {
 		logrus.Error("save data failed!")
-		c.JSON(http.StatusOK, dto.Fail[string]("save data failed!"))
+		c.JSON(http.StatusInternalServerError, dto.Fail[string]("save data failed!"))
 		return
 	}
 	c.JSON(http.StatusOK, dto.OkWithData(shop.Id))
@@ -70,14 +76,14 @@ func (*ShopHandler) UpdateShop(c *gin.Context) {
 	err := c.ShouldBindJSON(&shop)
 	if err != nil {
 		logrus.Error("failed to bind data")
-		c.JSON(http.StatusOK, dto.Fail[string]("failed to bind data"))
+		c.JSON(http.StatusBadRequest, dto.Fail[string]("failed to bind data"))
 		return
 	}
 	// err = service.ShopManager.UpdateShop(&shop)
 	err = service.ShopManager.UpdateShopWithCache(&shop)
 	if err != nil {
 		logrus.Error("failed to update shop")
-		c.JSON(http.StatusOK, dto.Fail[string]("failed to update shop"))
+		c.JSON(http.StatusInternalServerError, dto.Fail[string]("failed to update shop"))
 		return
 	}
 	c.JSON(http.StatusOK, dto.Ok[string]())
@@ -89,7 +95,7 @@ func (*ShopHandler) QueryShopByType(c *gin.Context) {
 	typeIdStr := c.Query("typeId")
 	if typeIdStr == "" {
 		logrus.Error("typeId str is empty")
-		c.JSON(http.StatusOK, dto.Fail[string]("typeId is empty"))
+		c.JSON(http.StatusBadRequest, dto.Fail[string]("typeId is required"))
 		return
 	}
 
@@ -102,14 +108,14 @@ func (*ShopHandler) QueryShopByType(c *gin.Context) {
 	typeId, err := strconv.Atoi(typeIdStr)
 	if err != nil {
 		logrus.Error("typeId Str is not a number")
-		c.JSON(http.StatusOK, dto.Fail[string]("typeId str is empty"))
+		c.JSON(http.StatusBadRequest, dto.Fail[string]("typeId is invalid"))
 		return
 	}
 
 	current, err := strconv.Atoi(currentStr)
 	if err != nil {
 		logrus.Error("currentStr is not a number")
-		c.JSON(http.StatusOK, dto.Fail[string]("currentStr is not a number"))
+		c.JSON(http.StatusBadRequest, dto.Fail[string]("current is invalid"))
 		return
 	}
 
@@ -124,20 +130,20 @@ func (*ShopHandler) QueryShopByType(c *gin.Context) {
 	x, err := strconv.ParseFloat(xStr, 64)
 	if err != nil {
 		logrus.Error("xStr or yStr is not a number")
-		c.JSON(http.StatusOK, dto.Fail[string]("xStr or yStr is not a number"))
+		c.JSON(http.StatusBadRequest, dto.Fail[string]("x or y coordinate is invalid"))
 		return
 	}
 	y, err := strconv.ParseFloat(yStr, 64)
 	if err != nil {
 		logrus.Error("yStr is not a number")
-		c.JSON(http.StatusOK, dto.Fail[string]("yStr is not a number"))
+		c.JSON(http.StatusBadRequest, dto.Fail[string]("y coordinate is invalid"))
 		return
 	}
 
 	shops, err := service.ShopManager.QueryShopByType(typeId, current, x, y)
 	if err != nil {
 		logrus.Error("not find shop!")
-		c.JSON(http.StatusOK, dto.Fail[string]("not find shop!"))
+		c.JSON(http.StatusInternalServerError, dto.Fail[string]("query shop failed!"))
 		return
 	}
 	c.JSON(http.StatusOK, dto.OkWithData(shops))
@@ -159,14 +165,14 @@ func (*ShopHandler) QueryShopByName(c *gin.Context) {
 	current, err := strconv.Atoi(currentStr)
 	if err != nil {
 		logrus.Error(err.Error())
-		c.JSON(http.StatusOK, dto.Fail[string]("type transform failed"))
+		c.JSON(http.StatusBadRequest, dto.Fail[string]("current is invalid"))
 		return
 	}
 
 	shops, err := service.ShopManager.QueryByName(name, current)
 	if err != nil {
 		logrus.Error("query shop by name failed!")
-		c.JSON(http.StatusOK, dto.Fail[string]("query shop failed!"))
+		c.JSON(http.StatusInternalServerError, dto.Fail[string]("query shop failed!"))
 		return
 	}
 	c.JSON(http.StatusOK, dto.OkWithData(shops))
