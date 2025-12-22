@@ -62,6 +62,33 @@ func (bf *BloomFilter) Add(id int64) error {
 	return err
 }
 
+// AddBatch 批量添加元素到布隆过滤器（真正的批量操作）
+// 将多个ID的操作合并到一个Pipeline中，减少Redis往返次数
+func (bf *BloomFilter) AddBatch(ids []int64) error {
+	if len(ids) == 0 {
+		return nil
+	}
+
+	ctx := context.Background()
+	pipe := bf.client.Pipeline()
+
+	// 为每个ID计算所有哈希位并添加到Pipeline
+	for _, id := range ids {
+		data := make([]byte, 8)
+		binary.LittleEndian.PutUint64(data, uint64(id))
+
+		for i := uint64(0); i < bf.k; i++ {
+			hash := hashWithSeed(data, uint32(i))
+			offset := hash % bf.m
+			pipe.SetBit(ctx, bf.key, int64(offset), 1)
+		}
+	}
+
+	// 一次性执行所有操作
+	_, err := pipe.Exec(ctx)
+	return err
+}
+
 // Contains 检查元素是否存在
 func (bf *BloomFilter) Contains(id int64) (bool, error) {
 	ctx := context.Background()
