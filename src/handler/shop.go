@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"fmt"
 	"local-review-go/src/dto"
 	"local-review-go/src/model"
 	"local-review-go/src/service"
@@ -62,8 +63,8 @@ func (*ShopHandler) SaveShop(c *gin.Context) {
 	}
 	err = service.ShopManager.SaveShop(&shop)
 	if err != nil {
-		logrus.Error("save data failed!")
-		c.JSON(http.StatusInternalServerError, dto.Fail[string]("save data failed!"))
+		logrus.Errorf("save data failed! error: %v", err)
+		c.JSON(http.StatusInternalServerError, dto.Fail[string](fmt.Sprintf("save data failed! error: %v", err)))
 		return
 	}
 	c.JSON(http.StatusOK, dto.OkWithData(shop.Id))

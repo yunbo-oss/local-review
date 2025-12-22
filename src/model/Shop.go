@@ -2,12 +2,13 @@ package model
 
 import (
 	"fmt"
-	"gorm.io/gorm"
 	"local-review-go/src/config/mysql"
 	"local-review-go/src/utils"
 	"strconv"
 	"strings"
 	"time"
+
+	"gorm.io/gorm"
 )
 
 const SHOP_TABLE_NAME = "tb_shop"
@@ -62,6 +63,14 @@ func (*Shop) QueryShopByIds(ids []int64) ([]Shop, error) {
 }
 
 func (shop *Shop) SaveShop() error {
+	// 设置创建时间和更新时间
+	now := time.Now()
+	if shop.CreateTime.IsZero() {
+		shop.CreateTime = now
+	}
+	if shop.UpdateTime.IsZero() {
+		shop.UpdateTime = now
+	}
 	err := mysql.GetMysqlDB().Table(shop.TableName()).Create(shop).Error
 	return err
 }

@@ -54,6 +54,7 @@ func (*ShopService) QueryShopById(id int64) (model.Shop, error) {
 func (*ShopService) SaveShop(shop *model.Shop) error {
 	err := shop.SaveShop()
 	if err != nil {
+		logrus.Errorf("Failed to save shop to database: %v, shop data: %+v", err, shop)
 		return err
 	}
 
@@ -197,7 +198,10 @@ func (*ShopService) QueryShopByIdWithCacheNull(id int64) (model.Shop, error) {
 			logrus.Warnf("BloomFilter check failed for shop %d: %v, proceeding to cache/DB", id, err)
 		} else if !exists {
 			// 布隆过滤器判定不存在，直接返回错误
+			logrus.Infof("Bloom Filter blocked shop %d (not exists)", id)
 			return model.Shop{}, errors.New("shop not found (blocked by Bloom Filter)")
+		} else {
+			logrus.Debugf("Bloom Filter passed for shop %d (exists)", id)
 		}
 	}
 
