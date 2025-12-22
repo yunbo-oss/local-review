@@ -3,13 +3,15 @@ package middleware
 import (
 	"errors"
 	"fmt"
+	"local-review-go/src/config"
+	"local-review-go/src/dto"
+	"net/http"
+	"time"
+
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/singleflight"
-	"local-review-go/src/dto"
-	"net/http"
-	"time"
 )
 
 var control = &singleflight.Group{}
@@ -18,12 +20,24 @@ var control = &singleflight.Group{}
 var jwtInstance = NewJWT()
 
 const (
-	JWT_SECRET_KEY     = "local-review key"
 	JWT_ISSUER         = "loser"
 	JWT_TOKEN_KEY      = "authorization"
 	TokenRefreshBuffer = 30 * time.Minute // 刷新阈值
 	DefaultBufferTime  = 86400            // 缓冲期秒数(1天)
 )
+
+var (
+	// JWT_SECRET_KEY 从环境变量读取，如果没有设置则使用默认值（生产环境必须设置）
+	JWT_SECRET_KEY = getJWTSecret()
+)
+
+func getJWTSecret() string {
+	secret := config.GetEnv("JWT_SECRET_KEY", "local-review-key-change-in-production")
+	if secret == "local-review-key-change-in-production" {
+		logrus.Warn("Using default JWT secret key! Please set JWT_SECRET_KEY environment variable in production!")
+	}
+	return secret
+}
 
 var (
 	TokenExpired     = errors.New("token is expired")

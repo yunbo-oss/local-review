@@ -1,9 +1,10 @@
 package handler
 
 import (
-	"github.com/gin-gonic/gin"
 	"local-review-go/src/middleware"
 	"net/http"
+
+	"github.com/gin-gonic/gin"
 )
 
 func ConfigRouter(r *gin.Engine) {

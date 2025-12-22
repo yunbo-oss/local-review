@@ -2,8 +2,8 @@ package model
 
 import (
 	"fmt"
-	"github.com/jinzhu/gorm"
 	"github.com/sirupsen/logrus"
+	"gorm.io/gorm"
 	"local-review-go/src/config/mysql"
 	"local-review-go/src/utils"
 	"strings"
