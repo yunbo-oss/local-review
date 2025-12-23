@@ -27,7 +27,8 @@ func (*UserHandler) SendCode(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, dto.Fail[string]("phone is required"))
 		return
 	}
-	err := service.UserManager.SaveCode(phoneStr)
+	ctx := c.Request.Context()
+	err := service.UserManager.SaveCode(ctx, phoneStr)
 	if err != nil {
 		logrus.Warn("phone is not valid")
 		c.JSON(http.StatusBadRequest, dto.Fail[string]("phone is not valid"))
@@ -52,7 +53,8 @@ func (*UserHandler) Login(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, dto.Fail[string](err.Error()))
 		return
 	}
-	token, err := service.UserManager.Login(&loginInfo)
+	ctx := c.Request.Context()
+	token, err := service.UserManager.Login(ctx, &loginInfo)
 	if err != nil {
 		logrus.Error(err.Error())
 		// 根据错误类型判断状态码
@@ -121,7 +123,8 @@ func (*UserHandler) sign(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, dto.Fail[string]("unauthorized"))
 		return
 	}
-	err = service.UserManager.Sign(userInfo.Id)
+	ctx := c.Request.Context()
+	err = service.UserManager.Sign(ctx, userInfo.Id)
 	if err != nil {
 		logrus.Error("sign user failed!")
 		c.JSON(http.StatusInternalServerError, dto.Fail[string]("sign failed!"))
@@ -139,7 +142,8 @@ func (*UserHandler) SignCount(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, dto.Fail[string]("unauthorized"))
 		return
 	}
-	count, err := service.UserManager.GetSignCount(userInfo.Id)
+	ctx := c.Request.Context()
+	count, err := service.UserManager.GetSignCount(ctx, userInfo.Id)
 	if err != nil {
 		logrus.Error("get user sign count failed!")
 		c.JSON(http.StatusInternalServerError, dto.Fail[string]("get sign count failed!"))

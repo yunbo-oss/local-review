@@ -33,10 +33,8 @@ func (*ShopHandler) QueryShopById(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, dto.Fail[string]("transform type failed!"))
 		return
 	}
-	// shop, err := service.ShopManager.QueryShopById(id)
-
-	// shop , err := service.ShopManager.QueryShopByIdWithCache(id)
-	shop, err := service.ShopManager.QueryShopByIdWithCacheNull(id)
+	ctx := c.Request.Context()
+	shop, err := service.ShopManager.QueryShopByIdWithCacheNull(ctx, id)
 
 	if err != nil {
 		logrus.Error("query failed!")
@@ -61,7 +59,8 @@ func (*ShopHandler) SaveShop(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, dto.Fail[string]("bind json failed!"))
 		return
 	}
-	err = service.ShopManager.SaveShop(&shop)
+	ctx := c.Request.Context()
+	err = service.ShopManager.SaveShop(ctx, &shop)
 	if err != nil {
 		logrus.Errorf("save data failed! error: %v", err)
 		c.JSON(http.StatusInternalServerError, dto.Fail[string](fmt.Sprintf("save data failed! error: %v", err)))
@@ -80,8 +79,8 @@ func (*ShopHandler) UpdateShop(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, dto.Fail[string]("failed to bind data"))
 		return
 	}
-	// err = service.ShopManager.UpdateShop(&shop)
-	err = service.ShopManager.UpdateShopWithCache(&shop)
+	ctx := c.Request.Context()
+	err = service.ShopManager.UpdateShopWithCache(ctx, &shop)
 	if err != nil {
 		logrus.Error("failed to update shop")
 		c.JSON(http.StatusInternalServerError, dto.Fail[string]("failed to update shop"))
@@ -141,7 +140,8 @@ func (*ShopHandler) QueryShopByType(c *gin.Context) {
 		return
 	}
 
-	shops, err := service.ShopManager.QueryShopByType(typeId, current, x, y)
+	ctx := c.Request.Context()
+	shops, err := service.ShopManager.QueryShopByType(ctx, typeId, current, x, y)
 	if err != nil {
 		logrus.Error("not find shop!")
 		c.JSON(http.StatusInternalServerError, dto.Fail[string]("query shop failed!"))
@@ -170,7 +170,8 @@ func (*ShopHandler) QueryShopByName(c *gin.Context) {
 		return
 	}
 
-	shops, err := service.ShopManager.QueryByName(name, current)
+	ctx := c.Request.Context()
+	shops, err := service.ShopManager.QueryByName(ctx, name, current)
 	if err != nil {
 		logrus.Error("query shop by name failed!")
 		c.JSON(http.StatusInternalServerError, dto.Fail[string]("query shop failed!"))

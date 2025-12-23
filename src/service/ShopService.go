@@ -51,7 +51,7 @@ func (*ShopService) QueryShopById(id int64) (model.Shop, error) {
 	return shop, err
 }
 
-func (*ShopService) SaveShop(shop *model.Shop) error {
+func (*ShopService) SaveShop(ctx context.Context, shop *model.Shop) error {
 	err := shop.SaveShop()
 	if err != nil {
 		logrus.Errorf("Failed to save shop to database: %v, shop data: %+v", err, shop)
@@ -82,14 +82,14 @@ func (*ShopService) QueryByType(typeId int, current int) ([]model.Shop, error) {
 	return shops, err
 }
 
-func (*ShopService) QueryByName(name string, current int) ([]model.Shop, error) {
+func (*ShopService) QueryByName(ctx context.Context, name string, current int) ([]model.Shop, error) {
 	var shopUtils model.Shop
 	shops, err := shopUtils.QueryShopByName(name, current)
 	return shops, err
 }
 
 // QueryShopByIdWithCache 如果缓存未命中，则查询数据库，将数据库结果写入缓存，并设置超时时间
-func (*ShopService) QueryShopByIdWithCache(id int64) (model.Shop, error) {
+func (*ShopService) QueryShopByIdWithCache(ctx context.Context, id int64) (model.Shop, error) {
 	// 1. Check Bloom Filter
 	if shopBloomFilter != nil {
 		exists, err := shopBloomFilter.Contains(id)
@@ -103,8 +103,6 @@ func (*ShopService) QueryShopByIdWithCache(id int64) (model.Shop, error) {
 	}
 
 	redisKey := utils.CACHE_SHOP_KEY + strconv.FormatInt(id, 10)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	shopInfo, err := redisClient.GetRedisClient().Get(ctx, redisKey).Result()
 	if err == nil {
@@ -156,7 +154,7 @@ func (*ShopService) QueryShopByIdWithCache(id int64) (model.Shop, error) {
 }
 
 // UpdateShopWithCacheCallBack 缓存更新的最佳实践方法
-func (*ShopService) UpdateShopWithCacheCallBack(db *gorm.DB, shop *model.Shop) error {
+func (*ShopService) UpdateShopWithCacheCallBack(ctx context.Context, db *gorm.DB, shop *model.Shop) error {
 	return db.Transaction(func(tx *gorm.DB) error {
 		err := shop.QueryShopById(shop.Id)
 		if err != nil {
@@ -171,9 +169,6 @@ func (*ShopService) UpdateShopWithCacheCallBack(db *gorm.DB, shop *model.Shop) e
 
 		// delete the cache
 		redisKey := utils.CACHE_SHOP_KEY + strconv.FormatInt(shop.Id, 10)
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-
 		err = redisClient.GetRedisClient().Del(ctx, redisKey).Err()
 
 		if err != nil {
@@ -184,12 +179,12 @@ func (*ShopService) UpdateShopWithCacheCallBack(db *gorm.DB, shop *model.Shop) e
 	})
 }
 
-func (*ShopService) UpdateShopWithCache(shop *model.Shop) error {
-	return ShopManager.UpdateShopWithCacheCallBack(mysql.GetMysqlDB(), shop)
+func (*ShopService) UpdateShopWithCache(ctx context.Context, shop *model.Shop) error {
+	return ShopManager.UpdateShopWithCacheCallBack(ctx, mysql.GetMysqlDB(), shop)
 }
 
-// QueryShopByIdWithCacheNull 缓存穿透的解决方法: 缓存空对象
-func (*ShopService) QueryShopByIdWithCacheNull(id int64) (model.Shop, error) {
+// QueryShopByIdWithCacheNull 缓存穿透的解决方法: 缓存空对象，布隆过滤器已解决
+func (*ShopService) QueryShopByIdWithCacheNull(ctx context.Context, id int64) (model.Shop, error) {
 	// 1. Check Bloom Filter
 	if shopBloomFilter != nil {
 		exists, err := shopBloomFilter.Contains(id)
@@ -206,9 +201,6 @@ func (*ShopService) QueryShopByIdWithCacheNull(id int64) (model.Shop, error) {
 	}
 
 	redisKey := utils.CACHE_SHOP_KEY + strconv.FormatInt(id, 10)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	shopInfoStr, err := redisClient.GetRedisClient().Get(ctx, redisKey).Result()
 
@@ -268,10 +260,8 @@ func (*ShopService) QueryShopByIdWithCacheNull(id int64) (model.Shop, error) {
 }
 
 // QueryShopByIdPassThrough 利用互斥锁解决热点 Key 问题(也就是缓存击穿问题)
-func (*ShopService) QueryShopByIdPassThrough(id int64) (model.Shop, error) {
+func (*ShopService) QueryShopByIdPassThrough(ctx context.Context, id int64) (model.Shop, error) {
 	redisKey := utils.CACHE_SHOP_KEY + strconv.FormatInt(id, 10)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	shopInfoStr, err := redisClient.GetRedisClient().Get(ctx, redisKey).Result()
 
@@ -290,7 +280,6 @@ func (*ShopService) QueryShopByIdPassThrough(id int64) (model.Shop, error) {
 
 	if errors.Is(err, redisConfig.Nil) {
 		lockKey := utils.CACHE_LOCK_KEY + strconv.FormatInt(id, 10)
-		ctx := context.Background()
 		flag, token, err := distLock.LockWithWatchDog(ctx, lockKey, 10*time.Second)
 		if err != nil {
 			return model.Shop{}, err
@@ -299,7 +288,7 @@ func (*ShopService) QueryShopByIdPassThrough(id int64) (model.Shop, error) {
 		// 没有获取到锁
 		if !flag {
 			time.Sleep(time.Millisecond * 50)
-			return ShopManager.QueryShopByIdPassThrough(id)
+			return ShopManager.QueryShopByIdPassThrough(ctx, id)
 		}
 
 		// 重新建立缓存
@@ -344,10 +333,8 @@ func (*ShopService) QueryShopByIdPassThrough(id int64) (model.Shop, error) {
 
 // @Description: use the logic expire to deal with the cache pass through
 // 注意：逻辑过期一定要先进行数据预热，将我们热点数据加载到缓存中
-func (*ShopService) QueryShopByIdWithLogicExpire(id int64) (model.Shop, error) {
+func (*ShopService) QueryShopByIdWithLogicExpire(ctx context.Context, id int64) (model.Shop, error) {
 	redisKey := utils.CACHE_SHOP_KEY + strconv.FormatInt(id, 10)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	redisDataStr, err := redisClient.GetRedisClient().Get(ctx, redisKey).Result()
 
@@ -448,7 +435,7 @@ func (*ShopService) SyncUpdateCache() {
 }
 
 // 查询店铺列表（支持地理位置排序）
-func (s *ShopService) QueryShopByType(typeID, current int,
+func (s *ShopService) QueryShopByType(ctx context.Context, typeID, current int,
 	x, y float64) ([]model.Shop, error) {
 
 	// 1. 无坐标，按类型分页查询
@@ -475,7 +462,6 @@ func (s *ShopService) QueryShopByType(typeID, current int,
 		WithDist: true, // 让 Redis 返回距离
 	}
 
-	ctx := context.Background()
 	locs, err := redisClient.GetRedisClient().
 		GeoSearchLocation(ctx, key, query).Result()
 	if err != nil && !errors.Is(err, redisConfig.Nil) {

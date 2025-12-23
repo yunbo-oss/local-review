@@ -23,19 +23,17 @@ func (*UserService) GetUserById(id int64) (model.User, error) {
 	return user, err
 }
 
-func (*UserService) SaveCode(phone string) error {
-
+func (*UserService) SaveCode(ctx context.Context, phone string) error {
 	if !utils.RegexUtil.IsPhoneValid(phone) {
 		return errors.New("phone number is valid")
 	}
+
 	verifyCode := utils.RandomUtil.GenerateVerifyCode()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	err := redisClient.GetRedisClient().Set(ctx, utils.LOGIN_CODE_KEY+phone, verifyCode, time.Minute*utils.LOGIN_VERIFY_CODE_TTL).Err()
 	return err
 }
 
-func (*UserService) Login(loginInfo *dto.LoginFormDto) (string, error) {
+func (*UserService) Login(ctx context.Context, loginInfo *dto.LoginFormDto) (string, error) {
 	if !utils.RegexUtil.IsPhoneValid(loginInfo.Phone) {
 		return "", errors.New("not a valid phone")
 	}
@@ -47,9 +45,6 @@ func (*UserService) Login(loginInfo *dto.LoginFormDto) (string, error) {
 	// if !utils.RegexUtil.IsVerifyCodeValid(loginInfo.Code) {
 	// 	return "", errors.New("not a valid verify code")
 	// }
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	cacheCode, err := redisClient.GetRedisClient().Get(ctx, utils.LOGIN_CODE_KEY+loginInfo.Phone).Result()
 	if err != nil {
@@ -90,7 +85,7 @@ func (*UserService) Login(loginInfo *dto.LoginFormDto) (string, error) {
 }
 
 // Sign 用户签到
-func (s *UserService) Sign(userID int64) error {
+func (s *UserService) Sign(ctx context.Context, userID int64) error {
 	// 1. 获取当前日期
 	now := time.Now()
 	year, month := now.Year(), now.Month()
@@ -100,7 +95,6 @@ func (s *UserService) Sign(userID int64) error {
 	key := fmt.Sprintf("%s%d:%04d%02d", utils.USER_SIGN_KEY, userID, year, month)
 
 	// 3. 设置对应bit位为1（偏移量从0开始）
-	ctx := context.Background()
 	err := redisClient.GetRedisClient().SetBit(ctx, key, int64(day-1), 1).Err()
 	if err != nil {
 		return fmt.Errorf("签到失败: %v", err)
@@ -110,7 +104,7 @@ func (s *UserService) Sign(userID int64) error {
 }
 
 // GetSignCount 获取当月连续签到天数
-func (s *UserService) GetSignCount(userID int64) (int, error) {
+func (s *UserService) GetSignCount(ctx context.Context, userID int64) (int, error) {
 	// 1. 获取当前日期
 	now := time.Now()
 	year, month := now.Year(), now.Month()
@@ -120,7 +114,6 @@ func (s *UserService) GetSignCount(userID int64) (int, error) {
 	key := fmt.Sprintf("%s%d:%04d%02d", utils.USER_SIGN_KEY, userID, year, month)
 
 	// 3. 执行BITFIELD命令获取位图数据
-	ctx := context.Background()
 	result, err := redisClient.GetRedisClient().Do(ctx,
 		"BITFIELD", key,
 		"GET", fmt.Sprintf("u%d", day), "0").Int64Slice()
