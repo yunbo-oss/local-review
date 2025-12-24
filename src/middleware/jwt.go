@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"local-review-go/src/config"
 	"local-review-go/src/dto"
+	"local-review-go/src/httpx"
 	"net/http"
 	"time"
 
@@ -177,13 +178,13 @@ func AuthRequired() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		claims, exists := c.Get("claims")
 		if !exists || claims == nil {
-			c.JSON(http.StatusUnauthorized, dto.Fail[string]("请先登录"))
+			c.JSON(http.StatusUnauthorized, httpx.Fail[string]("请先登录"))
 			c.Abort()
 			return
 		}
 
 		if _, ok := claims.(*CustomClaims); !ok {
-			c.JSON(http.StatusUnauthorized, dto.Fail[string]("无效的用户凭证"))
+			c.JSON(http.StatusUnauthorized, httpx.Fail[string]("无效的用户凭证"))
 			c.Abort()
 			return
 		}

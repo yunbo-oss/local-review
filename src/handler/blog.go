@@ -1,7 +1,7 @@
 package handler
 
 import (
-	"local-review-go/src/dto"
+	"local-review-go/src/httpx"
 	"local-review-go/src/middleware"
 	"local-review-go/src/model"
 	"local-review-go/src/service"
@@ -25,14 +25,14 @@ func (*BlogHandler) SaveBlog(c *gin.Context) {
 	err := c.ShouldBindJSON(&blog)
 	if err != nil {
 		logrus.Error("[Blog handler] bind json failed!")
-		c.JSON(http.StatusOK, dto.Fail[string]("insert failed!"))
+		c.JSON(http.StatusOK, httpx.Fail[string]("insert failed!"))
 		return
 	}
 
 	user, err := middleware.GetUserInfo(c)
 	if err != nil {
 		logrus.Error(err.Error())
-		c.JSON(http.StatusUnauthorized, dto.Fail[string]("unauthorized"))
+		c.JSON(http.StatusUnauthorized, httpx.Fail[string]("unauthorized"))
 		return
 	}
 	userId := user.Id
@@ -41,10 +41,10 @@ func (*BlogHandler) SaveBlog(c *gin.Context) {
 	id, err := service.BlogManager.SaveBlog(ctx, userId, &blog)
 	if err != nil {
 		logrus.Error("[Blog handler] insert data into database failed!")
-		c.JSON(http.StatusOK, dto.Fail[string]("insert failed!"))
+		c.JSON(http.StatusOK, httpx.Fail[string]("insert failed!"))
 		return
 	}
-	c.JSON(http.StatusOK, dto.OkWithData(id))
+	c.JSON(http.StatusOK, httpx.OkWithData(id))
 }
 
 // @Description: modify the number of linked
@@ -53,20 +53,20 @@ func (*BlogHandler) LikeBlog(c *gin.Context) {
 	idStr := c.Param("id")
 	if idStr == "" {
 		logrus.Error("[Blog Handler] Give a empty string")
-		c.JSON(http.StatusBadRequest, dto.Fail[string]("blog id is required"))
+		c.JSON(http.StatusBadRequest, httpx.Fail[string]("blog id is required"))
 		return
 	}
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		logrus.Error(err.Error())
-		c.JSON(http.StatusBadRequest, dto.Fail[string]("invalid parameter"))
+		c.JSON(http.StatusBadRequest, httpx.Fail[string]("invalid parameter"))
 		return
 	}
 
 	user, err := middleware.GetUserInfo(c)
 	if err != nil {
 		logrus.Error(err.Error())
-		c.JSON(http.StatusUnauthorized, dto.Fail[string]("unauthorized"))
+		c.JSON(http.StatusUnauthorized, httpx.Fail[string]("unauthorized"))
 		return
 	}
 
@@ -77,10 +77,10 @@ func (*BlogHandler) LikeBlog(c *gin.Context) {
 
 	if err != nil {
 		logrus.Error(err.Error())
-		c.JSON(http.StatusInternalServerError, dto.Fail[string]("like failed!"))
+		c.JSON(http.StatusInternalServerError, httpx.Fail[string]("like failed!"))
 		return
 	}
-	c.JSON(http.StatusOK, dto.Ok[string]())
+	c.JSON(http.StatusOK, httpx.Ok[string]())
 }
 
 // @Description: get user rank of the blog
@@ -89,14 +89,14 @@ func (*BlogHandler) QueryUserLiked(c *gin.Context) {
 	idStr := c.Param("id")
 	if idStr == "" {
 		logrus.Error("the id is empty")
-		c.JSON(http.StatusBadRequest, dto.Fail[string]("id is required"))
+		c.JSON(http.StatusBadRequest, httpx.Fail[string]("id is required"))
 		return
 	}
 
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		logrus.Error(err.Error())
-		c.JSON(http.StatusBadRequest, dto.Fail[string]("invalid parameter"))
+		c.JSON(http.StatusBadRequest, httpx.Fail[string]("invalid parameter"))
 		return
 	}
 	ctx := c.Request.Context()
@@ -104,10 +104,10 @@ func (*BlogHandler) QueryUserLiked(c *gin.Context) {
 
 	if err != nil {
 		logrus.Error(err.Error())
-		c.JSON(http.StatusOK, dto.Fail[string]("the type transform failed!"))
+		c.JSON(http.StatusOK, httpx.Fail[string]("the type transform failed!"))
 		return
 	}
-	c.JSON(http.StatusOK, dto.OkWithData(users))
+	c.JSON(http.StatusOK, httpx.OkWithData(users))
 }
 
 // @Description: query my blog
@@ -123,7 +123,7 @@ func (*BlogHandler) QueryMyBlog(c *gin.Context) {
 	currentPage, err := strconv.Atoi(current)
 	if err != nil {
 		logrus.Error("type transform failed!")
-		c.JSON(http.StatusBadRequest, dto.Fail[string]("invalid parameter"))
+		c.JSON(http.StatusBadRequest, httpx.Fail[string]("invalid parameter"))
 		return
 	}
 
@@ -131,7 +131,7 @@ func (*BlogHandler) QueryMyBlog(c *gin.Context) {
 
 	if err != nil {
 		logrus.Error(err.Error())
-		c.JSON(http.StatusUnauthorized, dto.Fail[string]("unauthorized"))
+		c.JSON(http.StatusUnauthorized, httpx.Fail[string]("unauthorized"))
 		return
 	}
 
@@ -139,10 +139,10 @@ func (*BlogHandler) QueryMyBlog(c *gin.Context) {
 	blogs, err := service.BlogManager.QueryMyBlog(ctx, user.Id, currentPage)
 	if err != nil {
 		logrus.Error("page query failed!")
-		c.JSON(http.StatusInternalServerError, dto.Fail[string]("page query failed!"))
+		c.JSON(http.StatusInternalServerError, httpx.Fail[string]("page query failed!"))
 		return
 	}
-	c.JSON(http.StatusOK, dto.OkWithData[[]model.Blog](blogs))
+	c.JSON(http.StatusOK, httpx.OkWithData[[]model.Blog](blogs))
 }
 
 // @Description: query the hot blog
@@ -156,17 +156,17 @@ func (*BlogHandler) QueryHotBlog(c *gin.Context) {
 	current, err := strconv.Atoi(currentStr)
 	if err != nil {
 		logrus.Error("transform type failed!")
-		c.JSON(http.StatusOK, dto.Fail[string]("transform type failed!"))
+		c.JSON(http.StatusOK, httpx.Fail[string]("transform type failed!"))
 		return
 	}
 	ctx := c.Request.Context()
 	blogs, err := service.BlogManager.QueryHotBlogs(ctx, current)
 	if err != nil {
 		logrus.Error("query hot blogs failed!")
-		c.JSON(http.StatusInternalServerError, dto.Fail[string]("query hot blogs failed!"))
+		c.JSON(http.StatusInternalServerError, httpx.Fail[string]("query hot blogs failed!"))
 		return
 	}
-	c.JSON(http.StatusOK, dto.OkWithData[[]model.Blog](blogs))
+	c.JSON(http.StatusOK, httpx.OkWithData[[]model.Blog](blogs))
 }
 
 // @Description: Get Blog by id
@@ -175,23 +175,23 @@ func (*BlogHandler) GetBlogById(c *gin.Context) {
 	idStr := c.Param("id")
 	if idStr == "" {
 		logrus.Error("id str is empty")
-		c.JSON(http.StatusOK, dto.Fail[string]("id str is empty"))
+		c.JSON(http.StatusOK, httpx.Fail[string]("id str is empty"))
 		return
 	}
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		logrus.Error(err.Error())
-		c.JSON(http.StatusOK, dto.Fail[string]("type transform is failed!"))
+		c.JSON(http.StatusOK, httpx.Fail[string]("type transform is failed!"))
 		return
 	}
 	ctx := c.Request.Context()
 	blog, err := service.BlogManager.GetBlogById(ctx, id)
 	if err != nil {
 		logrus.Error(err.Error())
-		c.JSON(http.StatusOK, dto.Fail[string]("get blog by id failed!"))
+		c.JSON(http.StatusOK, httpx.Fail[string]("get blog by id failed!"))
 		return
 	}
-	c.JSON(http.StatusOK, dto.OkWithData(blog))
+	c.JSON(http.StatusOK, httpx.OkWithData(blog))
 }
 
 // @Description: get the blog info of followed people
@@ -201,7 +201,7 @@ func (*BlogHandler) QueryBlogOfFollow(c *gin.Context) {
 	lastId, err := strconv.ParseInt(lastIdStr, 10, 64)
 	if err != nil {
 		logrus.Error(err.Error())
-		c.JSON(http.StatusBadRequest, dto.Fail[string]("invalid parameter"))
+		c.JSON(http.StatusBadRequest, httpx.Fail[string]("invalid parameter"))
 		return
 	}
 
@@ -213,14 +213,14 @@ func (*BlogHandler) QueryBlogOfFollow(c *gin.Context) {
 	offset, err := strconv.Atoi(offsetStr)
 	if err != nil {
 		logrus.Error(err.Error())
-		c.JSON(http.StatusBadRequest, dto.Fail[string]("invalid parameter"))
+		c.JSON(http.StatusBadRequest, httpx.Fail[string]("invalid parameter"))
 		return
 	}
 
 	user, err := middleware.GetUserInfo(c)
 	if err != nil {
 		logrus.Error(err.Error())
-		c.JSON(http.StatusOK, dto.Fail[string]("failed to get user info"))
+		c.JSON(http.StatusOK, httpx.Fail[string]("failed to get user info"))
 		return
 	}
 
@@ -231,8 +231,8 @@ func (*BlogHandler) QueryBlogOfFollow(c *gin.Context) {
 
 	if err != nil {
 		logrus.Error(err.Error())
-		c.JSON(http.StatusOK, dto.Fail[string]("failed to get result"))
+		c.JSON(http.StatusOK, httpx.Fail[string]("failed to get result"))
 		return
 	}
-	c.JSON(http.StatusOK, dto.OkWithData(r))
+	c.JSON(http.StatusOK, httpx.OkWithData(r))
 }

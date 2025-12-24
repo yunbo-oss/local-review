@@ -1,7 +1,7 @@
 package handler
 
 import (
-	"local-review-go/src/dto"
+	"local-review-go/src/httpx"
 	"local-review-go/src/middleware"
 	"local-review-go/src/service"
 	"net/http"
@@ -22,35 +22,35 @@ func (*FollowHandler) Follow(c *gin.Context) {
 	idStr := c.Param("id")
 	if idStr == "" {
 		logrus.Error("the id is empty")
-		c.JSON(http.StatusBadRequest, dto.Fail[string]("id is required"))
+		c.JSON(http.StatusBadRequest, httpx.Fail[string]("id is required"))
 		return
 	}
 
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		logrus.Error(err.Error())
-		c.JSON(http.StatusBadRequest, dto.Fail[string]("invalid parameter"))
+		c.JSON(http.StatusBadRequest, httpx.Fail[string]("invalid parameter"))
 		return
 	}
 
 	isFollowStr := c.Param("isFollow")
 	if isFollowStr == "" {
 		logrus.Error("the follow is empty!")
-		c.JSON(http.StatusOK, dto.Fail[string]("the follow str is empty!"))
+		c.JSON(http.StatusOK, httpx.Fail[string]("the follow str is empty!"))
 		return
 	}
 
 	isFollow, err := strconv.ParseBool(isFollowStr)
 	if err != nil {
 		logrus.Error(err.Error())
-		c.JSON(http.StatusBadRequest, dto.Fail[string]("invalid parameter"))
+		c.JSON(http.StatusBadRequest, httpx.Fail[string]("invalid parameter"))
 		return
 	}
 
 	user, err := middleware.GetUserInfo(c)
 	if err != nil {
 		logrus.Error(err.Error())
-		c.JSON(http.StatusUnauthorized, dto.Fail[string]("unauthorized"))
+		c.JSON(http.StatusUnauthorized, httpx.Fail[string]("unauthorized"))
 		return
 	}
 
@@ -60,10 +60,10 @@ func (*FollowHandler) Follow(c *gin.Context) {
 	err = service.FollowManager.Follow(ctx, id, userId, isFollow)
 	if err != nil {
 		logrus.Error(err.Error())
-		c.JSON(http.StatusInternalServerError, dto.Fail[string]("failed to follow!"))
+		c.JSON(http.StatusInternalServerError, httpx.Fail[string]("failed to follow!"))
 		return
 	}
-	c.JSON(http.StatusOK, dto.Ok[string]())
+	c.JSON(http.StatusOK, httpx.Ok[string]())
 }
 
 // @Description: get the common follow
@@ -72,21 +72,21 @@ func (*FollowHandler) FollowCommons(c *gin.Context) {
 	idStr := c.Param("id")
 	if idStr == "" {
 		logrus.Error("the id is empty")
-		c.JSON(http.StatusBadRequest, dto.Fail[string]("id is required"))
+		c.JSON(http.StatusBadRequest, httpx.Fail[string]("id is required"))
 		return
 	}
 
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		logrus.Error(err.Error())
-		c.JSON(http.StatusOK, dto.Fail[string]("the type transform failed!"))
+		c.JSON(http.StatusOK, httpx.Fail[string]("the type transform failed!"))
 		return
 	}
 
 	user, err := middleware.GetUserInfo(c)
 	if err != nil {
 		logrus.Error(err.Error())
-		c.JSON(http.StatusOK, dto.Fail[string]("get user info failed!"))
+		c.JSON(http.StatusOK, httpx.Fail[string]("get user info failed!"))
 		return
 	}
 
@@ -96,11 +96,11 @@ func (*FollowHandler) FollowCommons(c *gin.Context) {
 	users, err := service.FollowManager.FollowCommons(ctx, id, userId)
 	if err != nil {
 		logrus.Error(err.Error())
-		c.JSON(http.StatusOK, dto.Fail[string]("find common filed!"))
+		c.JSON(http.StatusOK, httpx.Fail[string]("find common filed!"))
 		return
 	}
 
-	c.JSON(http.StatusOK, dto.OkWithData(users))
+	c.JSON(http.StatusOK, httpx.OkWithData(users))
 }
 
 // @Description: judge if or not follow
@@ -109,21 +109,21 @@ func (*FollowHandler) IsFollow(c *gin.Context) {
 	idStr := c.Param("id")
 	if idStr == "" {
 		logrus.Error("the id is empty")
-		c.JSON(http.StatusBadRequest, dto.Fail[string]("id is required"))
+		c.JSON(http.StatusBadRequest, httpx.Fail[string]("id is required"))
 		return
 	}
 
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		logrus.Error(err.Error())
-		c.JSON(http.StatusOK, dto.Fail[string]("the type transform failed!"))
+		c.JSON(http.StatusOK, httpx.Fail[string]("the type transform failed!"))
 		return
 	}
 
 	user, err := middleware.GetUserInfo(c)
 	if err != nil {
 		logrus.Error(err.Error())
-		c.JSON(http.StatusOK, dto.Fail[string]("get user info failed!"))
+		c.JSON(http.StatusOK, httpx.Fail[string]("get user info failed!"))
 		return
 	}
 
@@ -133,8 +133,8 @@ func (*FollowHandler) IsFollow(c *gin.Context) {
 	result, err := service.FollowManager.IsFollow(ctx, id, userId)
 	if err != nil {
 		logrus.Error(err.Error())
-		c.JSON(http.StatusOK, dto.Fail[string]("failed to follow"))
+		c.JSON(http.StatusOK, httpx.Fail[string]("failed to follow"))
 		return
 	}
-	c.JSON(http.StatusOK, dto.OkWithData(result))
+	c.JSON(http.StatusOK, httpx.OkWithData(result))
 }

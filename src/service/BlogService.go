@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"local-review-go/src/config/redis"
 	"local-review-go/src/dto"
+	"local-review-go/src/httpx"
 	"local-review-go/src/model"
 	"local-review-go/src/utils"
 	"strconv"
@@ -36,7 +37,7 @@ func (*BlogService) SaveBlog(ctx context.Context, userId int64, blog *model.Blog
 		return
 	}
 
-	if follows == nil || len(follows) == 0 {
+	if len(follows) == 0 {
 		return
 	}
 
@@ -150,7 +151,7 @@ func (*BlogService) QueryUserLike(ctx context.Context, id int64) ([]dto.UserDTO,
 		return []dto.UserDTO{}, err
 	}
 
-	if idStrs == nil || len(idStrs) == 0 {
+	if len(idStrs) == 0 {
 		return []dto.UserDTO{}, err
 	}
 
@@ -178,7 +179,7 @@ func (*BlogService) QueryUserLike(ctx context.Context, id int64) ([]dto.UserDTO,
 	return userDTOS, nil
 }
 
-func (*BlogService) QueryBlogOfFollow(ctx context.Context, maxTime int64, offset int, userId int64, pageSize int) (dto.ScrollResult[model.Blog], error) {
+func (*BlogService) QueryBlogOfFollow(ctx context.Context, maxTime int64, offset int, userId int64, pageSize int) (httpx.ScrollResult[model.Blog], error) {
 	redisKey := utils.FEED_KEY + strconv.FormatInt(userId, 10)
 
 	// 1. 从 Redis 获取博客 ID
@@ -190,7 +191,7 @@ func (*BlogService) QueryBlogOfFollow(ctx context.Context, maxTime int64, offset
 			Count:  int64(pageSize),
 		}).Result()
 	if err != nil || len(result) == 0 {
-		return dto.ScrollResult[model.Blog]{}, err
+		return httpx.ScrollResult[model.Blog]{}, err
 	}
 
 	// 2. 提取 ID 并计算 minTime/offset
@@ -216,7 +217,7 @@ func (*BlogService) QueryBlogOfFollow(ctx context.Context, maxTime int64, offset
 	var blogUtils model.Blog
 	blogs, err := blogUtils.QueryBlogByIds(ids)
 	if err != nil {
-		return dto.ScrollResult[model.Blog]{}, err
+		return httpx.ScrollResult[model.Blog]{}, err
 	}
 
 	// 4. 并发填充用户信息和点赞状态
@@ -238,7 +239,7 @@ func (*BlogService) QueryBlogOfFollow(ctx context.Context, maxTime int64, offset
 	wg.Wait()
 
 	// 5. 返回结果
-	return dto.ScrollResult[model.Blog]{
+	return httpx.ScrollResult[model.Blog]{
 		Data:    blogs,
 		MinTime: minTime,
 		Offset:  os,

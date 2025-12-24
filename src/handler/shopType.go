@@ -1,7 +1,7 @@
 package handler
 
 import (
-	"local-review-go/src/dto"
+	"local-review-go/src/httpx"
 	"local-review-go/src/service"
 	"net/http"
 
@@ -24,8 +24,8 @@ func (*ShopTypeHandler) QueryShopTypeList(c *gin.Context) {
 	shopTypeList, err := service.ShopTypeManager.QueryTypeListWithCacheList(ctx)
 	if err != nil {
 		logrus.Error(err.Error())
-		c.JSON(http.StatusInternalServerError, dto.Fail[string]("failed to get type list"))
+		c.JSON(http.StatusInternalServerError, httpx.Fail[string]("failed to get type list"))
 		return
 	}
-	c.JSON(http.StatusOK, dto.OkWithData(shopTypeList))
+	c.JSON(http.StatusOK, httpx.OkWithData(shopTypeList))
 }

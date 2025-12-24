@@ -33,32 +33,32 @@ func (*UserService) SaveCode(ctx context.Context, phone string) error {
 	return err
 }
 
-func (*UserService) Login(ctx context.Context, loginInfo *dto.LoginFormDto) (string, error) {
-	if !utils.RegexUtil.IsPhoneValid(loginInfo.Phone) {
+func (*UserService) Login(ctx context.Context, phone, code string) (string, error) {
+	if !utils.RegexUtil.IsPhoneValid(phone) {
 		return "", errors.New("not a valid phone")
 	}
 
-	// if !utils.RegexUtil.IsPassWordValid(loginInfo.Password) {
+	// if !utils.RegexUtil.IsPassWordValid(password) {
 	// 	return "", errors.New("not a valid password")
 	// }
 
-	// if !utils.RegexUtil.IsVerifyCodeValid(loginInfo.Code) {
+	// if !utils.RegexUtil.IsVerifyCodeValid(code) {
 	// 	return "", errors.New("not a valid verify code")
 	// }
 
-	cacheCode, err := redisClient.GetRedisClient().Get(ctx, utils.LOGIN_CODE_KEY+loginInfo.Phone).Result()
+	cacheCode, err := redisClient.GetRedisClient().Get(ctx, utils.LOGIN_CODE_KEY+phone).Result()
 	if err != nil {
 		return "", err
 	}
 
-	if cacheCode != loginInfo.Code {
+	if cacheCode != code {
 		return "", errors.New("a wrong verify code!")
 	}
 
 	var user model.User
-	err = user.GetUserByPhone(loginInfo.Phone)
+	err = user.GetUserByPhone(phone)
 	if err != nil {
-		user.Phone = loginInfo.Phone
+		user.Phone = phone
 		user.NickName = utils.USER_NICK_NAME_PREFIX + utils.RandomUtil.GenerateRandomStr(10)
 		user.CreateTime = time.Now()
 		user.UpdateTime = time.Now()

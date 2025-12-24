@@ -2,15 +2,16 @@ package handler
 
 import (
 	"fmt"
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
-	"github.com/sirupsen/logrus"
 	"hash/fnv"
-	"local-review-go/src/dto"
+	"local-review-go/src/httpx"
 	"local-review-go/src/utils"
 	"net/http"
 	"os"
 	"path/filepath"
+
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 )
 
 type UploadHandler struct {
@@ -25,7 +26,7 @@ func (*UploadHandler) UploadImage(c *gin.Context) {
 	file, err := c.FormFile("file")
 	if err != nil {
 		logrus.Error("upload file failed!")
-		c.JSON(http.StatusBadRequest, dto.Fail[string]("upload file failed!"))
+		c.JSON(http.StatusBadRequest, httpx.Fail[string]("upload file failed!"))
 		return
 	}
 	originName := file.Filename
@@ -36,10 +37,10 @@ func (*UploadHandler) UploadImage(c *gin.Context) {
 	err = c.SaveUploadedFile(file, utils.UPLOADPATH+fileName)
 	if err != nil {
 		logrus.Error(err.Error())
-		c.JSON(http.StatusInternalServerError, dto.Fail[string]("file upload failed!"))
+		c.JSON(http.StatusInternalServerError, httpx.Fail[string]("file upload failed!"))
 		return
 	}
-	c.JSON(http.StatusOK, dto.OkWithData(fileName))
+	c.JSON(http.StatusOK, httpx.OkWithData(fileName))
 }
 
 // @Description: delete the uploaed image
@@ -48,23 +49,23 @@ func (*UploadHandler) DeleteBlogImg(c *gin.Context) {
 	fileName := c.Query("name")
 	if fileName == "" {
 		logrus.Error("fileName is empty")
-		c.JSON(http.StatusOK, dto.Fail[string]("filename is empty"))
+		c.JSON(http.StatusOK, httpx.Fail[string]("filename is empty"))
 		return
 	}
 
 	if isDir(fileName) {
 		logrus.Error("error filename!")
-		c.JSON(http.StatusOK, dto.Fail[string]("error filename!"))
+		c.JSON(http.StatusOK, httpx.Fail[string]("error filename!"))
 		return
 	}
 	filePath := utils.UPLOADPATH + fileName
 	err := os.Remove(filePath)
 	if err != nil {
 		logrus.Error("remove file failed!")
-		c.JSON(http.StatusOK, dto.Fail[string]("remove file failed!"))
+		c.JSON(http.StatusOK, httpx.Fail[string]("remove file failed!"))
 		return
 	}
-	c.JSON(http.StatusOK, dto.Ok[string]())
+	c.JSON(http.StatusOK, httpx.Ok[string]())
 }
 
 func createNewFileName(originName string) string {

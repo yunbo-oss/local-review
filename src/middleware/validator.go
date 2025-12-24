@@ -1,7 +1,7 @@
 package middleware
 
 import (
-	"local-review-go/src/dto"
+	"local-review-go/src/httpx"
 	"net/http"
 	"reflect"
 	"strings"
@@ -40,7 +40,7 @@ func ValidateRequest() gin.HandlerFunc {
 			for _, err := range err.(validator.ValidationErrors) {
 				errors = append(errors, getErrorMessage(err))
 			}
-			c.JSON(http.StatusBadRequest, dto.Fail[string](strings.Join(errors, "; ")))
+			c.JSON(http.StatusBadRequest, httpx.Fail[string](strings.Join(errors, "; ")))
 			c.Abort()
 			return
 		}

@@ -2,7 +2,7 @@ package handler
 
 import (
 	redisClient "local-review-go/src/config/redis"
-	"local-review-go/src/dto"
+	"local-review-go/src/httpx"
 	"local-review-go/src/utils"
 	"net/http"
 	"time"
@@ -26,13 +26,13 @@ var statisticsHandler *StatisticsHandler
 func (h *StatisticsHandler) QueryUV(c *gin.Context) {
 	date := c.Query("date")
 	if date == "" {
-		c.JSON(http.StatusBadRequest, dto.Fail[int64]("日期参数不能为空"))
+		c.JSON(http.StatusBadRequest, httpx.Fail[int64]("日期参数不能为空"))
 		return
 	}
 
 	// 验证日期格式
 	if _, err := time.Parse("20060102", date); err != nil {
-		c.JSON(http.StatusBadRequest, dto.Fail[int64]("日期格式错误，应为YYYYMMDD"))
+		c.JSON(http.StatusBadRequest, httpx.Fail[int64]("日期格式错误，应为YYYYMMDD"))
 		return
 	}
 
@@ -41,11 +41,11 @@ func (h *StatisticsHandler) QueryUV(c *gin.Context) {
 	count, err := redisClient.GetRedisClient().PFCount(ctx, key).Result()
 	if err != nil {
 		logrus.Errorln("查询UV失败:", err)
-		c.JSON(http.StatusInternalServerError, dto.Fail[int64]("查询失败"))
+		c.JSON(http.StatusInternalServerError, httpx.Fail[int64]("查询失败"))
 		return
 	}
 
-	c.JSON(http.StatusOK, dto.OkWithData(count))
+	c.JSON(http.StatusOK, httpx.OkWithData(count))
 }
 
 // QueryCurrentUV 查询当日UV
@@ -60,9 +60,9 @@ func (h *StatisticsHandler) QueryCurrentUV(c *gin.Context) {
 	count, err := redisClient.GetRedisClient().PFCount(ctx, key).Result()
 	if err != nil {
 		logrus.Errorln("查询当日UV失败:", err)
-		c.JSON(http.StatusInternalServerError, dto.Fail[int64]("查询失败"))
+		c.JSON(http.StatusInternalServerError, httpx.Fail[int64]("查询失败"))
 		return
 	}
 
-	c.JSON(http.StatusOK, dto.OkWithData(count))
+	c.JSON(http.StatusOK, httpx.OkWithData(count))
 }
