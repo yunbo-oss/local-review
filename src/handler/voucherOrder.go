@@ -39,7 +39,8 @@ func (*VoucherOrderHandler) SeckillVoucher(c *gin.Context) {
 	}
 
 	userId := userInfo.Id
-	err = service.VoucherOrderManager.SeckillVoucher(id, userId)
+	ctx := c.Request.Context()
+	err = service.VoucherOrderManager.SeckillVoucher(ctx, id, userId)
 
 	if err != nil {
 		// 根据错误类型判断状态码

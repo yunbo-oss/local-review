@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"local-review-go/src/config/mysql"
 	"time"
 
@@ -35,13 +36,14 @@ func (voucher *Voucher) AddVoucher(tx *gorm.DB) error {
 	return err
 }
 
-func (voucher *Voucher) QueryVoucherByShop(shopId int64) ([]Voucher, error) {
+func (voucher *Voucher) QueryVoucherByShop(ctx context.Context, shopId int64) ([]Voucher, error) {
 	var vouchers []Voucher
-	err := mysql.GetMysqlDB().Table(voucher.TableName()).Where("shop_id = ?", shopId).Find(&vouchers).Error
+	db := mysql.GetMysqlDB().WithContext(ctx)
+	err := db.Table(voucher.TableName()).Where("shop_id = ?", shopId).Find(&vouchers).Error
 	for i := range vouchers {
 		if vouchers[i].Type == 1 {
 			var seckill SecKillVoucher
-			err = mysql.GetMysqlDB().Table(seckill.TableName()).Where("voucher_id = ?", vouchers[i].Id).First(&seckill).Error
+			err = db.Table(seckill.TableName()).Where("voucher_id = ?", vouchers[i].Id).First(&seckill).Error
 			if err != nil {
 				break
 			}

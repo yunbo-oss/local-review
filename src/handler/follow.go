@@ -56,7 +56,8 @@ func (*FollowHandler) Follow(c *gin.Context) {
 
 	userId := user.Id
 
-	err = service.FollowManager.Follow(id, userId, isFollow)
+	ctx := c.Request.Context()
+	err = service.FollowManager.Follow(ctx, id, userId, isFollow)
 	if err != nil {
 		logrus.Error(err.Error())
 		c.JSON(http.StatusInternalServerError, dto.Fail[string]("failed to follow!"))
@@ -91,7 +92,8 @@ func (*FollowHandler) FollowCommons(c *gin.Context) {
 
 	userId := user.Id
 
-	users, err := service.FollowManager.FollowCommons(id, userId)
+	ctx := c.Request.Context()
+	users, err := service.FollowManager.FollowCommons(ctx, id, userId)
 	if err != nil {
 		logrus.Error(err.Error())
 		c.JSON(http.StatusOK, dto.Fail[string]("find common filed!"))
@@ -127,7 +129,8 @@ func (*FollowHandler) IsFollow(c *gin.Context) {
 
 	userId := user.Id
 
-	result, err := service.FollowManager.IsFollow(id, userId)
+	ctx := c.Request.Context()
+	result, err := service.FollowManager.IsFollow(ctx, id, userId)
 	if err != nil {
 		logrus.Error(err.Error())
 		c.JSON(http.StatusOK, dto.Fail[string]("failed to follow"))

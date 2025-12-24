@@ -20,7 +20,8 @@ var shopTypeHandler *ShopTypeHandler
 func (*ShopTypeHandler) QueryShopTypeList(c *gin.Context) {
 	// shopTypeList , err := service.ShopTypeManager.QueryShopTypeList()
 	// shopTypeList, err := service.ShopTypeManager.QueryShopTypeListWithCache()
-	shopTypeList, err := service.ShopTypeManager.QueryTypeListWithCacheList()
+	ctx := c.Request.Context()
+	shopTypeList, err := service.ShopTypeManager.QueryTypeListWithCacheList(ctx)
 	if err != nil {
 		logrus.Error(err.Error())
 		c.JSON(http.StatusInternalServerError, dto.Fail[string]("failed to get type list"))

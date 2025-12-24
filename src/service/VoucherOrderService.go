@@ -49,7 +49,7 @@ func InitOrderHandler() {
 	go handlePendingList()
 }
 
-func (vo *VoucherOrderService) SeckillVoucher(voucherId int64, userId int64) error {
+func (vo *VoucherOrderService) SeckillVoucher(ctx context.Context, voucherId int64, userId int64) error {
 
 	voucher, err := SecKillManager.QuerySeckillVoucherById(voucherId)
 	if err != nil {
@@ -72,9 +72,6 @@ func (vo *VoucherOrderService) SeckillVoucher(voucherId int64, userId int64) err
 	values = append(values, strconv.FormatInt(voucherId, 10))
 	values = append(values, strconv.FormatInt(userId, 10))
 	values = append(values, strconv.FormatInt(orderId, 10))
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	result, err := voucherScript.Run(ctx, redisClient.GetRedisClient(), keys, values...).Result()
 	if err != nil {

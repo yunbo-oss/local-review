@@ -4,10 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	redisConfig "github.com/redis/go-redis/v9"
 	redisClient "local-review-go/src/config/redis"
 	"local-review-go/src/model"
 	"local-review-go/src/utils"
+
+	redisConfig "github.com/redis/go-redis/v9"
 )
 
 type ShopTypeService struct {
@@ -21,10 +22,8 @@ func (*ShopTypeService) QueryShopTypeList() ([]model.ShopType, error) {
 	return shopTypeList, err
 }
 
-func (*ShopTypeService) QueryShopTypeListWithCache() ([]model.ShopType, error) {
+func (*ShopTypeService) QueryShopTypeListWithCache(ctx context.Context) ([]model.ShopType, error) {
 	redisKey := utils.CACHE_SHOP_LIST
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	shopListStr, err := redisClient.GetRedisClient().Get(ctx, redisKey).Result()
 
@@ -62,10 +61,8 @@ func (*ShopTypeService) QueryShopTypeListWithCache() ([]model.ShopType, error) {
 	return []model.ShopType{}, err
 }
 
-func (*ShopTypeService) QueryTypeListWithCacheList() ([]model.ShopType, error) {
+func (*ShopTypeService) QueryTypeListWithCacheList(ctx context.Context) ([]model.ShopType, error) {
 	redisKey := utils.CACHE_SHOP_LIST
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	shopStrList, err := redisClient.GetRedisClient().LRange(ctx, redisKey, 0, -1).Result()
 

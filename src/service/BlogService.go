@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	redisConfig "github.com/redis/go-redis/v9"
-	"github.com/sirupsen/logrus"
 	"local-review-go/src/config/redis"
 	"local-review-go/src/dto"
 	"local-review-go/src/model"
@@ -13,6 +11,9 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	redisConfig "github.com/redis/go-redis/v9"
+	"github.com/sirupsen/logrus"
 )
 
 type BlogService struct {
@@ -20,7 +21,7 @@ type BlogService struct {
 
 var BlogManager *BlogService
 
-func (*BlogService) SaveBlog(userId int64, blog *model.Blog) (res int64, err error) {
+func (*BlogService) SaveBlog(ctx context.Context, userId int64, blog *model.Blog) (res int64, err error) {
 	blog.CreateTime = time.Now()
 	blog.UpdateTime = time.Now()
 
@@ -39,9 +40,6 @@ func (*BlogService) SaveBlog(userId int64, blog *model.Blog) (res int64, err err
 		return
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	for _, value := range follows {
 		followUserId := value.UserId
 
@@ -56,16 +54,13 @@ func (*BlogService) SaveBlog(userId int64, blog *model.Blog) (res int64, err err
 	return
 }
 
-func (*BlogService) LikeBlog(id int64, userId int64) (err error) {
+func (*BlogService) LikeBlog(ctx context.Context, id int64, userId int64) (err error) {
 	// var blog model.Blog
 	// blog.Id = id
 	// err = blog.IncreseLike()
 	// return
 	userStr := strconv.FormatInt(userId, 10)
 	redisKey := utils.BLOG_LIKE_KEY + strconv.FormatInt(id, 10)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	_, err = redis.GetRedisClient().ZScore(ctx, redisKey, userStr).Result()
 
 	flag := false
@@ -98,14 +93,14 @@ func (*BlogService) LikeBlog(id int64, userId int64) (err error) {
 	return err
 }
 
-func (*BlogService) QueryMyBlog(id int64, current int) ([]model.Blog, error) {
+func (*BlogService) QueryMyBlog(ctx context.Context, id int64, current int) ([]model.Blog, error) {
 	var blog model.Blog
 	blog.UserId = id
 	blogs, err := blog.QueryBlogs(current)
 	return blogs, err
 }
 
-func (*BlogService) QueryHotBlogs(current int) ([]model.Blog, error) {
+func (*BlogService) QueryHotBlogs(ctx context.Context, current int) ([]model.Blog, error) {
 	var blogUtils model.Blog
 	blogs, err := blogUtils.QueryHots(current)
 	if err != nil {
@@ -125,7 +120,7 @@ func (*BlogService) QueryHotBlogs(current int) ([]model.Blog, error) {
 	return blogs, nil
 }
 
-func (*BlogService) GetBlogById(id int64) (model.Blog, error) {
+func (*BlogService) GetBlogById(ctx context.Context, id int64) (model.Blog, error) {
 	var blog model.Blog
 	err := blog.GetBlogById(id)
 	if err != nil {
@@ -146,11 +141,9 @@ func (*BlogService) GetBlogById(id int64) (model.Blog, error) {
 }
 
 // QueryUserLike 查询点赞该博客最早的5个用户
-func (*BlogService) QueryUserLike(id int64) ([]dto.UserDTO, error) {
+func (*BlogService) QueryUserLike(ctx context.Context, id int64) ([]dto.UserDTO, error) {
 	// get the redis key
 	redisKey := utils.BLOG_LIKE_KEY + strconv.FormatInt(id, 10)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	idStrs, err := redis.GetRedisClient().ZRange(ctx, redisKey, 0, 4).Result()
 	if err != nil {
@@ -185,10 +178,8 @@ func (*BlogService) QueryUserLike(id int64) ([]dto.UserDTO, error) {
 	return userDTOS, nil
 }
 
-func (*BlogService) QueryBlogOfFollow(maxTime int64, offset int, userId int64, pageSize int) (dto.ScrollResult[model.Blog], error) {
+func (*BlogService) QueryBlogOfFollow(ctx context.Context, maxTime int64, offset int, userId int64, pageSize int) (dto.ScrollResult[model.Blog], error) {
 	redisKey := utils.FEED_KEY + strconv.FormatInt(userId, 10)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	// 1. 从 Redis 获取博客 ID
 	result, err := redis.GetRedisClient().ZRevRangeByScoreWithScores(ctx, redisKey,
@@ -241,7 +232,7 @@ func (*BlogService) QueryBlogOfFollow(maxTime int64, offset int, userId int64, p
 
 		go func(b *model.Blog) {
 			defer wg.Done()
-			isBlogLiked(userId, b)
+			isBlogLiked(ctx, userId, b)
 		}(&blogs[i])
 	}
 	wg.Wait()
@@ -267,11 +258,9 @@ func createBlogUser(blog *model.Blog) error {
 	return nil
 }
 
-func isBlogLiked(userId int64, blog *model.Blog) {
+func isBlogLiked(ctx context.Context, userId int64, blog *model.Blog) {
 	// Key 应基于博客ID，而非用户ID
 	redisKey := utils.BLOG_LIKE_KEY + strconv.FormatInt(blog.Id, 10)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	// 查询用户ID是否在博客的点赞集合中
 	err := redis.GetRedisClient().ZScore(ctx, redisKey, strconv.FormatInt(userId, 10)).Err()

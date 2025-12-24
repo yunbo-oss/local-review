@@ -37,7 +37,8 @@ func (*BlogHandler) SaveBlog(c *gin.Context) {
 	}
 	userId := user.Id
 
-	id, err := service.BlogManager.SaveBlog(userId, &blog)
+	ctx := c.Request.Context()
+	id, err := service.BlogManager.SaveBlog(ctx, userId, &blog)
 	if err != nil {
 		logrus.Error("[Blog handler] insert data into database failed!")
 		c.JSON(http.StatusOK, dto.Fail[string]("insert failed!"))
@@ -71,7 +72,8 @@ func (*BlogHandler) LikeBlog(c *gin.Context) {
 
 	userId := user.Id
 
-	err = service.BlogManager.LikeBlog(id, userId)
+	ctx := c.Request.Context()
+	err = service.BlogManager.LikeBlog(ctx, id, userId)
 
 	if err != nil {
 		logrus.Error(err.Error())
@@ -97,7 +99,8 @@ func (*BlogHandler) QueryUserLiked(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, dto.Fail[string]("invalid parameter"))
 		return
 	}
-	users, err := service.BlogManager.QueryUserLike(id)
+	ctx := c.Request.Context()
+	users, err := service.BlogManager.QueryUserLike(ctx, id)
 
 	if err != nil {
 		logrus.Error(err.Error())
@@ -132,7 +135,8 @@ func (*BlogHandler) QueryMyBlog(c *gin.Context) {
 		return
 	}
 
-	blogs, err := service.BlogManager.QueryMyBlog(user.Id, currentPage)
+	ctx := c.Request.Context()
+	blogs, err := service.BlogManager.QueryMyBlog(ctx, user.Id, currentPage)
 	if err != nil {
 		logrus.Error("page query failed!")
 		c.JSON(http.StatusInternalServerError, dto.Fail[string]("page query failed!"))
@@ -155,7 +159,8 @@ func (*BlogHandler) QueryHotBlog(c *gin.Context) {
 		c.JSON(http.StatusOK, dto.Fail[string]("transform type failed!"))
 		return
 	}
-	blogs, err := service.BlogManager.QueryHotBlogs(current)
+	ctx := c.Request.Context()
+	blogs, err := service.BlogManager.QueryHotBlogs(ctx, current)
 	if err != nil {
 		logrus.Error("query hot blogs failed!")
 		c.JSON(http.StatusInternalServerError, dto.Fail[string]("query hot blogs failed!"))
@@ -179,7 +184,8 @@ func (*BlogHandler) GetBlogById(c *gin.Context) {
 		c.JSON(http.StatusOK, dto.Fail[string]("type transform is failed!"))
 		return
 	}
-	blog, err := service.BlogManager.GetBlogById(id)
+	ctx := c.Request.Context()
+	blog, err := service.BlogManager.GetBlogById(ctx, id)
 	if err != nil {
 		logrus.Error(err.Error())
 		c.JSON(http.StatusOK, dto.Fail[string]("get blog by id failed!"))
@@ -220,7 +226,8 @@ func (*BlogHandler) QueryBlogOfFollow(c *gin.Context) {
 
 	userId := user.Id
 
-	r, err := service.BlogManager.QueryBlogOfFollow(lastId, offset, userId, utils.DEFAULTPAGESIZE)
+	ctx := c.Request.Context()
+	r, err := service.BlogManager.QueryBlogOfFollow(ctx, lastId, offset, userId, utils.DEFAULTPAGESIZE)
 
 	if err != nil {
 		logrus.Error(err.Error())

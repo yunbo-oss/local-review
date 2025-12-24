@@ -2,13 +2,14 @@ package service
 
 import (
 	"context"
-	"github.com/sirupsen/logrus"
 	"local-review-go/src/config/redis"
 	"local-review-go/src/dto"
 	"local-review-go/src/model"
 	"local-review-go/src/utils"
 	"strconv"
 	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 type FollowService struct {
@@ -16,9 +17,8 @@ type FollowService struct {
 
 var FollowManager *FollowService
 
-func (*FollowService) Follow(id int64, userId int64, isFollow bool) error {
+func (*FollowService) Follow(ctx context.Context, id int64, userId int64, isFollow bool) error {
 	redisKey := utils.FOLLOW_USER_KEY + strconv.FormatInt(userId, 10)
-	ctx := context.Background()
 
 	if isFollow {
 		// 删除数据库记录
@@ -47,12 +47,9 @@ func (*FollowService) Follow(id int64, userId int64, isFollow bool) error {
 	return nil
 }
 
-func (*FollowService) FollowCommons(id int64, userId int64) ([]dto.UserDTO, error) {
+func (*FollowService) FollowCommons(ctx context.Context, id int64, userId int64) ([]dto.UserDTO, error) {
 	redisKeySelf := utils.FOLLOW_USER_KEY + strconv.FormatInt(userId, 10)
 	redisKeyTarget := utils.FOLLOW_USER_KEY + strconv.FormatInt(id, 10)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	idStrs, err := redis.GetRedisClient().SInter(ctx, redisKeySelf, redisKeyTarget).Result()
 	if err != nil {
@@ -87,9 +84,8 @@ func (*FollowService) FollowCommons(id int64, userId int64) ([]dto.UserDTO, erro
 	return userDTOs, nil
 }
 
-func (*FollowService) IsFollow(id int64, userId int64) (bool, error) {
+func (*FollowService) IsFollow(ctx context.Context, id int64, userId int64) (bool, error) {
 	redisKey := utils.FOLLOW_USER_KEY + strconv.FormatInt(userId, 10)
-	ctx := context.Background()
 
 	// 先尝试从 Redis 缓存中查询
 	exists, err := redis.GetRedisClient().SIsMember(ctx, redisKey, id).Result()

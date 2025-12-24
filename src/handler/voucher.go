@@ -26,7 +26,8 @@ func (*VoucherHandler) AddVoucher(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, dto.Fail[string]("bind json failed"))
 		return
 	}
-	err = service.VoucherManager.AddVoucher(&voucher)
+	ctx := c.Request.Context()
+	err = service.VoucherManager.AddVoucher(ctx, &voucher)
 	if err != nil {
 		logrus.Error("add voucher failed!")
 		c.JSON(http.StatusInternalServerError, dto.Fail[string]("add voucher failed!"))
@@ -45,7 +46,8 @@ func (*VoucherHandler) AddSecKillVoucher(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, dto.Fail[string]("failed to bind json"))
 		return
 	}
-	err = service.VoucherManager.AddSeckillVoucher(&voucher)
+	ctx := c.Request.Context()
+	err = service.VoucherManager.AddSeckillVoucher(ctx, &voucher)
 	if err != nil {
 		logrus.Error("add seckill voucher failed!")
 		c.JSON(http.StatusInternalServerError, dto.Fail[string]("add seckill failed!"))
@@ -69,7 +71,8 @@ func (*VoucherHandler) QueryVoucherOfShop(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, dto.Fail[string]("shop id is invalid"))
 		return
 	}
-	vouchers, err := service.VoucherManager.QueryVoucherOfShop(id)
+	ctx := c.Request.Context()
+	vouchers, err := service.VoucherManager.QueryVoucherOfShop(ctx, id)
 
 	if err != nil {
 		logrus.Error("get voucher failed!")

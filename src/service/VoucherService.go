@@ -19,20 +19,20 @@ type VoucherService struct {
 
 var VoucherManager *VoucherService
 
-func (*VoucherService) AddVoucher(voucher *model.Voucher) error {
-	err := voucher.AddVoucher(mysql.GetMysqlDB())
+func (*VoucherService) AddVoucher(ctx context.Context, voucher *model.Voucher) error {
+	err := voucher.AddVoucher(mysql.GetMysqlDB().WithContext(ctx))
 	return err
 }
 
 // QueryVoucherOfShop 查询优惠卷
-func (*VoucherService) QueryVoucherOfShop(shopId int64) ([]model.Voucher, error) {
+func (*VoucherService) QueryVoucherOfShop(ctx context.Context, shopId int64) ([]model.Voucher, error) {
 	var vocherUtils model.Voucher
-	return vocherUtils.QueryVoucherByShop(shopId)
+	return vocherUtils.QueryVoucherByShop(ctx, shopId)
 }
 
-func (vs *VoucherService) AddSeckillVoucher(voucher *model.Voucher) error {
+func (vs *VoucherService) AddSeckillVoucher(ctx context.Context, voucher *model.Voucher) error {
 	// 使用 GORM v2 的事务方式
-	return mysql.GetMysqlDB().Transaction(func(tx *gorm.DB) error {
+	return mysql.GetMysqlDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// 1. 操作1：写入主表
 		if err := voucher.AddVoucher(tx); err != nil {
 			return fmt.Errorf("写入主表失败: %w", err)
