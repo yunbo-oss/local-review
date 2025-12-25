@@ -5,7 +5,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 	"local-review-go/src/config/mysql"
-	"local-review-go/src/utils"
+	"local-review-go/src/utils/redisx"
 	"strings"
 	"time"
 )
@@ -44,13 +44,13 @@ func (blog *Blog) SaveBlog() (id int64, err error) {
 
 func (blog *Blog) QueryBlogs(current int) ([]Blog, error) {
 	var blogs []Blog
-	err := mysql.GetMysqlDB().Table(blog.TableName()).Where("user_id = ?", blog.UserId).Offset((current - 1) * utils.MAXPAGESIZE).Limit(utils.MAXPAGESIZE).Find(&blogs).Error
+	err := mysql.GetMysqlDB().Table(blog.TableName()).Where("user_id = ?", blog.UserId).Offset((current - 1) * redisx.MAXPAGESIZE).Limit(redisx.MAXPAGESIZE).Find(&blogs).Error
 	return blogs, err
 }
 
 func (blog *Blog) QueryHots(current int) ([]Blog, error) {
 	var blogs []Blog
-	err := mysql.GetMysqlDB().Order("liked desc").Offset((current - 1) * utils.MAXPAGESIZE).Limit(utils.MAXPAGESIZE).Find(&blogs).Error
+	err := mysql.GetMysqlDB().Order("liked desc").Offset((current - 1) * redisx.MAXPAGESIZE).Limit(redisx.MAXPAGESIZE).Find(&blogs).Error
 	return blogs, err
 }
 

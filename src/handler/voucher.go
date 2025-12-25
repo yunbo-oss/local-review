@@ -2,8 +2,8 @@ package handler
 
 import (
 	"local-review-go/src/httpx"
+	"local-review-go/src/logic"
 	"local-review-go/src/model"
-	"local-review-go/src/service"
 	"net/http"
 	"strconv"
 
@@ -12,13 +12,16 @@ import (
 )
 
 type VoucherHandler struct {
+	logic logic.VoucherLogic
 }
 
-var voucherHandler *VoucherHandler
+func NewVoucherHandler(voucherLogic logic.VoucherLogic) *VoucherHandler {
+	return &VoucherHandler{logic: voucherLogic}
+}
 
 // @Description: add the normal voucher
 // @Router: /voucher [POST]
-func (*VoucherHandler) AddVoucher(c *gin.Context) {
+func (h *VoucherHandler) AddVoucher(c *gin.Context) {
 	var voucher model.Voucher
 	err := c.ShouldBindJSON(&voucher)
 	if err != nil {
@@ -27,7 +30,7 @@ func (*VoucherHandler) AddVoucher(c *gin.Context) {
 		return
 	}
 	ctx := c.Request.Context()
-	err = service.VoucherManager.AddVoucher(ctx, &voucher)
+	err = h.logic.AddVoucher(ctx, &voucher)
 	if err != nil {
 		logrus.Error("add voucher failed!")
 		c.JSON(http.StatusInternalServerError, httpx.Fail[string]("add voucher failed!"))
@@ -38,7 +41,7 @@ func (*VoucherHandler) AddVoucher(c *gin.Context) {
 
 // @Description: add seckill voucher
 // @Router: /voucher/seckill [POST]
-func (*VoucherHandler) AddSecKillVoucher(c *gin.Context) {
+func (h *VoucherHandler) AddSecKillVoucher(c *gin.Context) {
 	var voucher model.Voucher
 	err := c.ShouldBindJSON(&voucher)
 	if err != nil {
@@ -47,7 +50,7 @@ func (*VoucherHandler) AddSecKillVoucher(c *gin.Context) {
 		return
 	}
 	ctx := c.Request.Context()
-	err = service.VoucherManager.AddSeckillVoucher(ctx, &voucher)
+	err = h.logic.AddSeckillVoucher(ctx, &voucher)
 	if err != nil {
 		logrus.Error("add seckill voucher failed!")
 		c.JSON(http.StatusInternalServerError, httpx.Fail[string]("add seckill failed!"))
@@ -58,7 +61,7 @@ func (*VoucherHandler) AddSecKillVoucher(c *gin.Context) {
 
 // @Description: query voucher by shop
 // @Router: /voucher/list/:shopId [GET]
-func (*VoucherHandler) QueryVoucherOfShop(c *gin.Context) {
+func (h *VoucherHandler) QueryVoucherOfShop(c *gin.Context) {
 	idStr := c.Param("shopId")
 	if idStr == "" {
 		logrus.Error("the id is empty")
@@ -72,7 +75,7 @@ func (*VoucherHandler) QueryVoucherOfShop(c *gin.Context) {
 		return
 	}
 	ctx := c.Request.Context()
-	vouchers, err := service.VoucherManager.QueryVoucherOfShop(ctx, id)
+	vouchers, err := h.logic.QueryVoucherOfShop(ctx, id)
 
 	if err != nil {
 		logrus.Error("get voucher failed!")

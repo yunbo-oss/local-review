@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"local-review-go/src/config"
-	"local-review-go/src/dto"
 	"local-review-go/src/httpx"
 	"net/http"
 	"time"
@@ -48,7 +47,7 @@ var (
 )
 
 type CustomClaims struct {
-	dto.UserDTO
+	AuthUser
 	BufferTime int64
 	jwt.RegisteredClaims
 }
@@ -57,16 +56,23 @@ type JWT struct {
 	SigningKey []byte
 }
 
+// AuthUser 是写入 JWT 的简化用户信息
+type AuthUser struct {
+	Id       int64  `json:"id"`
+	NickName string `json:"nickName"`
+	Icon     string `json:"icon"`
+}
+
 func NewJWT() *JWT {
 	return &JWT{
 		SigningKey: []byte(JWT_SECRET_KEY),
 	}
 }
 
-func (j *JWT) CreateClaims(userInfo dto.UserDTO) CustomClaims {
+func (j *JWT) CreateClaims(userInfo AuthUser) CustomClaims {
 	now := time.Now()
 	return CustomClaims{
-		UserDTO:    userInfo,
+		AuthUser:   userInfo,
 		BufferTime: DefaultBufferTime,
 		RegisteredClaims: jwt.RegisteredClaims{
 			NotBefore: jwt.NewNumericDate(now.Add(-10 * time.Minute)),
@@ -119,7 +125,7 @@ func (j *JWT) ParseToken(tokenStr string) (*CustomClaims, error) {
 	return nil, TokenInvalid
 }
 
-func (j *JWT) RefreshTokenWithControl(oldToken string, userDTO dto.UserDTO) (string, error) {
+func (j *JWT) RefreshTokenWithControl(oldToken string, userDTO AuthUser) (string, error) {
 	// 先验证旧Token是否被篡改（忽略过期错误）
 	if _, err := j.ParseToken(oldToken); err != nil && !errors.Is(err, TokenExpired) {
 		return "", fmt.Errorf("无效的旧Token: %w", err)
@@ -156,13 +162,13 @@ func GlobalTokenMiddleware() gin.HandlerFunc {
 
 		// 统一处理刷新逻辑
 		if shouldRefresh && claims != nil {
-			newToken, refreshErr := jwtInstance.RefreshTokenWithControl(token, claims.UserDTO)
+			newToken, refreshErr := jwtInstance.RefreshTokenWithControl(token, claims.AuthUser)
 			if refreshErr == nil {
 				c.Header("X-New-Token", newToken)
 				c.Request.Header.Set(JWT_TOKEN_KEY, newToken)
 
 				// 直接使用新claims（避免重复解析）
-				newClaims := jwtInstance.CreateClaims(claims.UserDTO)
+				newClaims := jwtInstance.CreateClaims(claims.AuthUser)
 				c.Set("claims", &newClaims)
 				logrus.Info("Token刷新成功")
 			} else {
@@ -193,16 +199,16 @@ func AuthRequired() gin.HandlerFunc {
 	}
 }
 
-func GetUserInfo(c *gin.Context) (dto.UserDTO, error) {
+func GetUserInfo(c *gin.Context) (AuthUser, error) {
 	claims, exists := c.Get("claims")
 	if !exists {
-		return dto.UserDTO{}, errors.New("请求未经验证")
+		return AuthUser{}, errors.New("请求未经验证")
 	}
 
 	customClaims, ok := claims.(*CustomClaims)
 	if !ok {
-		return dto.UserDTO{}, errors.New("claims类型错误")
+		return AuthUser{}, errors.New("claims类型错误")
 	}
 
-	return customClaims.UserDTO, nil
+	return customClaims.AuthUser, nil
 }

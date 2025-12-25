@@ -2,8 +2,8 @@ package handler
 
 import (
 	"local-review-go/src/httpx"
+	"local-review-go/src/logic"
 	"local-review-go/src/middleware"
-	"local-review-go/src/service"
 	"net/http"
 	"strconv"
 
@@ -11,13 +11,16 @@ import (
 )
 
 type VoucherOrderHandler struct {
+	logic logic.VoucherOrderLogic
 }
 
-var voucherOrderHandler *VoucherOrderHandler
+func NewVoucherOrderHandler(voucherOrderLogic logic.VoucherOrderLogic) *VoucherOrderHandler {
+	return &VoucherOrderHandler{logic: voucherOrderLogic}
+}
 
 // @Description: get the voucher id
 // @Router: /voucher-order/seckill/:id
-func (*VoucherOrderHandler) SeckillVoucher(c *gin.Context) {
+func (h *VoucherOrderHandler) SeckillVoucher(c *gin.Context) {
 
 	idStr := c.Param("id")
 	if idStr == "" {
@@ -40,7 +43,7 @@ func (*VoucherOrderHandler) SeckillVoucher(c *gin.Context) {
 
 	userId := userInfo.Id
 	ctx := c.Request.Context()
-	err = service.VoucherOrderManager.SeckillVoucher(ctx, id, userId)
+	err = h.logic.SeckillVoucher(ctx, id, userId)
 
 	if err != nil {
 		// 根据错误类型判断状态码

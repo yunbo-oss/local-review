@@ -3,7 +3,7 @@ package model
 import (
 	"fmt"
 	"local-review-go/src/config/mysql"
-	"local-review-go/src/utils"
+	"local-review-go/src/utils/redisx"
 	"strconv"
 	"strings"
 	"time"
@@ -82,12 +82,12 @@ func (shop *Shop) UpdateShop(tx *gorm.DB) error {
 
 func (shop *Shop) QueryShopByType(typeId int, current int) ([]Shop, error) {
 	var shops []Shop
-	err := mysql.GetMysqlDB().Table(shop.TableName()).Where("type_id = ?", typeId).Offset((current - 1) * utils.DEFAULTPAGESIZE).Limit(utils.DEFAULTPAGESIZE).Find(&shops).Error
+	err := mysql.GetMysqlDB().Table(shop.TableName()).Where("type_id = ?", typeId).Offset((current - 1) * redisx.DEFAULTPAGESIZE).Limit(redisx.DEFAULTPAGESIZE).Find(&shops).Error
 	return shops, err
 }
 
 func (shop *Shop) QueryShopByName(name string, current int) ([]Shop, error) {
 	var shops []Shop
-	err := mysql.GetMysqlDB().Table(shop.TableName()).Where("name LIKE ?", name).Offset((current - 1) * utils.MAXPAGESIZE).Limit(utils.MAXPAGESIZE).Find(&shops).Error
+	err := mysql.GetMysqlDB().Table(shop.TableName()).Where("name LIKE ?", name).Offset((current - 1) * redisx.MAXPAGESIZE).Limit(redisx.MAXPAGESIZE).Find(&shops).Error
 	return shops, err
 }

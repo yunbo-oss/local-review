@@ -1,16 +1,16 @@
-package utils
+package redisx
 
 import (
 	"math/rand"
 	"strconv"
 )
 
-type RandomUtils struct {
-}
+type RandomUtils struct{}
 
 const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
-var RandomUtil *RandomUtils
+// RandomUtil 是全局随机工具实例
+var RandomUtil = &RandomUtils{}
 
 func (*RandomUtils) GenerateVerifyCode() string {
 	verifyCode := rand.Intn(900000) + 100000

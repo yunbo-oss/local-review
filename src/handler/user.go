@@ -3,8 +3,8 @@ package handler
 import (
 	"fmt"
 	"local-review-go/src/httpx"
+	"local-review-go/src/logic"
 	"local-review-go/src/middleware"
-	"local-review-go/src/service"
 	"net/http"
 	"strconv"
 	"time"
@@ -14,9 +14,12 @@ import (
 )
 
 type UserHandler struct {
+	logic logic.UserLogic
 }
 
-var userHandler *UserHandler
+func NewUserHandler(userLogic logic.UserLogic) *UserHandler {
+	return &UserHandler{logic: userLogic}
+}
 
 // LoginRequest 登录请求结构体
 type LoginRequest struct {
@@ -27,7 +30,7 @@ type LoginRequest struct {
 
 // @Description: send the phone code
 // @Router: /user/code [POST]
-func (*UserHandler) SendCode(c *gin.Context) {
+func (h *UserHandler) SendCode(c *gin.Context) {
 	phoneStr := c.Query("phone")
 	if phoneStr == "" {
 		logrus.Warn("phone is empty")
@@ -35,7 +38,7 @@ func (*UserHandler) SendCode(c *gin.Context) {
 		return
 	}
 	ctx := c.Request.Context()
-	err := service.UserManager.SaveCode(ctx, phoneStr)
+	err := h.logic.SendCode(ctx, phoneStr)
 	if err != nil {
 		logrus.Warn("phone is not valid")
 		c.JSON(http.StatusBadRequest, httpx.Fail[string]("phone is not valid"))
@@ -46,14 +49,14 @@ func (*UserHandler) SendCode(c *gin.Context) {
 
 // @Description: user login in
 // @Router: /user/login  [POST]
-func (*UserHandler) Login(c *gin.Context) {
+func (h *UserHandler) Login(c *gin.Context) {
 	var req LoginRequest
 	if err := httpx.BindJSON(c, &req); err != nil {
 		return // 错误已处理
 	}
 
 	ctx := c.Request.Context()
-	token, err := service.UserManager.Login(ctx, req.Phone, req.Code)
+	token, err := h.logic.Login(ctx, req.Phone, req.Code)
 	if err != nil {
 		logrus.Error(err.Error())
 		// 根据错误类型判断状态码
@@ -89,7 +92,7 @@ func (*UserHandler) Me(c *gin.Context) {
 
 // @Description: get the info of user by user Id
 // @Router /user/info/:id [GET]
-func (*UserHandler) Info(c *gin.Context) {
+func (h *UserHandler) Info(c *gin.Context) {
 	idStr := c.Param("id")
 	if idStr == "" {
 		logrus.Error("id str is empty!")
@@ -102,7 +105,8 @@ func (*UserHandler) Info(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, httpx.Fail[string]("id is invalid"))
 		return
 	}
-	userInfo, err := service.UserInfoManager.GetUserInfoById(id)
+	ctx := c.Request.Context()
+	userInfo, err := h.logic.GetUserInfo(ctx, id)
 	if err != nil {
 		logrus.Error("get user info failed!")
 		c.JSON(http.StatusNotFound, httpx.Fail[string]("user not found"))
@@ -115,7 +119,7 @@ func (*UserHandler) Info(c *gin.Context) {
 
 // @Description: sign
 // @Router /user/sign [GET]
-func (*UserHandler) sign(c *gin.Context) {
+func (h *UserHandler) sign(c *gin.Context) {
 	userInfo, err := middleware.GetUserInfo(c)
 	if err != nil {
 		logrus.Error("get user info failed!")
@@ -123,7 +127,7 @@ func (*UserHandler) sign(c *gin.Context) {
 		return
 	}
 	ctx := c.Request.Context()
-	err = service.UserManager.Sign(ctx, userInfo.Id)
+	err = h.logic.Sign(ctx, userInfo.Id)
 	if err != nil {
 		logrus.Error("sign user failed!")
 		c.JSON(http.StatusInternalServerError, httpx.Fail[string]("sign failed!"))
@@ -134,7 +138,7 @@ func (*UserHandler) sign(c *gin.Context) {
 
 // @Description: 获取当月连续签到的次数
 // @Router /user/sign/count
-func (*UserHandler) SignCount(c *gin.Context) {
+func (h *UserHandler) SignCount(c *gin.Context) {
 	userInfo, err := middleware.GetUserInfo(c)
 	if err != nil {
 		logrus.Error("get user info failed!")
@@ -142,7 +146,7 @@ func (*UserHandler) SignCount(c *gin.Context) {
 		return
 	}
 	ctx := c.Request.Context()
-	count, err := service.UserManager.GetSignCount(ctx, userInfo.Id)
+	count, err := h.logic.GetSignCount(ctx, userInfo.Id)
 	if err != nil {
 		logrus.Error("get user sign count failed!")
 		c.JSON(http.StatusInternalServerError, httpx.Fail[string]("get sign count failed!"))

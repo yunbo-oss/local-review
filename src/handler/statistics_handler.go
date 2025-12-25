@@ -1,9 +1,8 @@
 package handler
 
 import (
-	redisClient "local-review-go/src/config/redis"
 	"local-review-go/src/httpx"
-	"local-review-go/src/utils"
+	"local-review-go/src/logic"
 	"net/http"
 	"time"
 
@@ -12,9 +11,12 @@ import (
 )
 
 type StatisticsHandler struct {
+	logic logic.StatisticsLogic
 }
 
-var statisticsHandler *StatisticsHandler
+func NewStatisticsHandler(statLogic logic.StatisticsLogic) *StatisticsHandler {
+	return &StatisticsHandler{logic: statLogic}
+}
 
 // QueryUV 查询UV数据
 // @Summary 查询UV统计
@@ -36,9 +38,8 @@ func (h *StatisticsHandler) QueryUV(c *gin.Context) {
 		return
 	}
 
-	key := utils.UVKeyPrefix + date
 	ctx := c.Request.Context()
-	count, err := redisClient.GetRedisClient().PFCount(ctx, key).Result()
+	count, err := h.logic.QueryUV(ctx, date)
 	if err != nil {
 		logrus.Errorln("查询UV失败:", err)
 		c.JSON(http.StatusInternalServerError, httpx.Fail[int64]("查询失败"))
@@ -54,10 +55,8 @@ func (h *StatisticsHandler) QueryUV(c *gin.Context) {
 // @Success 200 {object} dto.Result[int64]
 // @Router /statistics/uv/current [GET]
 func (h *StatisticsHandler) QueryCurrentUV(c *gin.Context) {
-	date := time.Now().Format("20060102")
-	key := utils.UVKeyPrefix + date
 	ctx := c.Request.Context()
-	count, err := redisClient.GetRedisClient().PFCount(ctx, key).Result()
+	count, err := h.logic.QueryCurrentUV(ctx)
 	if err != nil {
 		logrus.Errorln("查询当日UV失败:", err)
 		c.JSON(http.StatusInternalServerError, httpx.Fail[int64]("查询失败"))

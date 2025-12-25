@@ -3,8 +3,8 @@ package handler
 import (
 	"fmt"
 	"local-review-go/src/httpx"
+	"local-review-go/src/logic"
 	"local-review-go/src/model"
-	"local-review-go/src/service"
 	"net/http"
 	"strconv"
 
@@ -13,14 +13,19 @@ import (
 )
 
 type ShopHandler struct {
+	logic logic.ShopLogic
 }
 
-var shopHandler *ShopHandler
+func NewShopHandler(shopLogic logic.ShopLogic) *ShopHandler {
+	return &ShopHandler{
+		logic: shopLogic,
+	}
+}
 
 // @Descirption: query shop by id
 // @Router: /shop/{id} [GET]
 // TODO add cache
-func (*ShopHandler) QueryShopById(c *gin.Context) {
+func (h *ShopHandler) QueryShopById(c *gin.Context) {
 	idStr := c.Param("id")
 	if idStr == "" {
 		logrus.Error("id is empty!")
@@ -34,7 +39,7 @@ func (*ShopHandler) QueryShopById(c *gin.Context) {
 		return
 	}
 	ctx := c.Request.Context()
-	shop, err := service.ShopManager.QueryShopByIdWithCacheNull(ctx, id)
+	shop, err := h.logic.QueryShopByIdWithCacheNull(ctx, id)
 
 	if err != nil {
 		logrus.Error("query failed!")
@@ -51,7 +56,7 @@ func (*ShopHandler) QueryShopById(c *gin.Context) {
 
 // @Descirption: save the shop info
 // @Router: /shop [POST]
-func (*ShopHandler) SaveShop(c *gin.Context) {
+func (h *ShopHandler) SaveShop(c *gin.Context) {
 	var shop model.Shop
 	err := c.ShouldBindJSON(&shop)
 	if err != nil {
@@ -60,7 +65,7 @@ func (*ShopHandler) SaveShop(c *gin.Context) {
 		return
 	}
 	ctx := c.Request.Context()
-	err = service.ShopManager.SaveShop(ctx, &shop)
+	err = h.logic.SaveShop(ctx, &shop)
 	if err != nil {
 		logrus.Errorf("save data failed! error: %v", err)
 		c.JSON(http.StatusInternalServerError, httpx.Fail[string](fmt.Sprintf("save data failed! error: %v", err)))
@@ -71,7 +76,7 @@ func (*ShopHandler) SaveShop(c *gin.Context) {
 
 // @Descirption: update the shop info
 // @Router: /shop [PUT]
-func (*ShopHandler) UpdateShop(c *gin.Context) {
+func (h *ShopHandler) UpdateShop(c *gin.Context) {
 	var shop model.Shop
 	err := c.ShouldBindJSON(&shop)
 	if err != nil {
@@ -80,7 +85,7 @@ func (*ShopHandler) UpdateShop(c *gin.Context) {
 		return
 	}
 	ctx := c.Request.Context()
-	err = service.ShopManager.UpdateShopWithCache(ctx, &shop)
+	err = h.logic.UpdateShopWithCache(ctx, &shop)
 	if err != nil {
 		logrus.Error("failed to update shop")
 		c.JSON(http.StatusInternalServerError, httpx.Fail[string]("failed to update shop"))
@@ -91,7 +96,7 @@ func (*ShopHandler) UpdateShop(c *gin.Context) {
 
 // @Descirption: query the shop info by the type of the shop
 // @Router: /shop/of/type [GET]
-func (*ShopHandler) QueryShopByType(c *gin.Context) {
+func (h *ShopHandler) QueryShopByType(c *gin.Context) {
 	typeIdStr := c.Query("typeId")
 	if typeIdStr == "" {
 		logrus.Error("typeId str is empty")
@@ -141,7 +146,7 @@ func (*ShopHandler) QueryShopByType(c *gin.Context) {
 	}
 
 	ctx := c.Request.Context()
-	shops, err := service.ShopManager.QueryShopByType(ctx, typeId, current, x, y)
+	shops, err := h.logic.QueryShopByType(ctx, typeId, current, x, y)
 	if err != nil {
 		logrus.Error("not find shop!")
 		c.JSON(http.StatusInternalServerError, httpx.Fail[string]("query shop failed!"))
@@ -152,7 +157,7 @@ func (*ShopHandler) QueryShopByType(c *gin.Context) {
 
 // @Descirption: query the shop ny name
 // @Router: /shop/of/name [GET]
-func (*ShopHandler) QueryShopByName(c *gin.Context) {
+func (h *ShopHandler) QueryShopByName(c *gin.Context) {
 	name := c.Query("name")
 	if name == "" {
 		name = "%%"
@@ -171,7 +176,7 @@ func (*ShopHandler) QueryShopByName(c *gin.Context) {
 	}
 
 	ctx := c.Request.Context()
-	shops, err := service.ShopManager.QueryByName(ctx, name, current)
+	shops, err := h.logic.QueryByName(ctx, name, current)
 	if err != nil {
 		logrus.Error("query shop by name failed!")
 		c.JSON(http.StatusInternalServerError, httpx.Fail[string]("query shop failed!"))

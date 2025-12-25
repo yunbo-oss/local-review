@@ -3,7 +3,7 @@ package middleware
 import (
 	"context"
 	"github.com/gin-gonic/gin"
-	"local-review-go/src/utils"
+	"local-review-go/src/utils/redisx"
 
 	"github.com/sirupsen/logrus"
 	redisClient "local-review-go/src/config/redis"
@@ -22,7 +22,7 @@ func UVStatisticsMiddleware() gin.HandlerFunc {
 
 		// 获取当前日期
 		today := time.Now().Format("20060102")
-		key := utils.UVKeyPrefix + today
+		key := redisx.UVKeyPrefix + today
 
 		// 获取访问者标识
 		visitor := getVisitorIdentity(c)
@@ -46,7 +46,7 @@ func getVisitorIdentity(c *gin.Context) string {
 	// 优先使用已登录用户ID
 	if claims, exists := c.Get("claims"); exists {
 		if customClaims, ok := claims.(*CustomClaims); ok {
-			return strconv.FormatInt(customClaims.UserDTO.Id, 10)
+			return strconv.FormatInt(customClaims.AuthUser.Id, 10)
 		}
 	}
 

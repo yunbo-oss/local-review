@@ -2,8 +2,8 @@ package handler
 
 import (
 	"local-review-go/src/httpx"
+	"local-review-go/src/logic"
 	"local-review-go/src/middleware"
-	"local-review-go/src/service"
 	"net/http"
 	"strconv"
 
@@ -12,13 +12,16 @@ import (
 )
 
 type FollowHandler struct {
+	logic logic.FollowLogic
 }
 
-var followHanlder *FollowHandler
+func NewFollowHandler(followLogic logic.FollowLogic) *FollowHandler {
+	return &FollowHandler{logic: followLogic}
+}
 
 // @Description: follow and not follow
 // @Router: /follow/:id/:isFollow [PUT]
-func (*FollowHandler) Follow(c *gin.Context) {
+func (h *FollowHandler) Follow(c *gin.Context) {
 	idStr := c.Param("id")
 	if idStr == "" {
 		logrus.Error("the id is empty")
@@ -57,7 +60,7 @@ func (*FollowHandler) Follow(c *gin.Context) {
 	userId := user.Id
 
 	ctx := c.Request.Context()
-	err = service.FollowManager.Follow(ctx, id, userId, isFollow)
+	err = h.logic.Follow(ctx, id, userId, isFollow)
 	if err != nil {
 		logrus.Error(err.Error())
 		c.JSON(http.StatusInternalServerError, httpx.Fail[string]("failed to follow!"))
@@ -68,7 +71,7 @@ func (*FollowHandler) Follow(c *gin.Context) {
 
 // @Description: get the common follow
 // @Router: /follow/common/:id [GET]
-func (*FollowHandler) FollowCommons(c *gin.Context) {
+func (h *FollowHandler) FollowCommons(c *gin.Context) {
 	idStr := c.Param("id")
 	if idStr == "" {
 		logrus.Error("the id is empty")
@@ -93,7 +96,7 @@ func (*FollowHandler) FollowCommons(c *gin.Context) {
 	userId := user.Id
 
 	ctx := c.Request.Context()
-	users, err := service.FollowManager.FollowCommons(ctx, id, userId)
+	users, err := h.logic.FollowCommons(ctx, id, userId)
 	if err != nil {
 		logrus.Error(err.Error())
 		c.JSON(http.StatusOK, httpx.Fail[string]("find common filed!"))
@@ -105,7 +108,7 @@ func (*FollowHandler) FollowCommons(c *gin.Context) {
 
 // @Description: judge if or not follow
 // @Router: /follow/or/not/:id [GET]
-func (*FollowHandler) IsFollow(c *gin.Context) {
+func (h *FollowHandler) IsFollow(c *gin.Context) {
 	idStr := c.Param("id")
 	if idStr == "" {
 		logrus.Error("the id is empty")
@@ -130,7 +133,7 @@ func (*FollowHandler) IsFollow(c *gin.Context) {
 	userId := user.Id
 
 	ctx := c.Request.Context()
-	result, err := service.FollowManager.IsFollow(ctx, id, userId)
+	result, err := h.logic.IsFollow(ctx, id, userId)
 	if err != nil {
 		logrus.Error(err.Error())
 		c.JSON(http.StatusOK, httpx.Fail[string]("failed to follow"))

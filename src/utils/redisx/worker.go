@@ -1,4 +1,4 @@
-package utils
+package redisx
 
 import (
 	"context"
@@ -6,10 +6,10 @@ import (
 	"time"
 )
 
-type RedisWorker struct {
-}
+type RedisWorker struct{}
 
-var RedisWork *RedisWorker
+// RedisWork 是全局ID生成器实例
+var RedisWork = &RedisWorker{}
 
 const (
 	BEGIN_TIMESTAMP int64 = 1704067201

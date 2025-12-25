@@ -1,13 +1,10 @@
 package middleware
 
-import (
-	"local-review-go/src/dto"
-	"testing"
-)
+import "testing"
 
 func TestGeratateToken(t *testing.T) {
 	j := NewJWT()
-	var userDTO dto.UserDTO
+	var userDTO AuthUser
 	userDTO.Icon = "fire_icon"
 	userDTO.Id = 1
 	userDTO.NickName = "fireshine"
@@ -27,12 +24,22 @@ func TestGeratateToken(t *testing.T) {
 }
 
 func TestParseToken(t *testing.T) {
-	str := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6MSwibmlja05hbWUiOiJmaXJlc2hpbmUiLCJpY29uIjoiZmlyZV9pY29uIiwiQnVmZmVyVGltZSI6ODY0MDAsImlzcyI6Imxvc2VyIiwiZXhwIjoxNzUwNjQ1NTI5LCJuYmYiOjE3NTAwMzk3MjksImlhdCI6MTc1MDA0MDcyOX0.ml7zibzOYFGcxTW2YouNYBg8Sxl4UgkAFK528oUazX8"
 	j := NewJWT()
-	clamis, err := j.ParseToken(str)
+	claims := j.CreateClaims(AuthUser{
+		Id:       2,
+		Icon:     "icon2",
+		NickName: "user2",
+	})
+	token, err := j.CreateToken(claims)
 	if err != nil {
-		t.Fatal("err!")
+		t.Fatalf("create token failed: %v", err)
 	}
-	user := clamis.UserDTO
-	t.Log(user)
+
+	parsed, err := j.ParseToken(token)
+	if err != nil {
+		t.Fatalf("parse token failed: %v", err)
+	}
+	if parsed.AuthUser.Id != claims.AuthUser.Id {
+		t.Fatalf("expected id %d, got %d", claims.AuthUser.Id, parsed.AuthUser.Id)
+	}
 }

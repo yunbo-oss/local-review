@@ -2,10 +2,10 @@ package handler
 
 import (
 	"local-review-go/src/httpx"
+	"local-review-go/src/logic"
 	"local-review-go/src/middleware"
 	"local-review-go/src/model"
-	"local-review-go/src/service"
-	"local-review-go/src/utils"
+	"local-review-go/src/utils/redisx"
 	"net/http"
 	"strconv"
 
@@ -14,13 +14,16 @@ import (
 )
 
 type BlogHandler struct {
+	logic logic.BlogLogic
 }
 
-var blogHandler *BlogHandler
+func NewBlogHandler(blogLogic logic.BlogLogic) *BlogHandler {
+	return &BlogHandler{logic: blogLogic}
+}
 
 // @Description: save the blog
 // @Router:  /blog [POST]
-func (*BlogHandler) SaveBlog(c *gin.Context) {
+func (h *BlogHandler) SaveBlog(c *gin.Context) {
 	var blog model.Blog
 	err := c.ShouldBindJSON(&blog)
 	if err != nil {
@@ -38,7 +41,7 @@ func (*BlogHandler) SaveBlog(c *gin.Context) {
 	userId := user.Id
 
 	ctx := c.Request.Context()
-	id, err := service.BlogManager.SaveBlog(ctx, userId, &blog)
+	id, err := h.logic.SaveBlog(ctx, userId, &blog)
 	if err != nil {
 		logrus.Error("[Blog handler] insert data into database failed!")
 		c.JSON(http.StatusOK, httpx.Fail[string]("insert failed!"))
@@ -49,7 +52,7 @@ func (*BlogHandler) SaveBlog(c *gin.Context) {
 
 // @Description: modify the number of linked
 // @Router:  /blog/like/:id  [PUT]
-func (*BlogHandler) LikeBlog(c *gin.Context) {
+func (h *BlogHandler) LikeBlog(c *gin.Context) {
 	idStr := c.Param("id")
 	if idStr == "" {
 		logrus.Error("[Blog Handler] Give a empty string")
@@ -73,7 +76,7 @@ func (*BlogHandler) LikeBlog(c *gin.Context) {
 	userId := user.Id
 
 	ctx := c.Request.Context()
-	err = service.BlogManager.LikeBlog(ctx, id, userId)
+	err = h.logic.LikeBlog(ctx, id, userId)
 
 	if err != nil {
 		logrus.Error(err.Error())
@@ -85,7 +88,7 @@ func (*BlogHandler) LikeBlog(c *gin.Context) {
 
 // @Description: get user rank of the blog
 // @Reouter: /blog/likes/:id  [GET]
-func (*BlogHandler) QueryUserLiked(c *gin.Context) {
+func (h *BlogHandler) QueryUserLiked(c *gin.Context) {
 	idStr := c.Param("id")
 	if idStr == "" {
 		logrus.Error("the id is empty")
@@ -100,7 +103,7 @@ func (*BlogHandler) QueryUserLiked(c *gin.Context) {
 		return
 	}
 	ctx := c.Request.Context()
-	users, err := service.BlogManager.QueryUserLike(ctx, id)
+	users, err := h.logic.QueryUserLike(ctx, id)
 
 	if err != nil {
 		logrus.Error(err.Error())
@@ -112,7 +115,7 @@ func (*BlogHandler) QueryUserLiked(c *gin.Context) {
 
 // @Description: query my blog
 // @Router: /blog/of/me [GET]
-func (*BlogHandler) QueryMyBlog(c *gin.Context) {
+func (h *BlogHandler) QueryMyBlog(c *gin.Context) {
 	var current string
 	current = c.Query("current")
 
@@ -136,7 +139,7 @@ func (*BlogHandler) QueryMyBlog(c *gin.Context) {
 	}
 
 	ctx := c.Request.Context()
-	blogs, err := service.BlogManager.QueryMyBlog(ctx, user.Id, currentPage)
+	blogs, err := h.logic.QueryMyBlog(ctx, user.Id, currentPage)
 	if err != nil {
 		logrus.Error("page query failed!")
 		c.JSON(http.StatusInternalServerError, httpx.Fail[string]("page query failed!"))
@@ -147,7 +150,7 @@ func (*BlogHandler) QueryMyBlog(c *gin.Context) {
 
 // @Description: query the hot blog
 // @Router: /blog/hot [GET]
-func (*BlogHandler) QueryHotBlog(c *gin.Context) {
+func (h *BlogHandler) QueryHotBlog(c *gin.Context) {
 	var currentStr = "1"
 	currentStr = c.Query("current")
 	if currentStr == "" {
@@ -160,7 +163,7 @@ func (*BlogHandler) QueryHotBlog(c *gin.Context) {
 		return
 	}
 	ctx := c.Request.Context()
-	blogs, err := service.BlogManager.QueryHotBlogs(ctx, current)
+	blogs, err := h.logic.QueryHotBlogs(ctx, current)
 	if err != nil {
 		logrus.Error("query hot blogs failed!")
 		c.JSON(http.StatusInternalServerError, httpx.Fail[string]("query hot blogs failed!"))
@@ -171,7 +174,7 @@ func (*BlogHandler) QueryHotBlog(c *gin.Context) {
 
 // @Description: Get Blog by id
 // @Router: /blog/:id  [GET]
-func (*BlogHandler) GetBlogById(c *gin.Context) {
+func (h *BlogHandler) GetBlogById(c *gin.Context) {
 	idStr := c.Param("id")
 	if idStr == "" {
 		logrus.Error("id str is empty")
@@ -185,7 +188,7 @@ func (*BlogHandler) GetBlogById(c *gin.Context) {
 		return
 	}
 	ctx := c.Request.Context()
-	blog, err := service.BlogManager.GetBlogById(ctx, id)
+	blog, err := h.logic.GetBlogById(ctx, id)
 	if err != nil {
 		logrus.Error(err.Error())
 		c.JSON(http.StatusOK, httpx.Fail[string]("get blog by id failed!"))
@@ -196,7 +199,7 @@ func (*BlogHandler) GetBlogById(c *gin.Context) {
 
 // @Description: get the blog info of followed people
 // @Router: /blog/of/follow [GET]
-func (*BlogHandler) QueryBlogOfFollow(c *gin.Context) {
+func (h *BlogHandler) QueryBlogOfFollow(c *gin.Context) {
 	lastIdStr := c.Query("lastId")
 	lastId, err := strconv.ParseInt(lastIdStr, 10, 64)
 	if err != nil {
@@ -227,7 +230,7 @@ func (*BlogHandler) QueryBlogOfFollow(c *gin.Context) {
 	userId := user.Id
 
 	ctx := c.Request.Context()
-	r, err := service.BlogManager.QueryBlogOfFollow(ctx, lastId, offset, userId, utils.DEFAULTPAGESIZE)
+	r, err := h.logic.QueryBlogOfFollow(ctx, lastId, offset, userId, redisx.DEFAULTPAGESIZE)
 
 	if err != nil {
 		logrus.Error(err.Error())
