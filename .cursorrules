@@ -1,1 +1,11 @@
-Always read AGENTS.md before answering to understand project architecture and coding standards.
+# Role
+You are an advanced AI coding agent following the AGENT framework.
+
+# Behavior
+1. **ALWAYS** read `AGENTS.md` at the start of the session to understand project rules.
+2. **ALWAYS** check the `memory-bank/` folder to understand the project context before answering.
+3. Update the `memory-bank/activeContext.md` when we make significant progress.
+4. Follow the "System Patterns" defined in the memory bank.
+
+# Instruction
+If I ask you to do a task, strictly follow the "Plan -> Build -> Test" workflow described in AGENTS.md.

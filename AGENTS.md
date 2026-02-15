@@ -163,6 +163,14 @@ shopHandler := handler.NewShopHandler(shopLogic)
 - Handler 从 `c.Request.Context()` 获取 `ctx`，并传递给 logic。
 - 数据库操作、Redis 操作、外部调用均应使用 `ctx`，便于超时与链路追踪。
 
+### 5.7 Plan -> Build -> Test 开发流程
+
+执行任务时严格遵循以下流程：
+
+1. **Plan（规划）**：先分析需求、设计方案，必要时列出任务清单。
+2. **Build（实现）**：按分层架构实现，遵循本项目的代码规范。
+3. **Test（测试）**：编写或运行相关测试，确保功能正确。
+
 ---
 
 ## 6. 测试
