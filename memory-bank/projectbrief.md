@@ -12,6 +12,14 @@
 - 关注
 - UV 统计
 
-### 技术栈
+### 当前技术栈
 
 - Go 1.24+、Gin、GORM、MySQL、Redis、JWT
+
+### 规划中技术栈
+
+- OpenTelemetry（Trace、Metrics、Logs 可观测性）
+- RocketMQ（秒杀削峰、订单超时延迟消息）
+- Sentinel-Go（限流熔断）
+- Elasticsearch（地理位置搜索）
+- LLM + RAG（AI 智能点评）

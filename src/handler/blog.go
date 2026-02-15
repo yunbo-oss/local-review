@@ -197,6 +197,41 @@ func (h *BlogHandler) GetBlogById(c *gin.Context) {
 	c.JSON(http.StatusOK, httpx.OkWithData(blog))
 }
 
+// @Description: 查询指定用户的笔记（other-info 页面用）
+// @Router: /blog/of/user [GET]
+func (h *BlogHandler) QueryBlogByUserId(c *gin.Context) {
+	idStr := c.Query("id")
+	if idStr == "" {
+		logrus.Error("id is required")
+		c.JSON(http.StatusBadRequest, httpx.Fail[string]("id is required"))
+		return
+	}
+	userID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		logrus.Error(err.Error())
+		c.JSON(http.StatusBadRequest, httpx.Fail[string]("invalid user id"))
+		return
+	}
+	currentStr := c.Query("current")
+	if currentStr == "" {
+		currentStr = "1"
+	}
+	current, err := strconv.Atoi(currentStr)
+	if err != nil {
+		logrus.Error(err.Error())
+		c.JSON(http.StatusBadRequest, httpx.Fail[string]("invalid current"))
+		return
+	}
+	ctx := c.Request.Context()
+	blogs, err := h.logic.QueryBlogByUserId(ctx, userID, current)
+	if err != nil {
+		logrus.Error(err.Error())
+		c.JSON(http.StatusInternalServerError, httpx.Fail[string]("query failed"))
+		return
+	}
+	c.JSON(http.StatusOK, httpx.OkWithData[[]model.Blog](blogs))
+}
+
 // @Description: get the blog info of followed people
 // @Router: /blog/of/follow [GET]
 func (h *BlogHandler) QueryBlogOfFollow(c *gin.Context) {

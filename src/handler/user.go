@@ -70,11 +70,10 @@ func (h *UserHandler) Login(c *gin.Context) {
 	c.JSON(http.StatusOK, httpx.OkWithData(token))
 }
 
-// @Description: user layout
+// @Description: user logout（前端会清除 sessionStorage 的 token）
 // @Router: /user/logout [POST]
 func (*UserHandler) Logout(c *gin.Context) {
-	// TODO 实现注销功能
-	c.JSON(http.StatusOK, httpx.Fail[string]("this function is not finished"))
+	c.JSON(http.StatusOK, httpx.Ok[string]())
 }
 
 // @Description: get the info of me
@@ -88,6 +87,31 @@ func (*UserHandler) Me(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, httpx.OkWithData(userDTO))
+}
+
+// @Description: 根据用户 ID 获取简要信息（other-info 页面用，返回 id/nickName/icon）
+// @Router: /user/:id [GET]
+func (h *UserHandler) UserById(c *gin.Context) {
+	idStr := c.Param("id")
+	if idStr == "" {
+		logrus.Error("id str is empty!")
+		c.JSON(http.StatusBadRequest, httpx.Fail[string]("id is required"))
+		return
+	}
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		logrus.Error("parse int failed!")
+		c.JSON(http.StatusBadRequest, httpx.Fail[string]("id is invalid"))
+		return
+	}
+	ctx := c.Request.Context()
+	brief, err := h.logic.GetUserBrief(ctx, id)
+	if err != nil {
+		logrus.Error("get user brief failed!")
+		c.JSON(http.StatusNotFound, httpx.Fail[string]("user not found"))
+		return
+	}
+	c.JSON(http.StatusOK, httpx.OkWithData(brief))
 }
 
 // @Description: get the info of user by user Id

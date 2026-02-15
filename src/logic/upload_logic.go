@@ -8,6 +8,7 @@ import (
 	"mime/multipart"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"local-review-go/src/utils"
 
@@ -31,7 +32,9 @@ func (l *uploadLogic) SaveBlogImage(file *multipart.FileHeader) (string, error) 
 	}
 
 	fileName := createNewFileName(file.Filename)
-	destPath := filepath.Clean(filepath.Join(utils.UPLOADPATH, fileName))
+	// fileName 形如 /blogs/1/2/xxx.jpg，Join 时需去掉前导 /
+	relPath := strings.TrimPrefix(fileName, "/")
+	destPath := filepath.Clean(filepath.Join(utils.UPLOADPATH, relPath))
 
 	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
 		return "", fmt.Errorf("create dir failed: %w", err)
@@ -60,11 +63,16 @@ func (l *uploadLogic) DeleteBlogImage(name string) error {
 	if name == "" {
 		return errors.New("filename is empty")
 	}
-	if isDir(name) {
+	// 前端传入 /imgs/blogs/1/2/xxx.jpg，需去掉 /imgs 前缀
+	relPath := strings.TrimPrefix(strings.TrimPrefix(name, "/imgs"), "/")
+	if relPath == "" {
+		return errors.New("invalid filename")
+	}
+	if isDir(relPath) {
 		return errors.New("invalid filename")
 	}
 
-	destPath := filepath.Clean(filepath.Join(utils.UPLOADPATH, name))
+	destPath := filepath.Clean(filepath.Join(utils.UPLOADPATH, relPath))
 	if err := os.Remove(destPath); err != nil {
 		return fmt.Errorf("remove file failed: %w", err)
 	}
@@ -80,6 +88,7 @@ func createNewFileName(originName string) string {
 	d1 := hash & 0xF
 	d2 := (hash >> 4) & 0xF
 	dirName := filepath.Join("blogs", fmt.Sprintf("%v", d1), fmt.Sprintf("%v", d2))
+	// 返回相对路径如 /blogs/1/2/xxx.jpg，前端会拼接为 /imgs/blogs/1/2/xxx.jpg
 	return filepath.ToSlash(filepath.Join("/", dirName, fmt.Sprintf("%s%s", name, suffix)))
 }
 

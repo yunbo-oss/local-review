@@ -3,6 +3,7 @@ package handler
 import (
 	"local-review-go/src/middleware"
 	"net/http"
+	"path/filepath"
 
 	"github.com/gin-gonic/gin"
 )
@@ -33,16 +34,42 @@ func ConfigRouter(r *gin.Engine, handlers Handlers) {
 		ctx.JSON(http.StatusOK, "pong")
 	})
 
-	// 需要认证的路由组
-	authGroup := r.Group("/")
+	// 静态文件：前端页面和资源（适配黑马点评前端）
+	r.Static("/imgs", "./front-end/imgs")
+	r.StaticFile("/", "./front-end/index.html")
+	r.StaticFile("/index.html", "./front-end/index.html")
+	r.StaticFile("/login.html", "./front-end/login.html")
+	r.StaticFile("/login2.html", "./front-end/login2.html")
+	r.StaticFile("/shop-list.html", "./front-end/shop-list.html")
+	r.StaticFile("/shop-detail.html", "./front-end/shop-detail.html")
+	r.StaticFile("/blog-detail.html", "./front-end/blog-detail.html")
+	r.StaticFile("/blog-edit.html", "./front-end/blog-edit.html")
+	r.StaticFile("/info.html", "./front-end/info.html")
+	r.StaticFile("/info-edit.html", "./front-end/info-edit.html")
+	r.StaticFile("/other-info.html", "./front-end/other-info.html")
+	// 静态资源：css、js 等
+	r.Static("/css", filepath.Join("front-end", "css"))
+	r.Static("/js", filepath.Join("front-end", "js"))
+
+	// API 路由组：前端 baseURL 为 /api
+	apiGroup := r.Group("/api")
+	{
+		configAuthRoutes(apiGroup, handlers)
+		configPublicRoutes(apiGroup, handlers)
+		configStatisticsRoutes(apiGroup, handlers)
+	}
+}
+
+func configAuthRoutes(apiGroup *gin.RouterGroup, handlers Handlers) {
+	authGroup := apiGroup.Group("/")
 	authGroup.Use(middleware.AuthRequired())
 	{
 		userController := authGroup.Group("/user")
-
 		{
 			userController.POST("/logout", handlers.User.Logout)
 			userController.GET("/me", handlers.User.Me)
 			userController.GET("/info/:id", handlers.User.Info)
+			userController.GET("/:id", handlers.User.UserById) // other-info 需要：GET /user/:id（返回 id/nickName/icon）
 			userController.GET("/sign", handlers.User.sign)
 			userController.GET("/sign/count", handlers.User.SignCount)
 		}
@@ -72,14 +99,14 @@ func ConfigRouter(r *gin.Engine, handlers Handlers) {
 		}
 
 		blogController := authGroup.Group("/blog")
-
 		{
 			blogController.POST("", handlers.Blog.SaveBlog)
 			blogController.PUT("/like/:id", handlers.Blog.LikeBlog)
 			blogController.GET("/of/me", handlers.Blog.QueryMyBlog)
+			blogController.GET("/of/user", handlers.Blog.QueryBlogByUserId) // other-info 需要：GET /blog/of/user?id=&current=
+			blogController.GET("/of/follow", handlers.Blog.QueryBlogOfFollow)
 			blogController.GET("/:id", handlers.Blog.GetBlogById)
 			blogController.GET("/likes/:id", handlers.Blog.QueryUserLiked)
-			blogController.GET("/of/follow", handlers.Blog.QueryBlogOfFollow)
 		}
 
 		followContoller := authGroup.Group("/follow")
@@ -97,19 +124,18 @@ func ConfigRouter(r *gin.Engine, handlers Handlers) {
 			uploadController.GET("/blog/delete", handlers.Upload.DeleteBlogImg)
 		}
 	}
+}
 
-	// 不需要认证的路由组
-	publicGroup := r.Group("/")
+func configPublicRoutes(apiGroup *gin.RouterGroup, handlers Handlers) {
+	publicGroup := apiGroup.Group("/")
 	{
 		userControllerWithOutMid := publicGroup.Group("/user")
-
 		{
 			userControllerWithOutMid.POST("/code", handlers.User.SendCode)
 			userControllerWithOutMid.POST("/login", handlers.User.Login)
 		}
 
 		shopTypeController := publicGroup.Group("/shop-type")
-
 		{
 			shopTypeController.GET("/list", handlers.ShopType.QueryShopTypeList)
 		}
@@ -119,12 +145,12 @@ func ConfigRouter(r *gin.Engine, handlers Handlers) {
 			blogControllerWithOutMid.GET("/hot", handlers.Blog.QueryHotBlog)
 		}
 	}
+}
 
-	// 添加统计路由
-	statisticsGroup := r.Group("/statistics")
+func configStatisticsRoutes(apiGroup *gin.RouterGroup, handlers Handlers) {
+	statisticsGroup := apiGroup.Group("/statistics")
 	{
 		statisticsGroup.GET("/uv", handlers.Statistics.QueryUV)
 		statisticsGroup.GET("/uv/current", handlers.Statistics.QueryCurrentUV)
 	}
-
 }

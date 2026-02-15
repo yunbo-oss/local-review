@@ -22,6 +22,7 @@ type UserLogic interface {
 	Sign(ctx context.Context, userID int64) error
 	GetSignCount(ctx context.Context, userID int64) (int, error)
 	GetUserInfo(ctx context.Context, id int64) (model.UserInfo, error)
+	GetUserBrief(ctx context.Context, id int64) (UserBrief, error) // other-info 需要：id/nickName/icon
 }
 
 // UserBrief 用于对外返回/内部传递的用户简要信息
@@ -165,4 +166,12 @@ func (l *userLogic) GetUserInfo(ctx context.Context, id int64) (model.UserInfo, 
 		return model.UserInfo{}, fmt.Errorf("db get user info %d: %w", id, err)
 	}
 	return *info, nil
+}
+
+func (l *userLogic) GetUserBrief(ctx context.Context, id int64) (UserBrief, error) {
+	user, err := l.userRepo.GetByID(ctx, id)
+	if err != nil {
+		return UserBrief{}, fmt.Errorf("db get user %d: %w", id, err)
+	}
+	return UserBrief{Id: user.Id, NickName: user.NickName, Icon: user.Icon}, nil
 }

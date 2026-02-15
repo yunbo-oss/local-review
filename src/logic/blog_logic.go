@@ -24,6 +24,7 @@ type BlogLogic interface {
 	LikeBlog(ctx context.Context, id, userID int64) error
 	QueryUserLike(ctx context.Context, id int64) ([]UserBrief, error)
 	QueryMyBlog(ctx context.Context, userID int64, current int) ([]model.Blog, error)
+	QueryBlogByUserId(ctx context.Context, userID int64, current int) ([]model.Blog, error) // other-info 查看他人笔记
 	QueryHotBlogs(ctx context.Context, current int) ([]model.Blog, error)
 	GetBlogById(ctx context.Context, id int64) (model.Blog, error)
 	QueryBlogOfFollow(ctx context.Context, maxTime int64, offset int, userID int64, pageSize int) (httpx.ScrollResult[model.Blog], error)
@@ -129,6 +130,14 @@ func (l *blogLogic) QueryMyBlog(ctx context.Context, userID int64, current int) 
 	blogs, err := l.blogRepo.ListByUserID(ctx, userID, current)
 	if err != nil {
 		return nil, fmt.Errorf("db query my blogs user=%d page=%d: %w", userID, current, err)
+	}
+	return blogs, nil
+}
+
+func (l *blogLogic) QueryBlogByUserId(ctx context.Context, userID int64, current int) ([]model.Blog, error) {
+	blogs, err := l.blogRepo.ListByUserID(ctx, userID, current)
+	if err != nil {
+		return nil, fmt.Errorf("db query blogs by user %d page=%d: %w", userID, current, err)
 	}
 	return blogs, nil
 }

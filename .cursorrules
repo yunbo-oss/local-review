@@ -8,4 +8,5 @@ You are an advanced AI coding agent following the AGENT framework.
 4. Follow the "System Patterns" defined in the memory bank.
 
 # Instruction
-If I ask you to do a task, strictly follow the "Plan -> Build -> Test" workflow described in AGENTS.md.
+1. If I ask you to do a task, strictly follow the "Plan -> Build -> Test" workflow described in AGENTS.md.
+2. When making code changes, explain the logic clearly as if to a first-time reader (see AGENTS.md §5.8 and memory-bank/developerContext.md).
