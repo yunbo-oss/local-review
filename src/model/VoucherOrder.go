@@ -1,10 +1,6 @@
 package model
 
-import (
-	"gorm.io/gorm"
-	"local-review-go/src/config/mysql"
-	"time"
-)
+import "time"
 
 const (
 	NOTPAYED = 1 // 未支付
@@ -36,22 +32,4 @@ type VoucherOrder struct {
 
 func (*VoucherOrder) TableName() string {
 	return "tb_voucher_order"
-}
-
-func (vo *VoucherOrder) QueryVoucherOrderByUserId(userId int64) error {
-	err := mysql.GetMysqlDB().Table(vo.TableName()).Where("user_id = ?", userId).First(vo).Error
-	return err
-}
-
-func (vo *VoucherOrder) CreateVoucherOrder(tx *gorm.DB) error {
-	err := tx.Table(vo.TableName()).Create(vo).Error
-	return err
-}
-
-func (vo *VoucherOrder) HasPurchasedVoucher(userId, voucherId int64, tx *gorm.DB) (bool, error) {
-	var count int64
-	err := tx.Table(vo.TableName()).
-		Where("user_id = ? AND voucher_id = ?", userId, voucherId).
-		Count(&count).Error
-	return count > 0, err
 }

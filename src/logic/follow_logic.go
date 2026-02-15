@@ -3,11 +3,13 @@ package logic
 import (
 	"context"
 	"fmt"
+	"local-review-go/src/config/mysql"
 	"local-review-go/src/config/redis"
 	"local-review-go/src/model"
+	"local-review-go/src/repository"
+	repoInterfaces "local-review-go/src/repository/interface"
 	"local-review-go/src/utils/redisx"
 	"strconv"
-	"time"
 
 	"github.com/sirupsen/logrus"
 )
@@ -18,29 +20,42 @@ type FollowLogic interface {
 	IsFollow(ctx context.Context, id, userID int64) (bool, error)
 }
 
-type followLogic struct{}
+type followLogic struct {
+	userRepo   repoInterfaces.UserRepo
+	followRepo repoInterfaces.FollowRepo
+}
 
-func NewFollowLogic() FollowLogic {
-	return &followLogic{}
+// FollowLogicDeps 用于实例化 followLogic 的依赖
+type FollowLogicDeps struct {
+	UserRepo   repoInterfaces.UserRepo
+	FollowRepo repoInterfaces.FollowRepo
+}
+
+func NewFollowLogic(deps FollowLogicDeps) FollowLogic {
+	userRepo := deps.UserRepo
+	if userRepo == nil {
+		userRepo = repository.NewUserRepo(mysql.GetMysqlDB())
+	}
+	followRepo := deps.FollowRepo
+	if followRepo == nil {
+		followRepo = repository.NewFollowRepo(mysql.GetMysqlDB())
+	}
+	return &followLogic{userRepo: userRepo, followRepo: followRepo}
 }
 
 func (l *followLogic) Follow(ctx context.Context, id, userID int64, isFollow bool) error {
 	redisKey := redisx.FOLLOW_USER_KEY + strconv.FormatInt(userID, 10)
 
 	if isFollow {
-		var f model.Follow
-		if err := f.RemoveUserFollow(id, userID); err != nil {
+		if err := l.followRepo.Delete(ctx, userID, id); err != nil {
 			return fmt.Errorf("remove follow user=%d target=%d: %w", userID, id, err)
 		}
 		if _, err := redis.GetRedisClient().SRem(ctx, redisKey, id).Result(); err != nil {
 			logrus.Errorf("Redis SRem failed: %v", err)
 		}
 	} else {
-		var f model.Follow
-		f.UserId = userID
-		f.FollowUserId = id
-		f.CreateTime = time.Now()
-		if err := f.SaveUserFollow(); err != nil {
+		follow := &model.Follow{UserId: userID, FollowUserId: id}
+		if err := l.followRepo.Create(ctx, follow); err != nil {
 			return fmt.Errorf("save follow user=%d target=%d: %w", userID, id, err)
 		}
 		if _, err := redis.GetRedisClient().SAdd(ctx, redisKey, id).Result(); err != nil {
@@ -72,8 +87,7 @@ func (l *followLogic) FollowCommons(ctx context.Context, id, userID int64) ([]Us
 		ids = append(ids, id)
 	}
 
-	var userUtils model.User
-	users, err := userUtils.GetUsersByIds(ids)
+	users, err := l.userRepo.GetByIDs(ctx, ids)
 	if err != nil {
 		return []UserBrief{}, fmt.Errorf("query users by ids: %w", err)
 	}
@@ -95,19 +109,16 @@ func (l *followLogic) IsFollow(ctx context.Context, id, userID int64) (bool, err
 		return exists, nil
 	}
 
-	var f model.Follow
-	f.UserId = userID
-	f.FollowUserId = id
-	count, err := f.IsFollowing()
+	dbExists, err := l.followRepo.Exists(ctx, userID, id)
 	if err != nil {
 		return false, fmt.Errorf("db check follow user=%d target=%d: %w", userID, id, err)
 	}
 
-	if count > 0 {
+	if dbExists {
 		if _, err := redis.GetRedisClient().SAdd(ctx, redisKey, id).Result(); err != nil {
 			logrus.Errorf("Failed to update Redis cache: %v", err)
 		}
 	}
 
-	return count > 0, nil
+	return dbExists, nil
 }

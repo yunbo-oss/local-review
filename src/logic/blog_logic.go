@@ -4,9 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"local-review-go/src/config/mysql"
 	"local-review-go/src/config/redis"
 	"local-review-go/src/httpx"
 	"local-review-go/src/model"
+	"local-review-go/src/repository"
+	repoInterfaces "local-review-go/src/repository/interface"
 	"local-review-go/src/utils/redisx"
 	"strconv"
 	"sync"
@@ -26,23 +29,42 @@ type BlogLogic interface {
 	QueryBlogOfFollow(ctx context.Context, maxTime int64, offset int, userID int64, pageSize int) (httpx.ScrollResult[model.Blog], error)
 }
 
-type blogLogic struct{}
+type blogLogic struct {
+	blogRepo   repoInterfaces.BlogRepo
+	userRepo   repoInterfaces.UserRepo
+	followRepo repoInterfaces.FollowRepo
+}
 
-func NewBlogLogic() BlogLogic {
-	return &blogLogic{}
+// BlogLogicDeps 用于实例化 blogLogic 的依赖
+type BlogLogicDeps struct {
+	BlogRepo   repoInterfaces.BlogRepo
+	UserRepo   repoInterfaces.UserRepo
+	FollowRepo repoInterfaces.FollowRepo
+}
+
+func NewBlogLogic(deps BlogLogicDeps) BlogLogic {
+	blogRepo := deps.BlogRepo
+	if blogRepo == nil {
+		blogRepo = repository.NewBlogRepo(mysql.GetMysqlDB())
+	}
+	userRepo := deps.UserRepo
+	if userRepo == nil {
+		userRepo = repository.NewUserRepo(mysql.GetMysqlDB())
+	}
+	followRepo := deps.FollowRepo
+	if followRepo == nil {
+		followRepo = repository.NewFollowRepo(mysql.GetMysqlDB())
+	}
+	return &blogLogic{blogRepo: blogRepo, userRepo: userRepo, followRepo: followRepo}
 }
 
 func (l *blogLogic) SaveBlog(ctx context.Context, userID int64, blog *model.Blog) (res int64, err error) {
-	blog.CreateTime = time.Now()
-	blog.UpdateTime = time.Now()
-
-	id, err := blog.SaveBlog()
+	id, err := l.blogRepo.Create(ctx, blog)
 	if err != nil {
 		logrus.Error("[Blog Service] failed to insert data!")
 		return 0, fmt.Errorf("db save blog user=%d: %w", userID, err)
 	}
-	var f model.Follow
-	follows, err := f.GetFollowsByFollowId(userID)
+	follows, err := l.followRepo.ListByFollowUserID(ctx, userID)
 	if err != nil {
 		return 0, fmt.Errorf("query followers of user %d: %w", userID, err)
 	}
@@ -82,18 +104,19 @@ func (l *blogLogic) LikeBlog(ctx context.Context, id, userID int64) (err error) 
 		}
 	}
 
-	var blog model.Blog
-	blog.Id = id
-
 	if flag {
-		blog.IncrLike()
+		if err = l.blogRepo.IncrLike(ctx, id); err != nil {
+			return fmt.Errorf("incr blog like %d: %w", id, err)
+		}
 		err = redis.GetRedisClient().ZAdd(ctx, redisKey,
 			redisConfig.Z{
 				Score:  float64(time.Now().Unix()),
 				Member: userStr,
 			}).Err()
 	} else {
-		blog.DecrLike()
+		if err = l.blogRepo.DecrLike(ctx, id); err != nil {
+			return fmt.Errorf("decr blog like %d: %w", id, err)
+		}
 		err = redis.GetRedisClient().ZRem(ctx, redisKey, userStr).Err()
 	}
 	if err != nil {
@@ -103,9 +126,7 @@ func (l *blogLogic) LikeBlog(ctx context.Context, id, userID int64) (err error) 
 }
 
 func (l *blogLogic) QueryMyBlog(ctx context.Context, userID int64, current int) ([]model.Blog, error) {
-	var blog model.Blog
-	blog.UserId = userID
-	blogs, err := blog.QueryBlogs(current)
+	blogs, err := l.blogRepo.ListByUserID(ctx, userID, current)
 	if err != nil {
 		return nil, fmt.Errorf("db query my blogs user=%d page=%d: %w", userID, current, err)
 	}
@@ -113,14 +134,13 @@ func (l *blogLogic) QueryMyBlog(ctx context.Context, userID int64, current int) 
 }
 
 func (l *blogLogic) QueryHotBlogs(ctx context.Context, current int) ([]model.Blog, error) {
-	var blogUtils model.Blog
-	blogs, err := blogUtils.QueryHots(current)
+	blogs, err := l.blogRepo.ListHots(ctx, current)
 	if err != nil {
 		return nil, fmt.Errorf("db query hot blogs page=%d: %w", current, err)
 	}
 	for i := range blogs {
 		id := blogs[i].UserId
-		user, err := new(model.User).GetUserById(id)
+		user, err := l.userRepo.GetByID(ctx, id)
 		if err != nil {
 			logrus.Errorf("get user %d for blog %d failed: %v", id, blogs[i].Id, err)
 			continue
@@ -133,13 +153,13 @@ func (l *blogLogic) QueryHotBlogs(ctx context.Context, current int) ([]model.Blo
 }
 
 func (l *blogLogic) GetBlogById(ctx context.Context, id int64) (model.Blog, error) {
-	var blog model.Blog
-	if err := blog.GetBlogById(id); err != nil {
+	blog, err := l.blogRepo.GetByID(ctx, id)
+	if err != nil {
 		return model.Blog{}, fmt.Errorf("db get blog %d: %w", id, err)
 	}
 
 	userId := blog.UserId
-	user, err := new(model.User).GetUserById(userId)
+	user, err := l.userRepo.GetByID(ctx, userId)
 	if err != nil {
 		return model.Blog{}, fmt.Errorf("get user %d for blog %d: %w", userId, id, err)
 	}
@@ -147,7 +167,7 @@ func (l *blogLogic) GetBlogById(ctx context.Context, id int64) (model.Blog, erro
 	blog.Name = user.NickName
 	blog.Icon = user.Icon
 
-	return blog, nil
+	return *blog, nil
 }
 
 // QueryUserLike 查询点赞该博客最早的5个用户
@@ -172,7 +192,7 @@ func (l *blogLogic) QueryUserLike(ctx context.Context, id int64) ([]UserBrief, e
 		ids = append(ids, id)
 	}
 
-	users, err := new(model.User).GetUsersByIds(ids)
+	users, err := l.userRepo.GetByIDs(ctx, ids)
 	if err != nil {
 		return []UserBrief{}, fmt.Errorf("db get users by ids %v: %w", ids, err)
 	}
@@ -221,7 +241,7 @@ func (l *blogLogic) QueryBlogOfFollow(ctx context.Context, maxTime int64, offset
 		}
 	}
 
-	blogs, err := new(model.Blog).QueryBlogByIds(ids)
+	blogs, err := l.blogRepo.ListByIDs(ctx, ids)
 	if err != nil {
 		return httpx.ScrollResult[model.Blog]{}, fmt.Errorf("db get blogs by ids %v: %w", ids, err)
 	}
@@ -231,7 +251,7 @@ func (l *blogLogic) QueryBlogOfFollow(ctx context.Context, maxTime int64, offset
 		wg.Add(2)
 		go func(b *model.Blog) {
 			defer wg.Done()
-			if err := createBlogUser(b); err != nil {
+			if err := l.createBlogUser(ctx, b); err != nil {
 				logrus.Warnf("Fill user failed for blog %d: %v", b.Id, err)
 			}
 		}(&blogs[i])
@@ -250,9 +270,9 @@ func (l *blogLogic) QueryBlogOfFollow(ctx context.Context, maxTime int64, offset
 	}, nil
 }
 
-func createBlogUser(blog *model.Blog) error {
+func (l *blogLogic) createBlogUser(ctx context.Context, blog *model.Blog) error {
 	userId := blog.UserId
-	user, err := new(model.User).GetUserById(userId)
+	user, err := l.userRepo.GetByID(ctx, userId)
 	if err != nil {
 		return fmt.Errorf("failed to get user %d: %w", blog.UserId, err)
 	}

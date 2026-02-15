@@ -1,12 +1,6 @@
 package model
 
-import (
-	"context"
-	"local-review-go/src/config/mysql"
-	"time"
-
-	"gorm.io/gorm"
-)
+import "time"
 
 const VOUCHER_TABLE_NAME = "tb_voucher"
 
@@ -29,29 +23,4 @@ type Voucher struct {
 
 func (*Voucher) TableName() string {
 	return VOUCHER_TABLE_NAME
-}
-
-func (voucher *Voucher) AddVoucher(tx *gorm.DB) error {
-	err := tx.Table(voucher.TableName()).Create(voucher).Error
-	return err
-}
-
-func (voucher *Voucher) QueryVoucherByShop(ctx context.Context, shopId int64) ([]Voucher, error) {
-	var vouchers []Voucher
-	db := mysql.GetMysqlDB().WithContext(ctx)
-	err := db.Table(voucher.TableName()).Where("shop_id = ?", shopId).Find(&vouchers).Error
-	for i := range vouchers {
-		if vouchers[i].Type == 1 {
-			var seckill SecKillVoucher
-			err = db.Table(seckill.TableName()).Where("voucher_id = ?", vouchers[i].Id).First(&seckill).Error
-			if err != nil {
-				break
-			}
-
-			vouchers[i].BeginTime = seckill.BeginTime
-			vouchers[i].EndTime = seckill.EndTime
-			vouchers[i].Stock = seckill.Stock
-		}
-	}
-	return vouchers, err
 }

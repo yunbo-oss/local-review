@@ -6,6 +6,8 @@ import (
 	"local-review-go/src/config/mysql"
 	"local-review-go/src/config/redis"
 	"local-review-go/src/model"
+	"local-review-go/src/repository"
+	repoInterfaces "local-review-go/src/repository/interface"
 	"local-review-go/src/utils/redisx"
 	"strconv"
 	"time"
@@ -20,26 +22,46 @@ type VoucherLogic interface {
 	QueryVoucherOfShop(ctx context.Context, shopID int64) ([]model.Voucher, error)
 }
 
-type voucherLogic struct{}
+type voucherLogic struct {
+	voucherRepo        repoInterfaces.VoucherRepo
+	seckillVoucherRepo repoInterfaces.SeckillVoucherRepo
+}
 
-func NewVoucherLogic() VoucherLogic {
-	return &voucherLogic{}
+// VoucherLogicDeps 用于实例化 voucherLogic 的依赖
+type VoucherLogicDeps struct {
+	VoucherRepo        repoInterfaces.VoucherRepo
+	SeckillVoucherRepo repoInterfaces.SeckillVoucherRepo
+}
+
+func NewVoucherLogic(deps VoucherLogicDeps) VoucherLogic {
+	voucherRepo := deps.VoucherRepo
+	if voucherRepo == nil {
+		voucherRepo = repository.NewVoucherRepo(mysql.GetMysqlDB())
+	}
+	seckillVoucherRepo := deps.SeckillVoucherRepo
+	if seckillVoucherRepo == nil {
+		seckillVoucherRepo = repository.NewSeckillVoucherRepo(mysql.GetMysqlDB())
+	}
+	return &voucherLogic{
+		voucherRepo:        voucherRepo,
+		seckillVoucherRepo: seckillVoucherRepo,
+	}
 }
 
 func (l *voucherLogic) AddVoucher(ctx context.Context, voucher *model.Voucher) error {
-	if err := voucher.AddVoucher(mysql.GetMysqlDB().WithContext(ctx)); err != nil {
+	if err := l.voucherRepo.Create(ctx, voucher, nil); err != nil {
 		return fmt.Errorf("db add voucher: %w", err)
 	}
 	return nil
 }
 
 func (l *voucherLogic) AddSeckillVoucher(ctx context.Context, voucher *model.Voucher) error {
-	return mysql.GetMysqlDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := voucher.AddVoucher(tx); err != nil {
+	err := mysql.GetMysqlDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := l.voucherRepo.Create(ctx, voucher, tx); err != nil {
 			return fmt.Errorf("写入主表失败: %w", err)
 		}
 
-		seckillVoucher := model.SecKillVoucher{
+		seckillVoucher := &model.SecKillVoucher{
 			VoucherId:  voucher.Id,
 			Stock:      voucher.Stock,
 			BeginTime:  voucher.BeginTime,
@@ -47,11 +69,14 @@ func (l *voucherLogic) AddSeckillVoucher(ctx context.Context, voucher *model.Vou
 			CreateTime: voucher.CreateTime,
 			UpdateTime: voucher.UpdateTime,
 		}
-		if err := seckillVoucher.AddSeckillVoucher(tx); err != nil {
+		if err := l.seckillVoucherRepo.Create(ctx, seckillVoucher, tx); err != nil {
 			return fmt.Errorf("写入秒杀表失败: %w", err)
 		}
 		return nil
 	})
+	if err != nil {
+		return err
+	}
 
 	// 事务成功后，异步更新Redis
 	go func() {
@@ -69,8 +94,7 @@ func (l *voucherLogic) AddSeckillVoucher(ctx context.Context, voucher *model.Vou
 }
 
 func (l *voucherLogic) QueryVoucherOfShop(ctx context.Context, shopID int64) ([]model.Voucher, error) {
-	var vocherUtils model.Voucher
-	vouchers, err := vocherUtils.QueryVoucherByShop(ctx, shopID)
+	vouchers, err := l.voucherRepo.ListByShopID(ctx, shopID)
 	if err != nil {
 		return nil, fmt.Errorf("db query vouchers by shop %d: %w", shopID, err)
 	}

@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
 	"local-review-go/src/config"
 	"local-review-go/src/config/mysql"
 	"local-review-go/src/config/redis"
 	"local-review-go/src/handler"
 	"local-review-go/src/logic"
 	"local-review-go/src/model"
+	"local-review-go/src/repository"
+	repoInterfaces "local-review-go/src/repository/interface"
 	"local-review-go/src/utils"
 
 	"github.com/gin-gonic/gin"
@@ -17,19 +20,32 @@ func main() {
 	r := gin.Default()
 	config.Init()
 
-	shopLogic := logic.NewShopLogic(logic.ShopLogicDeps{})
+	shopRepo := repository.NewShopRepo(mysql.GetMysqlDB())
+	shopLogic := logic.NewShopLogic(logic.ShopLogicDeps{ShopRepo: shopRepo})
 	shopHandler := handler.NewShopHandler(shopLogic)
-	userLogic := logic.NewUserLogic()
+
+	userRepo := repository.NewUserRepo(mysql.GetMysqlDB())
+	userInfoRepo := repository.NewUserInfoRepo(mysql.GetMysqlDB())
+	shopTypeRepo := repository.NewShopTypeRepo(mysql.GetMysqlDB())
+	blogRepo := repository.NewBlogRepo(mysql.GetMysqlDB())
+	followRepo := repository.NewFollowRepo(mysql.GetMysqlDB())
+
+	userLogic := logic.NewUserLogic(logic.UserLogicDeps{UserRepo: userRepo, UserInfoRepo: userInfoRepo})
 	userHandler := handler.NewUserHandler(userLogic)
-	shopTypeLogic := logic.NewShopTypeLogic()
+	shopTypeLogic := logic.NewShopTypeLogic(logic.ShopTypeLogicDeps{ShopTypeRepo: shopTypeRepo})
 	shopTypeHandler := handler.NewShopTypeHandler(shopTypeLogic)
-	voucherLogic := logic.NewVoucherLogic()
+
+	voucherRepo := repository.NewVoucherRepo(mysql.GetMysqlDB())
+	seckillVoucherRepo := repository.NewSeckillVoucherRepo(mysql.GetMysqlDB())
+	voucherOrderRepo := repository.NewVoucherOrderRepo(mysql.GetMysqlDB())
+
+	voucherLogic := logic.NewVoucherLogic(logic.VoucherLogicDeps{VoucherRepo: voucherRepo, SeckillVoucherRepo: seckillVoucherRepo})
 	voucherHandler := handler.NewVoucherHandler(voucherLogic)
-	voucherOrderLogic := logic.NewVoucherOrderLogic()
+	voucherOrderLogic := logic.NewVoucherOrderLogic(logic.VoucherOrderLogicDeps{VoucherOrderRepo: voucherOrderRepo, SeckillVoucherRepo: seckillVoucherRepo})
 	voucherOrderHandler := handler.NewVoucherOrderHandler(voucherOrderLogic)
-	blogLogic := logic.NewBlogLogic()
+	blogLogic := logic.NewBlogLogic(logic.BlogLogicDeps{BlogRepo: blogRepo, UserRepo: userRepo, FollowRepo: followRepo})
 	blogHandler := handler.NewBlogHandler(blogLogic)
-	followLogic := logic.NewFollowLogic()
+	followLogic := logic.NewFollowLogic(logic.FollowLogicDeps{UserRepo: userRepo, FollowRepo: followRepo})
 	followHandler := handler.NewFollowHandler(followLogic)
 	uploadLogic := logic.NewUploadLogic()
 	uploadHandler := handler.NewUploadHandler(uploadLogic)
@@ -63,15 +79,15 @@ func main() {
 	})
 	voucherOrderLogic.StartConsumers()
 
-	// Init BloomFilter (同步预热)
-	initBloomFilter(shopLogic)
+	// Init BloomFilter (异步预热)
+	initBloomFilter(shopLogic, shopRepo)
 
 	r.Run(":8088")
 
 }
 
 // initBloomFilter 异步预热布隆过滤器
-func initBloomFilter(shopLogic logic.ShopLogic) {
+func initBloomFilter(shopLogic logic.ShopLogic, shopRepo repoInterfaces.ShopRepo) {
 	logrus.Info("Starting Bloom Filter pre-heating (async)...")
 
 	// 先设置一个空的布隆过滤器实例，避免nil指针
@@ -83,41 +99,32 @@ func initBloomFilter(shopLogic logic.ShopLogic) {
 	go func() {
 		logrus.Info("Bloom Filter pre-heating started in background...")
 
-		// Query all shops from MySQL
-		var shops []model.Shop
-		err := mysql.GetMysqlDB().Select("id").Find(&shops).Error
+		ids, err := shopRepo.ListAllIDs(context.Background())
 		if err != nil {
-			logrus.Errorf("Failed to query shops for Bloom Filter pre-heating: %v", err)
+			logrus.Errorf("Failed to query shop IDs for Bloom Filter pre-heating: %v", err)
 			return
 		}
 
-		if len(shops) == 0 {
+		if len(ids) == 0 {
 			logrus.Info("No shops found for Bloom Filter pre-heating")
 			return
 		}
 
-		// 真正的批量添加：收集ID，一次性执行Pipeline
-		batchSize := 500 // 增大批次大小，减少Redis往返次数
+		// 批量添加到布隆过滤器
+		batchSize := 500
 		totalCount := 0
 		successCount := 0
 
-		for i := 0; i < len(shops); i += batchSize {
+		for i := 0; i < len(ids); i += batchSize {
 			end := i + batchSize
-			if end > len(shops) {
-				end = len(shops)
+			if end > len(ids) {
+				end = len(ids)
 			}
+			batchIds := ids[i:end]
 
-			// 收集当前批次的ID
-			batchIds := make([]int64, 0, end-i)
-			for j := i; j < end; j++ {
-				batchIds = append(batchIds, shops[j].Id)
-			}
-
-			// 批量添加到布隆过滤器（一次Redis往返）
 			err := bf.AddBatch(batchIds)
 			if err != nil {
 				logrus.Warnf("Failed to add batch [%d-%d] to Bloom Filter: %v", i, end-1, err)
-				// 批量失败时，回退到单个添加（容错处理）
 				for _, id := range batchIds {
 					if err := bf.Add(id); err != nil {
 						logrus.Warnf("Failed to add shop %d to Bloom Filter: %v", id, err)
@@ -131,12 +138,11 @@ func initBloomFilter(shopLogic logic.ShopLogic) {
 
 			totalCount = end
 
-			// 每处理一批后记录进度
-			if totalCount%1000 == 0 || end == len(shops) {
-				logrus.Infof("Bloom Filter pre-heating progress: %d/%d shops (success: %d)", totalCount, len(shops), successCount)
+			if totalCount%1000 == 0 || end == len(ids) {
+				logrus.Infof("Bloom Filter pre-heating progress: %d/%d shops (success: %d)", totalCount, len(ids), successCount)
 			}
 		}
 
-		logrus.Infof("Bloom Filter pre-heating completed: %d/%d shops loaded successfully", successCount, len(shops))
+		logrus.Infof("Bloom Filter pre-heating completed: %d/%d shops loaded successfully", successCount, len(ids))
 	}()
 }

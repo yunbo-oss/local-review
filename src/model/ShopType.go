@@ -1,9 +1,6 @@
 package model
 
-import (
-	"local-review-go/src/config/mysql"
-	"time"
-)
+import "time"
 
 const SHOP_TYPE_TABLE_NAME = "tb_shop_type"
 
@@ -18,10 +15,4 @@ type ShopType struct {
 
 func (*ShopType) TableName() string {
 	return SHOP_TYPE_TABLE_NAME
-}
-
-func (shopType *ShopType) QueryTypeList() ([]ShopType, error) {
-	var shopTypeList []ShopType
-	err := mysql.GetMysqlDB().Table(shopType.TableName()).Order("sort asc").Find(&shopTypeList).Error
-	return shopTypeList, err
 }

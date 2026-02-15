@@ -4,11 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"local-review-go/src/config/mysql"
 	"local-review-go/src/config/redis"
 	"local-review-go/src/middleware"
 	"local-review-go/src/model"
+	"local-review-go/src/repository"
+	repoInterfaces "local-review-go/src/repository/interface"
 	"local-review-go/src/utils/redisx"
 	"time"
+
+	"gorm.io/gorm"
 )
 
 type UserLogic interface {
@@ -26,10 +31,30 @@ type UserBrief struct {
 	Icon     string `json:"icon"`
 }
 
-type userLogic struct{}
+type userLogic struct {
+	userRepo     repoInterfaces.UserRepo
+	userInfoRepo repoInterfaces.UserInfoRepo
+}
 
-func NewUserLogic() UserLogic {
-	return &userLogic{}
+// UserLogicDeps 用于实例化 userLogic 的依赖
+type UserLogicDeps struct {
+	UserRepo     repoInterfaces.UserRepo
+	UserInfoRepo repoInterfaces.UserInfoRepo
+}
+
+func NewUserLogic(deps UserLogicDeps) UserLogic {
+	userRepo := deps.UserRepo
+	if userRepo == nil {
+		userRepo = repository.NewUserRepo(mysql.GetMysqlDB())
+	}
+	userInfoRepo := deps.UserInfoRepo
+	if userInfoRepo == nil {
+		userInfoRepo = repository.NewUserInfoRepo(mysql.GetMysqlDB())
+	}
+	return &userLogic{
+		userRepo:     userRepo,
+		userInfoRepo: userInfoRepo,
+	}
 }
 
 func (l *userLogic) SendCode(ctx context.Context, phone string) error {
@@ -58,14 +83,17 @@ func (l *userLogic) Login(ctx context.Context, phone, code string) (string, erro
 		return "", errors.New("a wrong verify code!")
 	}
 
-	var user model.User
-	err = user.GetUserByPhone(phone)
+	user, err := l.userRepo.GetByPhone(ctx, phone)
 	if err != nil {
-		user.Phone = phone
-		user.NickName = redisx.USER_NICK_NAME_PREFIX + redisx.RandomUtil.GenerateRandomStr(10)
-		user.CreateTime = time.Now()
-		user.UpdateTime = time.Now()
-		if err = user.SaveUser(); err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return "", fmt.Errorf("get user by phone %s: %w", phone, err)
+		}
+		// 用户不存在，创建新用户
+		user = &model.User{
+			Phone:    phone,
+			NickName: redisx.USER_NICK_NAME_PREFIX + redisx.RandomUtil.GenerateRandomStr(10),
+		}
+		if err = l.userRepo.Create(ctx, user); err != nil {
 			return "", fmt.Errorf("create user %s: %w", phone, err)
 		}
 	}
@@ -132,10 +160,9 @@ func (l *userLogic) GetSignCount(ctx context.Context, userID int64) (int, error)
 }
 
 func (l *userLogic) GetUserInfo(ctx context.Context, id int64) (model.UserInfo, error) {
-	var userInfoUtils model.UserInfo
-	info, err := userInfoUtils.GetUserInfoById(id)
+	info, err := l.userInfoRepo.GetByUserID(ctx, id)
 	if err != nil {
 		return model.UserInfo{}, fmt.Errorf("db get user info %d: %w", id, err)
 	}
-	return info, nil
+	return *info, nil
 }

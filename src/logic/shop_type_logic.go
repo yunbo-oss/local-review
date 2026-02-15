@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"local-review-go/src/config/mysql"
 	redisClient "local-review-go/src/config/redis"
 	"local-review-go/src/model"
+	"local-review-go/src/repository"
+	repoInterfaces "local-review-go/src/repository/interface"
 	"local-review-go/src/utils/redisx"
 )
 
@@ -14,10 +17,21 @@ type ShopTypeLogic interface {
 	QueryShopTypeList(ctx context.Context) ([]model.ShopType, error)
 }
 
-type shopTypeLogic struct{}
+type shopTypeLogic struct {
+	shopTypeRepo repoInterfaces.ShopTypeRepo
+}
 
-func NewShopTypeLogic() ShopTypeLogic {
-	return &shopTypeLogic{}
+// ShopTypeLogicDeps 用于实例化 shopTypeLogic 的依赖
+type ShopTypeLogicDeps struct {
+	ShopTypeRepo repoInterfaces.ShopTypeRepo
+}
+
+func NewShopTypeLogic(deps ShopTypeLogicDeps) ShopTypeLogic {
+	shopTypeRepo := deps.ShopTypeRepo
+	if shopTypeRepo == nil {
+		shopTypeRepo = repository.NewShopTypeRepo(mysql.GetMysqlDB())
+	}
+	return &shopTypeLogic{shopTypeRepo: shopTypeRepo}
 }
 
 func (l *shopTypeLogic) QueryShopTypeList(ctx context.Context) ([]model.ShopType, error) {
@@ -42,9 +56,7 @@ func (l *shopTypeLogic) QueryShopTypeList(ctx context.Context) ([]model.ShopType
 	}
 
 	if len(shopStrList) == 0 {
-		var shoplist []model.ShopType
-		var shopType model.ShopType
-		shoplist, err = shopType.QueryTypeList()
+		shoplist, err := l.shopTypeRepo.ListAll(ctx)
 		if err != nil {
 			return []model.ShopType{}, fmt.Errorf("db query shop type list: %w", err)
 		}
@@ -56,7 +68,6 @@ func (l *shopTypeLogic) QueryShopTypeList(ctx context.Context) ([]model.ShopType
 			}
 
 			err = redisClient.GetRedisClient().RPush(ctx, redisKey, string(redisValue)).Err()
-
 			if err != nil {
 				return []model.ShopType{}, fmt.Errorf("rpush shop type cache: %w", err)
 			}

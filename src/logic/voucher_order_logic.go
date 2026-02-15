@@ -7,6 +7,8 @@ import (
 	"local-review-go/src/config/mysql"
 	redisClient "local-review-go/src/config/redis"
 	"local-review-go/src/model"
+	"local-review-go/src/repository"
+	repoInterfaces "local-review-go/src/repository/interface"
 	"local-review-go/src/utils"
 	"local-review-go/src/utils/redisx"
 	"os"
@@ -32,18 +34,36 @@ type VoucherOrderLogic interface {
 }
 
 type voucherOrderLogic struct {
-	redis  *redisConfig.Client
-	script *redisConfig.Script
+	redis                *redisConfig.Client
+	script               *redisConfig.Script
+	voucherOrderRepo     repoInterfaces.VoucherOrderRepo
+	seckillVoucherRepo   repoInterfaces.SeckillVoucherRepo
 }
 
-func NewVoucherOrderLogic() VoucherOrderLogic {
+// VoucherOrderLogicDeps 用于实例化 voucherOrderLogic 的依赖
+type VoucherOrderLogicDeps struct {
+	VoucherOrderRepo   repoInterfaces.VoucherOrderRepo
+	SeckillVoucherRepo repoInterfaces.SeckillVoucherRepo
+}
+
+func NewVoucherOrderLogic(deps VoucherOrderLogicDeps) VoucherOrderLogic {
 	scriptBytes, err := os.ReadFile("script/voucher_script.lua")
 	if err != nil {
 		logrus.Errorf("读取秒杀脚本失败: %v", err)
 	}
+	voucherOrderRepo := deps.VoucherOrderRepo
+	if voucherOrderRepo == nil {
+		voucherOrderRepo = repository.NewVoucherOrderRepo(mysql.GetMysqlDB())
+	}
+	seckillVoucherRepo := deps.SeckillVoucherRepo
+	if seckillVoucherRepo == nil {
+		seckillVoucherRepo = repository.NewSeckillVoucherRepo(mysql.GetMysqlDB())
+	}
 	return &voucherOrderLogic{
-		redis:  redisClient.GetRedisClient(),
-		script: redisConfig.NewScript(string(scriptBytes)),
+		redis:              redisClient.GetRedisClient(),
+		script:             redisConfig.NewScript(string(scriptBytes)),
+		voucherOrderRepo:   voucherOrderRepo,
+		seckillVoucherRepo: seckillVoucherRepo,
 	}
 }
 
@@ -59,7 +79,7 @@ func (l *voucherOrderLogic) StartConsumers() {
 }
 
 func (l *voucherOrderLogic) SeckillVoucher(ctx context.Context, voucherID int64, userID int64) error {
-	voucher, err := l.querySeckillVoucherById(voucherID)
+	voucher, err := l.querySeckillVoucherById(ctx, voucherID)
 	if err != nil {
 		return fmt.Errorf("query seckill voucher %d: %w", voucherID, err)
 	}
@@ -206,13 +226,13 @@ func (l *voucherOrderLogic) processVoucherMessage(msg redisConfig.XMessage) erro
 	}
 	defer lock.UnlockWithWatchDog(ctx, lockKey, token)
 
-	return createVoucherOrder(order)
+	return l.createVoucherOrder(ctx, order)
 }
 
 // 创建优惠券订单
-func createVoucherOrder(order model.VoucherOrder) error {
+func (l *voucherOrderLogic) createVoucherOrder(ctx context.Context, order model.VoucherOrder) error {
 	return mysql.GetMysqlDB().Transaction(func(tx *gorm.DB) error {
-		purchasedFlag, err := new(model.VoucherOrder).HasPurchasedVoucher(order.UserId, order.VoucherId, tx)
+		purchasedFlag, err := l.voucherOrderRepo.HasPurchased(ctx, order.UserId, order.VoucherId, tx)
 		if err != nil || purchasedFlag {
 			if err != nil {
 				return fmt.Errorf("check duplicate order user=%d voucher=%d: %w", order.UserId, order.VoucherId, err)
@@ -220,14 +240,11 @@ func createVoucherOrder(order model.VoucherOrder) error {
 			return model.ErrDuplicateOrder
 		}
 
-		var sv model.SecKillVoucher
-		if err := sv.DecrVoucherStock(order.VoucherId, tx); err != nil {
+		if err := l.seckillVoucherRepo.DecrStock(ctx, order.VoucherId, tx); err != nil {
 			return fmt.Errorf("decrease voucher stock %d: %w", order.VoucherId, err)
 		}
 
-		order.CreateTime = time.Now()
-		order.UpdateTime = time.Now()
-		if err := order.CreateVoucherOrder(tx); err != nil {
+		if err := l.voucherOrderRepo.Create(ctx, &order, tx); err != nil {
 			return fmt.Errorf("create voucher order: %w", err)
 		}
 		return nil
@@ -285,10 +302,10 @@ func (l *voucherOrderLogic) handleFailedMessage(msg redisConfig.XMessage, err er
 	}
 }
 
-func (l *voucherOrderLogic) querySeckillVoucherById(id int64) (model.SecKillVoucher, error) {
-	var result model.SecKillVoucher
-	if err := result.QuerySeckillVoucherById(id); err != nil {
-		return result, fmt.Errorf("db query seckill voucher %d: %w", id, err)
+func (l *voucherOrderLogic) querySeckillVoucherById(ctx context.Context, id int64) (model.SecKillVoucher, error) {
+	result, err := l.seckillVoucherRepo.GetByID(ctx, id)
+	if err != nil {
+		return model.SecKillVoucher{}, fmt.Errorf("db query seckill voucher %d: %w", id, err)
 	}
-	return result, nil
+	return *result, nil
 }

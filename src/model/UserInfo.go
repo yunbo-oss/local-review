@@ -1,10 +1,6 @@
 package model
 
-import (
-	_ "gorm.io/gorm"
-	"local-review-go/src/config/mysql"
-	"time"
-)
+import "time"
 
 const USERINFO_TABLE_NAME = "tb_user_info"
 
@@ -24,10 +20,4 @@ type UserInfo struct {
 
 func (*UserInfo) TableName() string {
 	return USERINFO_TABLE_NAME
-}
-
-func (u *UserInfo) GetUserInfoById(id int64) (UserInfo, error) {
-	var userInfo UserInfo
-	err := mysql.GetMysqlDB().Table(u.TableName()).Where("user_id = ?", id).First(&userInfo).Error
-	return userInfo, err
 }

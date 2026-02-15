@@ -8,6 +8,8 @@ import (
 	"local-review-go/src/config/mysql"
 	redisClient "local-review-go/src/config/redis"
 	"local-review-go/src/model"
+	"local-review-go/src/repository"
+	repoInterfaces "local-review-go/src/repository/interface"
 	"local-review-go/src/utils"
 	"local-review-go/src/utils/redisx"
 	"strconv"
@@ -28,7 +30,7 @@ type ShopLogic interface {
 	SaveShop(ctx context.Context, shop *model.Shop) error
 	UpdateShop(ctx context.Context, shop *model.Shop) error
 	UpdateShopWithCache(ctx context.Context, shop *model.Shop) error
-	QueryByType(typeId int, current int) ([]model.Shop, error)
+	QueryByType(ctx context.Context, typeId int, current int) ([]model.Shop, error)
 	QueryByName(ctx context.Context, name string, current int) ([]model.Shop, error)
 
 	QueryShopByIdWithCache(ctx context.Context, id int64) (model.Shop, error)
@@ -45,11 +47,13 @@ type ShopLogicDeps struct {
 	Redis       *redisv9.Client
 	DB          *gorm.DB
 	BloomFilter *utils.BloomFilter
+	ShopRepo    repoInterfaces.ShopRepo
 }
 
 type shopLogic struct {
 	redis          *redisv9.Client
 	db             *gorm.DB
+	shopRepo       repoInterfaces.ShopRepo
 	distLock       *utils.DistributedLock
 	bloomFilter    *utils.BloomFilter
 	redisDataQueue chan int64
@@ -67,9 +71,15 @@ func NewShopLogic(deps ShopLogicDeps) ShopLogic {
 		db = mysql.GetMysqlDB()
 	}
 
+	shopRepo := deps.ShopRepo
+	if shopRepo == nil {
+		shopRepo = repository.NewShopRepo(db)
+	}
+
 	l := &shopLogic{
 		redis:          redisCli,
 		db:             db,
+		shopRepo:       shopRepo,
 		distLock:       utils.NewDistributedLock(redisCli),
 		bloomFilter:    deps.BloomFilter,
 		redisDataQueue: make(chan int64, maxRedisDataQueue),
@@ -85,18 +95,16 @@ func (s *shopLogic) SetBloomFilter(filter *utils.BloomFilter) {
 	s.bloomFilter = filter
 }
 
-func (s *shopLogic) QueryShopById(_ context.Context, id int64) (model.Shop, error) {
-	var shop model.Shop
-	shop.Id = id
-	err := shop.QueryShopById(id)
+func (s *shopLogic) QueryShopById(ctx context.Context, id int64) (model.Shop, error) {
+	shop, err := s.shopRepo.GetByID(ctx, id)
 	if err != nil {
-		return shop, fmt.Errorf("db query shop %d: %w", id, err)
+		return model.Shop{}, fmt.Errorf("db query shop %d: %w", id, err)
 	}
-	return shop, nil
+	return *shop, nil
 }
 
 func (s *shopLogic) SaveShop(ctx context.Context, shop *model.Shop) error {
-	if err := shop.SaveShop(); err != nil {
+	if err := s.shopRepo.Create(ctx, shop); err != nil {
 		logrus.Errorf("Failed to save shop to database: %v, shop data: %+v", err, shop)
 		return fmt.Errorf("db save shop: %w", err)
 	}
@@ -114,15 +122,14 @@ func (s *shopLogic) SaveShop(ctx context.Context, shop *model.Shop) error {
 }
 
 func (s *shopLogic) UpdateShop(ctx context.Context, shop *model.Shop) error {
-	if err := shop.UpdateShop(mysql.GetMysqlDB()); err != nil {
+	if err := s.shopRepo.Update(ctx, shop, nil); err != nil {
 		return fmt.Errorf("db update shop %d: %w", shop.Id, err)
 	}
 	return nil
 }
 
-func (s *shopLogic) QueryByType(typeId int, current int) ([]model.Shop, error) {
-	var shopUtils model.Shop
-	shops, err := shopUtils.QueryShopByType(typeId, current)
+func (s *shopLogic) QueryByType(ctx context.Context, typeId int, current int) ([]model.Shop, error) {
+	shops, err := s.shopRepo.ListByType(ctx, typeId, current)
 	if err != nil {
 		return nil, fmt.Errorf("db query shop by type %d page %d: %w", typeId, current, err)
 	}
@@ -130,8 +137,7 @@ func (s *shopLogic) QueryByType(typeId int, current int) ([]model.Shop, error) {
 }
 
 func (s *shopLogic) QueryByName(ctx context.Context, name string, current int) ([]model.Shop, error) {
-	var shopUtils model.Shop
-	shops, err := shopUtils.QueryShopByName(name, current)
+	shops, err := s.shopRepo.ListByName(ctx, name, current)
 	if err != nil {
 		return nil, fmt.Errorf("db query shop by name %s page %d: %w", name, current, err)
 	}
@@ -163,11 +169,9 @@ func (s *shopLogic) QueryShopByIdWithCache(ctx context.Context, id int64) (model
 	}
 
 	if errors.Is(err, redisv9.Nil) {
-		var shop model.Shop
-		shop.Id = id
-		err = shop.QueryShopById(id)
-		if err != nil {
-			return model.Shop{}, fmt.Errorf("db query shop %d: %w", id, err)
+		shop, dbErr := s.shopRepo.GetByID(ctx, id)
+		if dbErr != nil {
+			return model.Shop{}, fmt.Errorf("db query shop %d: %w", id, dbErr)
 		}
 
 		// 防御性编程：如果数据库查询成功，确保布隆过滤器中也存在
@@ -193,7 +197,7 @@ func (s *shopLogic) QueryShopByIdWithCache(ctx context.Context, id int64) (model
 		if err != nil {
 			return model.Shop{}, fmt.Errorf("set shop cache %d: %w", id, err)
 		}
-		return shop, nil
+		return *shop, nil
 	}
 
 	return model.Shop{}, fmt.Errorf("get shop cache %d: %w", id, err)
@@ -202,13 +206,13 @@ func (s *shopLogic) QueryShopByIdWithCache(ctx context.Context, id int64) (model
 // UpdateShopWithCacheCallBack 缓存更新的最佳实践方法
 func (s *shopLogic) UpdateShopWithCacheCallBack(ctx context.Context, db *gorm.DB, shop *model.Shop) error {
 	return db.Transaction(func(tx *gorm.DB) error {
-		err := shop.QueryShopById(shop.Id)
+		_, err := s.shopRepo.GetByID(ctx, shop.Id)
 		if err != nil {
 			return fmt.Errorf("db query shop %d: %w", shop.Id, err)
 		}
 
 		// update the database
-		err = shop.UpdateShop(tx)
+		err = s.shopRepo.Update(ctx, shop, tx)
 		if err != nil {
 			return fmt.Errorf("db update shop %d: %w", shop.Id, err)
 		}
@@ -261,20 +265,17 @@ func (s *shopLogic) QueryShopByIdWithCacheNull(ctx context.Context, id int64) (m
 	}
 
 	if errors.Is(err, redisv9.Nil) {
-		var shopInfo model.Shop
-		shopInfo.Id = id
-		err = shopInfo.QueryShopById(id)
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			// 数据库不存在，设置空缓存防止缓存穿透
-			err = s.redis.Set(ctx, redisKey, "", time.Minute).Err()
-			if err != nil {
-				return model.Shop{}, fmt.Errorf("set empty shop cache %d: %w", id, err)
+		shopInfo, dbErr := s.shopRepo.GetByID(ctx, id)
+		if dbErr != nil {
+			if errors.Is(dbErr, gorm.ErrRecordNotFound) {
+				// 数据库不存在，设置空缓存防止缓存穿透
+				err = s.redis.Set(ctx, redisKey, "", time.Minute).Err()
+				if err != nil {
+					return model.Shop{}, fmt.Errorf("set empty shop cache %d: %w", id, err)
+				}
+				return model.Shop{}, nil
 			}
-			return model.Shop{}, nil
-		}
-
-		if err != nil {
-			return model.Shop{}, fmt.Errorf("db query shop %d: %w", id, err)
+			return model.Shop{}, fmt.Errorf("db query shop %d: %w", id, dbErr)
 		}
 
 		// 防御性编程：如果数据库查询成功，确保布隆过滤器中也存在
@@ -297,7 +298,7 @@ func (s *shopLogic) QueryShopByIdWithCacheNull(ctx context.Context, id int64) (m
 		if err != nil {
 			return model.Shop{}, fmt.Errorf("set shop cache %d: %w", id, err)
 		}
-		return shopInfo, nil
+		return *shopInfo, nil
 	}
 	return model.Shop{}, fmt.Errorf("get shop cache %d: %w", id, err)
 }
@@ -338,17 +339,15 @@ func (s *shopLogic) QueryShopByIdPassThrough(ctx context.Context, id int64) (mod
 
 		// 重新建立缓存
 		defer s.distLock.UnlockWithWatchDog(ctx, lockKey, token)
-		var shopInfo model.Shop
-		err = shopInfo.QueryShopById(id)
-
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			if setErr := s.redis.Set(ctx, redisKey, "", time.Minute).Err(); setErr != nil {
-				return model.Shop{}, fmt.Errorf("set empty shop cache %d: %w", id, setErr)
-			}
-			return model.Shop{}, nil
-		}
+		shopInfo, err := s.shopRepo.GetByID(ctx, id)
 
 		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				if setErr := s.redis.Set(ctx, redisKey, "", time.Minute).Err(); setErr != nil {
+					return model.Shop{}, fmt.Errorf("set empty shop cache %d: %w", id, setErr)
+				}
+				return model.Shop{}, nil
+			}
 			return model.Shop{}, fmt.Errorf("db query shop %d: %w", id, err)
 		}
 
@@ -372,7 +371,7 @@ func (s *shopLogic) QueryShopByIdPassThrough(ctx context.Context, id int64) (mod
 		if err = s.redis.Set(ctx, redisKey, string(redisValue), time.Minute).Err(); err != nil {
 			return model.Shop{}, fmt.Errorf("set shop cache %d: %w", id, err)
 		}
-		return shopInfo, nil
+		return *shopInfo, nil
 	}
 }
 
@@ -425,15 +424,13 @@ func (s *shopLogic) QueryShopByIdWithLogicExpire(ctx context.Context, id int64) 
 }
 
 func (s *shopLogic) syncUpdateCache() {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := context.Background()
 	for {
 		id := <-s.redisDataQueue
 
 		redisKey := redisx.CACHE_SHOP_KEY + strconv.FormatInt(id, 10)
 
-		var shopInfo model.Shop
-		err := shopInfo.QueryShopById(id)
+		shopInfo, err := s.shopRepo.GetByID(ctx, id)
 
 		if err != nil {
 			logrus.Warnf("syncUpdateCache query shop %d failed: %v", id, err)
@@ -442,7 +439,7 @@ func (s *shopLogic) syncUpdateCache() {
 
 		var redisDataToSave redisx.RedisData[model.Shop]
 
-		redisDataToSave.Data = shopInfo
+		redisDataToSave.Data = *shopInfo
 		// the time of hot key exists
 		redisDataToSave.ExpireTime = time.Now().Add(time.Second * redisx.HOT_KEY_EXISTS_TIME)
 
@@ -464,7 +461,7 @@ func (s *shopLogic) QueryShopByType(ctx context.Context, typeID, current int, x,
 
 	// 1. 无坐标，按类型分页查询
 	if x == 0 || y == 0 {
-		shops, err := new(model.Shop).QueryShopByType(typeID, current)
+		shops, err := s.shopRepo.ListByType(ctx, typeID, current)
 		if err != nil {
 			return nil, fmt.Errorf("db query shop by type %d page %d: %w", typeID, current, err)
 		}
@@ -511,7 +508,7 @@ func (s *shopLogic) QueryShopByType(ctx context.Context, typeID, current int, x,
 	}
 
 	// 4. 数据库一次性查询
-	shops, err := new(model.Shop).QueryShopByIds(ids)
+	shops, err := s.shopRepo.GetByIDs(ctx, ids)
 	if err != nil {
 		return nil, fmt.Errorf("db query shops by ids %v: %w", ids, err)
 	}

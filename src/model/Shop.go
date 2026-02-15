@@ -1,15 +1,6 @@
 package model
 
-import (
-	"fmt"
-	"local-review-go/src/config/mysql"
-	"local-review-go/src/utils/redisx"
-	"strconv"
-	"strings"
-	"time"
-
-	"gorm.io/gorm"
-)
+import "time"
 
 const SHOP_TABLE_NAME = "tb_shop"
 
@@ -34,60 +25,4 @@ type Shop struct {
 
 func (*Shop) TableName() string {
 	return SHOP_TABLE_NAME
-}
-
-func (shop *Shop) QueryShopById(id int64) error {
-	err := mysql.GetMysqlDB().Model(shop).Where("id = ?", id).First(shop).Error
-	return err
-}
-
-func (*Shop) QueryShopByIds(ids []int64) ([]Shop, error) {
-	if len(ids) == 0 {
-		return []Shop{}, nil
-	}
-
-	// 1. 构造 FIELD 排序子句
-	idStrs := make([]string, len(ids))
-	for i, id := range ids {
-		idStrs[i] = strconv.FormatInt(id, 10)
-	}
-	order := fmt.Sprintf("FIELD(id,%s)", strings.Join(idStrs, ","))
-
-	// 2. 一次查询
-	var shops []Shop
-	err := mysql.GetMysqlDB().
-		Where("id IN ?", ids).
-		Order(order).
-		Find(&shops).Error
-	return shops, err
-}
-
-func (shop *Shop) SaveShop() error {
-	// 设置创建时间和更新时间
-	now := time.Now()
-	if shop.CreateTime.IsZero() {
-		shop.CreateTime = now
-	}
-	if shop.UpdateTime.IsZero() {
-		shop.UpdateTime = now
-	}
-	err := mysql.GetMysqlDB().Table(shop.TableName()).Create(shop).Error
-	return err
-}
-
-func (shop *Shop) UpdateShop(tx *gorm.DB) error {
-	err := tx.Model(shop).Save(shop).Error
-	return err
-}
-
-func (shop *Shop) QueryShopByType(typeId int, current int) ([]Shop, error) {
-	var shops []Shop
-	err := mysql.GetMysqlDB().Table(shop.TableName()).Where("type_id = ?", typeId).Offset((current - 1) * redisx.DEFAULTPAGESIZE).Limit(redisx.DEFAULTPAGESIZE).Find(&shops).Error
-	return shops, err
-}
-
-func (shop *Shop) QueryShopByName(name string, current int) ([]Shop, error) {
-	var shops []Shop
-	err := mysql.GetMysqlDB().Table(shop.TableName()).Where("name LIKE ?", name).Offset((current - 1) * redisx.MAXPAGESIZE).Limit(redisx.MAXPAGESIZE).Find(&shops).Error
-	return shops, err
 }
