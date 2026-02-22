@@ -8,16 +8,16 @@ Handler → Logic → Repository（接口）→ Repository（实现）→ DB
 
 - **Handler**：参数解析、校验、调用 logic、返回 `httpx.Result[T]`
 - **Logic**：业务逻辑，依赖 Repository 接口，不直接操作 DB
-- **Repository**：数据访问，接口在 `repository/interface/`，实现在 `repository/`
+- **Repository**：数据访问，接口在 `internal/repository/interface/`，实现在 `internal/repository/`
 - **Model**：GORM 实体，仅定义，无 DB 操作
 
 ## 关键模式
 
 - **分布式优先**：多实例无状态、Session 存 Redis、消费者带实例标识
 - **可观测性**：OpenTelemetry（Trace、Metrics、Logs）
-- **依赖注入**：main.go 中创建 Repo → 注入 Logic → 创建 Handler
+- **依赖注入**：cmd/server/main.go 中创建 Repo → 注入 Logic → 创建 Handler
 - **统一响应**：`httpx.Result[T]`、`OkWithData`、`Fail`
-- **Redis key**：集中在 `utils/redisx/keys.go`
+- **Redis key**：集中在 `pkg/utils/redisx/keys.go`
 - **布隆过滤器**：店铺 ID 预热，防缓存穿透
 - **秒杀（当前）**：Redis 预扣减 + Stream 异步消费
 - **秒杀（规划）**：RocketMQ 削峰 + Redis Lua 预减 + Sentinel 限流 + 延迟消息超时关单

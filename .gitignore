@@ -2,6 +2,9 @@
 tmp/
 build-errors.log
 
+# 构建输出
+bin/
+
 # Go 编译文件
 *.exe
 *.exe~

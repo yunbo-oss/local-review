@@ -2,7 +2,20 @@
 
 用Go重写了黑马点评基本功能
 
-我在ai的帮助下用go重构并优化了这个点评项目，并从单机架构升级为可水平扩展的分布式集群架构。
+我在cursor的帮助下用go重构并优化了这个点评项目，并从单机架构升级为可水平扩展的分布式集群架构。
+
+### 快速启动
+
+```bash
+# 依赖 MySQL、Redis（可用 docker-compose up -d 启动）
+cp .env.example .env   # 按需修改
+make run               # 或 go run ./cmd/server
+# 访问 http://localhost:8088
+```
+
+项目采用 `cmd/` + `internal/` 目录结构，详见 [AGENTS.md](AGENTS.md)。
+
+---
 
 以下是计划和正在进行的改动说明：
 

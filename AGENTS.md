@@ -29,9 +29,10 @@
 
 ```
 local-review-go/
-├── main.go                 # 入口：初始化配置、依赖注入、路由、布隆过滤器预热
-├── go.mod / go.sum
-├── src/
+├── cmd/
+│   └── server/
+│       └── main.go         # 薄入口：依赖组装、路由、布隆过滤器预热、启动
+├── internal/               # 私有包（不可被外部 import）
 │   ├── config/             # 配置层
 │   │   ├── init.go         # 统一初始化入口
 │   │   ├── env.go          # 环境变量读取 (GetEnv)
@@ -54,10 +55,11 @@ local-review-go/
 │   ├── model/              # 数据模型（仅实体定义）
 │   │   ├── Shop.go, User.go, Blog.go, Voucher.go, ...
 │   │   └── 含 TableName()、GORM 标签，无 DB 操作
-│   ├── middleware/         # 中间件
-│   │   ├── jwt.go          # JWT 解析、AuthRequired
-│   │   ├── uv.go           # UV 统计
-│   │   └── ...
+│   └── middleware/         # 中间件
+│       ├── jwt.go          # JWT 解析、AuthRequired
+│       ├── uv.go           # UV 统计
+│       └── ...
+├── pkg/                    # 可被其他项目复用的包
 │   ├── httpx/              # HTTP 通用工具
 │   │   └── result.go       # Result[T]、Ok/Fail、BindJSON
 │   └── utils/              # 通用工具
@@ -68,6 +70,14 @@ local-review-go/
 │           ├── keys.go
 │           ├── regex.go, random.go, worker.go, ...
 │           └── RedisData.go
+├── configs/                # 配置文件
+├── front-end/              # 前端静态资源
+├── doc/                    # 文档
+├── script/                 # Lua 脚本
+├── Makefile
+├── Dockerfile
+├── .env.example
+└── go.mod / go.sum
 ```
 
 ---
@@ -95,13 +105,17 @@ local-review-go/
 go mod tidy
 
 # 启动服务（默认 :8088）
-go run .
+go run ./cmd/server
+# 或使用 Makefile
+make run
 ```
 
 ### 构建
 
 ```bash
-go build -o local-review-go .
+go build -o bin/local-review-go ./cmd/server
+# 或
+make build
 ```
 
 ---
@@ -119,7 +133,7 @@ go build -o local-review-go .
 
 ### 5.2 统一响应格式
 
-使用 `src/httpx/result.go` 中的泛型结构：
+使用 `pkg/httpx/result.go` 中的泛型结构：
 
 ```go
 // 成功
@@ -143,18 +157,18 @@ c.JSON(http.StatusBadRequest, httpx.Fail[string]("错误信息"))
 - 接口：`XxxLogic`、`XxxRepo`；实现：`xxxLogic`、`xxxRepo`。
 - Handler 方法：动词开头，如 `QueryShopById`、`SaveShop`。
 - Repository 接口：放在 `repository/interface/`，package 名为 `interfaces`（`interface` 为 Go 关键字）。
-- Redis key：在 `utils/redisx/keys.go` 中集中定义常量。
+- Redis key：在 `pkg/utils/redisx/keys.go` 中集中定义常量。
 
 ### 5.5 依赖注入模式
 
 ```go
-// main.go 中：先创建 Repo，再注入 Logic
+// cmd/server/main.go 中：先创建 Repo，再注入 Logic
 shopRepo := repository.NewShopRepo(mysql.GetMysqlDB())
 shopLogic := logic.NewShopLogic(logic.ShopLogicDeps{ShopRepo: shopRepo})
 shopHandler := handler.NewShopHandler(shopLogic)
 ```
 
-- **Repo**：在 main 中通过 `repository.NewXxxRepo(mysql.GetMysqlDB())` 创建。
+- **Repo**：在 cmd/server/main.go 中通过 `repository.NewXxxRepo(mysql.GetMysqlDB())` 创建。
 - **Logic**：通过 `XxxLogicDeps` 注入 Repo；Deps 中某字段为 nil 时，构造函数内使用全局实例创建默认 Repo。
 - **特殊依赖**：如 BloomFilter 通过 `SetBloomFilter` 等方法后置注入。
 
@@ -191,8 +205,8 @@ shopHandler := handler.NewShopHandler(shopLogic)
 go test ./...
 
 # 运行指定包
-go test ./src/utils/...
-go test ./src/logic/...
+go test ./pkg/utils/...
+go test ./internal/logic/...
 ```
 
 - 新功能需补充单元测试。
@@ -226,8 +240,8 @@ go test ./src/logic/...
 - **不要**在 Model 中编写 DB 操作，Model 仅保留实体定义和 `TableName()`。
 - **不要**硬编码 Redis key，使用 `redisx` 包中的常量。
 - **不要**在生产环境使用默认 `JWT_SECRET_KEY`，务必通过环境变量配置。
-- **新增 Handler** 时，需在 `router.go` 的 `Handlers` 和 `ConfigRouter` 中注册，并在 `main.go` 中完成依赖注入。
-- **新增业务领域** 时，按顺序：Model 实体 → `repository/interface/` 接口 → `repository/` 实现 → Logic 注入 Repo → main 中创建并注入。
+- **新增 Handler** 时，需在 `internal/handler/router.go` 的 `Handlers` 和 `ConfigRouter` 中注册，并在 `cmd/server/main.go` 中完成依赖注入。
+- **新增业务领域** 时，按顺序：Model 实体 → `internal/repository/interface/` 接口 → `internal/repository/` 实现 → Logic 注入 Repo → cmd/server/main.go 中创建并注入。
 - 修改 model 后，GORM `AutoMigrate` 会更新表结构，但复杂迁移需单独处理。
 
 ---
