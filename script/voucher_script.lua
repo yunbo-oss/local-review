@@ -17,8 +17,8 @@ if redis.call("sismember", orderKey, userId) == 1 then
 	return 2
 end
 
--- 3. update the data
+-- 3. update the data（预减库存 + 防重复购买标记）
+-- 消息发送由应用层通过 RocketMQ 完成
 redis.call("incrby", stockKey, -1)
 redis.call("sadd", orderKey, userId)
-redis.call("xadd", "stream.orders", "*", "userId", userId, "voucherId", voucherId, "id", orderId)
 return 0

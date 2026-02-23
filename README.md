@@ -2,39 +2,24 @@
 
 用Go重写了黑马点评基本功能
 
-我在cursor的帮助下用go重构并优化了这个点评项目，并从单机架构升级为可水平扩展的分布式集群架构。
+我在cursor的帮助下用go重构并优化了这个点评项目。
 
 ### 快速启动
 
 ```bash
-# 依赖 MySQL、Redis（可用 docker-compose up -d 启动）
+# 依赖 MySQL、Redis、RocketMQ（可用 docker-compose up -d 启动）
 cp .env.example .env   # 按需修改
 make run               # 或 go run ./cmd/server
 # 访问 http://localhost:8088
 ```
 
+秒杀功能需 RocketMQ，首次启动后可执行 `make rocketmq-topic` 创建 Topic（部分环境会自动创建）。
+
 项目采用 `cmd/` + `internal/` 目录结构，详见 [AGENTS.md](AGENTS.md)。
 
 ---
 
-以下是计划和正在进行的改动说明：
-
-### 第零阶段：分布式架构与可观测性 (Distributed & Observability)
-
-1.  **分布式架构改造**
-    * **目标**：从单机演进为可水平扩展的分布式集群。
-    * **要点**：
-        * 多实例无状态部署，Session/状态存 Redis。
-        * Redis Stream 消费者名称带实例标识（如 `c1-{UUID}`），适配多 Pod 部署。
-        * 避免进程内有状态设计，确保实例可随时扩缩容。
-
-2.  **OpenTelemetry 可观测性**
-    * **痛点**：分布式环境下，请求跨多服务/实例，难以定位问题与性能瓶颈。
-    * **方案**：集成 OpenTelemetry（Trace、Metrics、Logs）。
-    * **能力**：
-        * **Trace**：全链路追踪，请求从入口到 DB/Redis 的完整调用链。
-        * **Metrics**：QPS、延迟、错误率等指标，可对接 Prometheus/Grafana。
-        * **Logs**：结构化日志，与 TraceID 关联，便于排查。
+以下是计划和正在进行的改动说明（按推荐顺序）：
 
 ### 第一阶段：高并发缓存体系 (Cache & Consistency)
 
@@ -49,13 +34,9 @@ make run               # 或 go run ./cmd/server
 
 ### 第二阶段：高可靠异步架构 (Reliability & Async)
 
-3.  **秒杀削峰填谷 (RocketMQ 改造)**
-    * **原方案**：同步下单，数据库并发写入压力大。
-    * **新方案**：引入 RocketMQ。
-    * **流程**：
-        1.  **前置校验**：Redis Lua 脚本预减库存，拦截无效请求。
-        2.  **异步下单**：校验通过后发送消息至 MQ，立即返回“排队中”。
-        3.  **异步消费**：消费者端以可控速率写入 MySQL，实现流量削峰。
+3.  **秒杀削峰填谷 (RocketMQ 改造)** ✅
+    * **已实现**：Redis Lua 预减 → 发送 RocketMQ → 立即返回「排队中」→ 消费者异步写 MySQL。
+    * 重试与死信由 RocketMQ 自带。
 
 4.  **服务熔断与限流 (Sentinel)**
     * **痛点**：秒杀瞬间流量超过 Go 服务端处理上限，导致 CPU 飙升甚至服务崩溃。
@@ -78,5 +59,15 @@ make run               # 或 go run ./cmd/server
     * **功能**：集成 LLM 大模型。
     * **流程**：用户提问 -> ES 检索 Top5 相关店铺 -> 组装 Prompt -> AI 生成推荐建议。
     * **体验**：通过 SSE (Server-Sent Events) 实现流式输出，让点评回复具有“真人打字”般的即时感。
+
+### 第四阶段（可选/后置）：分布式架构与可观测性
+
+8.  **多实例部署与可观测性**
+    * **目标**：单机 → 可水平扩展的分布式集群。
+    * **要点**：
+        * 多实例无状态部署，认证使用 JWT（无状态），无需 Session 存储。
+        * RocketMQ 消费者组自动协调多实例消费，无需手动维护实例标识。
+        * 避免进程内有状态设计，确保实例可随时扩缩容。
+    * **OpenTelemetry**：Trace 全链路追踪、Metrics 对接 Prometheus、Logs 与 TraceID 关联。
 
 ---

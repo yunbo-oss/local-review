@@ -13,6 +13,11 @@ services:
       - mysql_data:/var/lib/mysql
     networks:
       - app-net
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   redis:
     image: redis:latest
@@ -24,6 +29,37 @@ services:
       - redis_data:/data
     networks:
       - app-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "8888.216", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # RocketMQ（秒杀异步消费）
+  rocketmq-namesrv:
+    image: apache/rocketmq:5.3.2
+    container_name: local-review-rocketmq-namesrv
+    ports:
+      - "9876:9876"
+    networks:
+      - app-net
+    command: sh mqnamesrv
+
+  rocketmq-broker:
+    image: apache/rocketmq:5.3.2
+    container_name: local-review-rocketmq-broker
+    ports:
+      - "10909:10909"
+      - "10911:10911"
+      - "10912:10912"
+    environment:
+      NAMESRV_ADDR: "rocketmq-namesrv:9876"
+    depends_on:
+      - rocketmq-namesrv
+    networks:
+      - app-net
+    command: sh mqbroker
+
 
 volumes:
   mysql_data:

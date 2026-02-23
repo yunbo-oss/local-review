@@ -13,13 +13,13 @@ Handler → Logic → Repository（接口）→ Repository（实现）→ DB
 
 ## 关键模式
 
-- **分布式优先**：多实例无状态、Session 存 Redis、消费者带实例标识
+- **分布式（后置）**：多实例无状态、JWT 无状态认证、RocketMQ 消费者组自动协调
 - **可观测性**：OpenTelemetry（Trace、Metrics、Logs）
 - **依赖注入**：cmd/server/main.go 中创建 Repo → 注入 Logic → 创建 Handler
 - **统一响应**：`httpx.Result[T]`、`OkWithData`、`Fail`
 - **Redis key**：集中在 `pkg/utils/redisx/keys.go`
 - **布隆过滤器**：店铺 ID 预热，防缓存穿透
-- **秒杀（当前）**：Redis 预扣减 + Stream 异步消费
+- **秒杀（当前）**：Redis 预扣减 + RocketMQ 异步消费
 - **秒杀（规划）**：RocketMQ 削峰 + Redis Lua 预减 + Sentinel 限流 + 延迟消息超时关单
 
 ## 开发流程

@@ -58,5 +58,6 @@ func (h *VoucherOrderHandler) SeckillVoucher(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, httpx.Ok[string]())
+	// 秒杀成功，订单已进入 RocketMQ 排队，异步创建
+	c.JSON(http.StatusOK, httpx.OkWithData(gin.H{"message": "排队中，请稍后查看订单"}))
 }

@@ -8,6 +8,7 @@ import (
 	"local-review-go/internal/handler"
 	"local-review-go/internal/logic"
 	"local-review-go/internal/model"
+	"local-review-go/internal/mq"
 	"local-review-go/internal/repository"
 	repoInterfaces "local-review-go/internal/repository/interface"
 	"local-review-go/pkg/utils"
@@ -41,7 +42,16 @@ func main() {
 
 	voucherLogic := logic.NewVoucherLogic(logic.VoucherLogicDeps{VoucherRepo: voucherRepo, SeckillVoucherRepo: seckillVoucherRepo})
 	voucherHandler := handler.NewVoucherHandler(voucherLogic)
-	voucherOrderLogic := logic.NewVoucherOrderLogic(logic.VoucherOrderLogicDeps{VoucherOrderRepo: voucherOrderRepo, SeckillVoucherRepo: seckillVoucherRepo})
+
+	seckillProducer, err := mq.NewSeckillProducer(redis.GetRedisClient(), "script/voucher_script.lua")
+	if err != nil {
+		logrus.Fatalf("RocketMQ 秒杀事务生产者初始化失败（请确保 RocketMQ 已启动）: %v", err)
+	}
+	voucherOrderLogic := logic.NewVoucherOrderLogic(logic.VoucherOrderLogicDeps{
+		VoucherOrderRepo:   voucherOrderRepo,
+		SeckillVoucherRepo: seckillVoucherRepo,
+		Producer:           seckillProducer,
+	})
 	voucherOrderHandler := handler.NewVoucherOrderHandler(voucherOrderLogic)
 	blogLogic := logic.NewBlogLogic(logic.BlogLogicDeps{BlogRepo: blogRepo, UserRepo: userRepo, FollowRepo: followRepo})
 	blogHandler := handler.NewBlogHandler(blogLogic)

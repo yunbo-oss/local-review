@@ -182,6 +182,8 @@ shopHandler := handler.NewShopHandler(shopLogic)
 执行任务时严格遵循以下流程：
 
 1. **Plan（规划）**：先分析需求、设计方案，必要时列出任务清单。
+   - 参考大厂及市面上成熟的方案，选择经过验证的技术路线。
+   - 防止过度设计，结合项目规模与阶段给出合理、可落地的方案。
 2. **Build（实现）**：按分层架构实现，遵循本项目的代码规范。
 3. **Test（测试）**：编写或运行相关测试，确保功能正确。
 
@@ -221,10 +223,14 @@ go test ./internal/logic/...
 - 店铺 ID 在启动时异步预热到 Redis 布隆过滤器。
 - 查询店铺详情前先校验布隆过滤器，若判定不存在则直接返回 404，避免缓存穿透。
 
-### 7.2 秒杀与 Redis Stream
+### 7.2 秒杀与异步消费
 
-- 秒杀库存使用 Redis 预扣减，订单通过 Redis Stream 异步消费。
-- 消费者名称需带实例标识（如 UUID），以支持多实例部署。
+- 秒杀库存使用 Redis Lua 预扣减，订单通过 RocketMQ 异步消费。
+- **事务消息**：先发半消息 → ExecuteLocalTransaction 中执行 Lua → 成功则 Commit，失败则 Rollback，保证「扣 Redis」与「发消息」原子性。
+- 流程：发送事务消息（半消息）→ Lua 预减 Redis → Commit → 消费者异步写 MySQL → 立即返回「排队中」。
+- 回查：Producer 崩溃时 Broker 调用 CheckLocalTransaction，根据 Redis `seckill:order:voucherId` 是否含 userId 判断 Commit/Rollback。
+- 重试与死信：RocketMQ 自带消费重试，超限后自动进入死信队列。
+- 多实例部署时，RocketMQ 消费者组自动协调，无需手动维护实例标识。
 
 ### 7.3 认证与路由
 

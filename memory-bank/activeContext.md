@@ -2,20 +2,7 @@
 
 > 本文档记录当前开发进度，有重大进展时请更新。
 
-## 开发计划（来自 README）
-
-### 第零阶段：分布式架构与可观测性 (Distributed & Observability)
-
-> **核心痛点**：支持多实例水平扩展、观测分布式链路。
-
-1. **分布式架构改造** 🔲
-   - 目标：单机 → 可水平扩展的分布式集群
-   - 要点：多实例无状态、Session 存 Redis、Redis Stream 消费者带 `c1-{UUID}` 实例标识、避免进程内有状态
-
-2. **OpenTelemetry 可观测性** 🔲
-   - 痛点：分布式下请求跨多实例，难以定位问题与性能瓶颈
-   - 方案：集成 OpenTelemetry（Trace、Metrics、Logs）
-   - 能力：Trace 全链路追踪、Metrics 对接 Prometheus、Logs 与 TraceID 关联
+## 开发计划（来自 README，按推荐顺序）
 
 ### 第一阶段：高并发缓存体系 (Cache & Consistency)
 
@@ -34,10 +21,10 @@
 
 > **核心痛点**：秒杀高流量处理、订单超时处理。
 
-3. **秒杀削峰填谷 (RocketMQ 改造)** 🔲
-   - 原方案：同步下单，数据库并发写入压力大
-   - 新方案：RocketMQ 异步
-   - 流程：Redis Lua 预减库存 → 校验通过发 MQ，立即返回「排队中」→ 消费者可控速率写 MySQL
+3. **秒杀削峰填谷 (RocketMQ 改造)** ✅
+   - 已完成：事务消息（半消息 → Lua 预减 → Commit/Rollback）→ 消费者异步写 MySQL
+   - 保证「扣 Redis」与「发消息」原子性，避免 Redis 扣了但消息未发
+   - 重试与死信由 RocketMQ 自带
 
 4. **服务熔断与限流 (Sentinel)** 🔲
    - 痛点：秒杀瞬间流量超限，CPU 飙升甚至崩溃
@@ -61,6 +48,13 @@
    - 功能：集成 LLM 大模型
    - 流程：用户提问 → ES 检索 Top5 相关店铺 → 组装 Prompt → AI 生成推荐
    - 体验：SSE 流式输出，「真人打字」般即时感
+
+### 第四阶段（可选/后置）：分布式架构与可观测性
+
+8. **多实例部署与可观测性** 🔲
+   - 目标：单机 → 可水平扩展的分布式集群
+   - 要点：多实例无状态、认证用 JWT（无状态）、RocketMQ 消费者组自动协调、避免进程内有状态
+   - OpenTelemetry：Trace、Metrics、Logs
 
 ---
 

@@ -6,7 +6,8 @@ const (
 	CACHE_SHOP_KEY       = "cache:shop:"
 	CACHE_SHOP_LIST      = "shop:list"
 	CACHE_LOCK_KEY       = "shop:lock:"
-	SECKILL_STOCK_KEY    = "seckill:stock:"
+	SECKILL_STOCK_KEY         = "seckill:stock:"
+	CACHE_SECKILL_VOUCHER_KEY = "cache:seckill:voucher:"
 	BLOG_LIKE_KEY        = "blog:like:"
 	FOLLOW_USER_KEY      = "follow:"
 	FEED_KEY             = "feed:"
@@ -17,7 +18,8 @@ const (
 )
 
 const (
-	LOGIN_VERIFY_CODE_TTL = 2        // 分钟
+	LOGIN_VERIFY_CODE_TTL       = 2        // 分钟
+	CACHE_SECKILL_VOUCHER_TTL   = 5 * 60   // 秒，秒杀优惠券缓存 5 分钟
 	HOT_KEY_EXISTS_TIME   = 10       // 秒
 	REDIS_LOCK_VALUE      = "locked" // 默认锁值
 	USER_NICK_NAME_PREFIX = "user_"  // 随机昵称前缀
