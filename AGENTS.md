@@ -1,3 +1,8 @@
+---
+description: 
+alwaysApply: false
+---
+
 # AGENTS.md — local-review-go
 
 本文档为 AI 编码助手提供项目上下文与开发规范，遵循 [AGENTS.md 开放格式](https://github.com/agentsmd/agents.md)。
