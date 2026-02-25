@@ -56,3 +56,15 @@ func (r *seckillVoucherRepo) DecrStock(ctx context.Context, voucherID int64, tx 
 	}
 	return nil
 }
+
+func (r *seckillVoucherRepo) IncrStock(ctx context.Context, voucherID int64, tx *gorm.DB) error {
+	executor := r.db
+	if tx != nil {
+		executor = tx
+	}
+	return executor.WithContext(ctx).Exec(`
+		UPDATE tb_seckill_voucher 
+		SET stock = stock + 1 
+		WHERE voucher_id = ?
+	`, voucherID).Error
+}

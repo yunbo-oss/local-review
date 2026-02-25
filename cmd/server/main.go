@@ -47,10 +47,15 @@ func main() {
 	if err != nil {
 		logrus.Fatalf("RocketMQ 秒杀事务生产者初始化失败（请确保 RocketMQ 已启动）: %v", err)
 	}
+	orderTimeoutProducer, err := mq.NewOrderTimeoutProducer()
+	if err != nil {
+		logrus.Fatalf("RocketMQ 订单超时生产者初始化失败: %v", err)
+	}
 	voucherOrderLogic := logic.NewVoucherOrderLogic(logic.VoucherOrderLogicDeps{
-		VoucherOrderRepo:   voucherOrderRepo,
-		SeckillVoucherRepo: seckillVoucherRepo,
-		Producer:           seckillProducer,
+		VoucherOrderRepo:     voucherOrderRepo,
+		SeckillVoucherRepo:   seckillVoucherRepo,
+		Producer:             seckillProducer,
+		OrderTimeoutProducer: orderTimeoutProducer,
 	})
 	voucherOrderHandler := handler.NewVoucherOrderHandler(voucherOrderLogic)
 	blogLogic := logic.NewBlogLogic(logic.BlogLogicDeps{BlogRepo: blogRepo, UserRepo: userRepo, FollowRepo: followRepo})

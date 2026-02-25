@@ -27,10 +27,11 @@ type VoucherOrderLogic interface {
 }
 
 type voucherOrderLogic struct {
-	redis              *redisConfig.Client
-	voucherOrderRepo   repoInterfaces.VoucherOrderRepo
-	seckillVoucherRepo repoInterfaces.SeckillVoucherRepo
-	producer           RocketMQProducer
+	redis                  *redisConfig.Client
+	voucherOrderRepo       repoInterfaces.VoucherOrderRepo
+	seckillVoucherRepo     repoInterfaces.SeckillVoucherRepo
+	producer               RocketMQProducer
+	orderTimeoutProducer   OrderTimeoutProducer
 }
 
 // RocketMQProducer 秒杀订单消息发送接口，便于测试时 mock
@@ -38,11 +39,17 @@ type RocketMQProducer interface {
 	SendSeckillOrder(ctx context.Context, msg *mq.SeckillOrderMsg) error
 }
 
+// OrderTimeoutProducer 订单超时延迟消息发送接口，便于测试时 mock
+type OrderTimeoutProducer interface {
+	SendOrderTimeout(ctx context.Context, msg *mq.OrderTimeoutMsg) error
+}
+
 // VoucherOrderLogicDeps 用于实例化 voucherOrderLogic 的依赖
 type VoucherOrderLogicDeps struct {
-	VoucherOrderRepo   repoInterfaces.VoucherOrderRepo
-	SeckillVoucherRepo repoInterfaces.SeckillVoucherRepo
-	Producer           RocketMQProducer
+	VoucherOrderRepo       repoInterfaces.VoucherOrderRepo
+	SeckillVoucherRepo     repoInterfaces.SeckillVoucherRepo
+	Producer               RocketMQProducer
+	OrderTimeoutProducer   OrderTimeoutProducer
 }
 
 func NewVoucherOrderLogic(deps VoucherOrderLogicDeps) VoucherOrderLogic {
@@ -55,10 +62,11 @@ func NewVoucherOrderLogic(deps VoucherOrderLogicDeps) VoucherOrderLogic {
 		seckillVoucherRepo = repository.NewSeckillVoucherRepo(mysql.GetMysqlDB())
 	}
 	return &voucherOrderLogic{
-		redis:              redisClient.GetRedisClient(),
-		voucherOrderRepo:   voucherOrderRepo,
-		seckillVoucherRepo: seckillVoucherRepo,
-		producer:           deps.Producer,
+		redis:                redisClient.GetRedisClient(),
+		voucherOrderRepo:     voucherOrderRepo,
+		seckillVoucherRepo:   seckillVoucherRepo,
+		producer:             deps.Producer,
+		orderTimeoutProducer: deps.OrderTimeoutProducer,
 	}
 }
 
@@ -70,6 +78,14 @@ func (l *voucherOrderLogic) StartConsumers() {
 		})
 		if err != nil {
 			logrus.Errorf("RocketMQ 秒杀消费者启动失败: %v", err)
+		}
+	}()
+	go func() {
+		err := mq.StartOrderTimeoutConsumer(func(ctx context.Context, msg *mq.OrderTimeoutMsg) error {
+			return l.HandleOrderTimeout(ctx, msg)
+		})
+		if err != nil {
+			logrus.Errorf("RocketMQ 订单超时消费者启动失败: %v", err)
 		}
 	}()
 }
@@ -122,7 +138,21 @@ func (l *voucherOrderLogic) processOrder(ctx context.Context, order model.Vouche
 	}
 	defer lock.UnlockWithWatchDog(ctx, lockKey, token)
 
-	return l.createVoucherOrder(ctx, order)
+	if err := l.createVoucherOrder(ctx, order); err != nil {
+		return err
+	}
+	// 下单成功后投递延迟消息，30 分钟后检查未支付则关单回滚
+	if l.orderTimeoutProducer != nil {
+		if err := l.orderTimeoutProducer.SendOrderTimeout(ctx, &mq.OrderTimeoutMsg{
+			OrderId:   order.Id,
+			UserId:    order.UserId,
+			VoucherId: order.VoucherId,
+		}); err != nil {
+			logrus.Warnf("订单超时延迟消息投递失败 orderId=%d: %v", order.Id, err)
+			// 不返回 err，订单已创建成功，仅记录日志；可后续通过定时任务补偿
+		}
+	}
+	return nil
 }
 
 // createVoucherOrder 创建优惠券订单（事务：校验重复 + 扣库存 + 插入）
@@ -171,4 +201,48 @@ func (l *voucherOrderLogic) querySeckillVoucherById(ctx context.Context, id int6
 		_ = l.redis.Set(ctx, redisKey, string(data), ttl).Err()
 	}
 	return sv, nil
+}
+
+// HandleOrderTimeout 处理订单超时：未支付则关单 + 回滚 Redis + 回滚 MySQL
+func (l *voucherOrderLogic) HandleOrderTimeout(ctx context.Context, msg *mq.OrderTimeoutMsg) error {
+	order, err := l.voucherOrderRepo.GetByID(ctx, msg.OrderId)
+	if err != nil {
+		return fmt.Errorf("get order %d: %w", msg.OrderId, err)
+	}
+	if order.Status != model.NOTPAYED {
+		// 已支付或已取消，无需处理
+		return nil
+	}
+
+	// MySQL 事务：更新状态 + 回滚库存；仅当成功关单时才回滚 Redis
+	var didCancel bool
+	err = mysql.GetMysqlDB().Transaction(func(tx *gorm.DB) error {
+		rows, err := l.voucherOrderRepo.UpdateStatus(ctx, msg.OrderId, model.NOTPAYED, model.CANCELED, tx)
+		if err != nil {
+			return fmt.Errorf("update order status: %w", err)
+		}
+		if rows == 0 {
+			return nil
+		}
+		didCancel = true
+		if err := l.seckillVoucherRepo.IncrStock(ctx, msg.VoucherId, tx); err != nil {
+			return fmt.Errorf("rollback stock: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	if !didCancel {
+		return nil
+	}
+
+	// Redis 回滚：恢复库存 + 移除用户购买标记
+	if err := mq.RunOrderTimeoutRollbackLua(ctx, l.redis, msg.VoucherId, msg.UserId); err != nil {
+		logrus.Errorf("订单超时 Redis 回滚失败 orderId=%d: %v", msg.OrderId, err)
+		return err
+	}
+	logrus.Infof("订单超时关单成功 orderId=%d voucherId=%d", msg.OrderId, msg.VoucherId)
+	return nil
 }

@@ -12,4 +12,5 @@ type SeckillVoucherRepo interface {
 	GetByID(ctx context.Context, voucherID int64) (*model.SecKillVoucher, error)
 	Create(ctx context.Context, sv *model.SecKillVoucher, tx *gorm.DB) error
 	DecrStock(ctx context.Context, voucherID int64, tx *gorm.DB) error
+	IncrStock(ctx context.Context, voucherID int64, tx *gorm.DB) error
 }
