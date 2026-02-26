@@ -1,6 +1,7 @@
-# 分布式部署：1 个 Nginx + 3 个 Go 实例
-# 与 docker-compose.yml 合并使用，启动 MySQL、Redis、RocketMQ、Nginx、3 个 Go 实例
+# 分布式部署：1 个 Nginx + 3 个 Go 实例 + Jaeger（可观测性）
+# 与 docker-compose.yml 合并使用
 # 启动：docker-compose -f docker-compose.yml -f docker-compose.distributed.yml up -d
+# 配置一致性：通过 env_file 统一 JWT_SECRET_KEY、MYSQL_PASSWORD、REDIS_PASSWORD 等
 
 version: '3.8'
 
@@ -19,15 +20,36 @@ services:
     networks:
       - app-net
 
+  # Jaeger 全量模式：Trace 收集 + UI（http://localhost:16686）
+  jaeger:
+    image: jaegertracing/all-in-one:1.61
+    container_name: local-review-jaeger
+    ports:
+      - "16686:16686"   # UI
+      - "4317:4317"     # OTLP gRPC
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    networks:
+      - app-net
+
   go-app-1:
     build: .
     expose:
       - "8088"
     container_name: local-review-go-1
+    env_file:
+      - .env
     environment:
       MYSQL_ADDR: mysql
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-8888.216}
       REDIS_ADDR: redis
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-8888.216}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-local-review-key-change-in-production}
       ROCKETMQ_NAMESRV_ADDR: rocketmq-namesrv:9876
+      MYSQL_MAX_OPEN_CONNS: "30"
+      LOG_FORMAT: json
+      INSTANCE_ID: go-app-1
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4317
     depends_on:
       mysql:
         condition: service_healthy
@@ -41,10 +63,19 @@ services:
     expose:
       - "8088"
     container_name: local-review-go-2
+    env_file:
+      - .env
     environment:
       MYSQL_ADDR: mysql
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-8888.216}
       REDIS_ADDR: redis
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-8888.216}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-local-review-key-change-in-production}
       ROCKETMQ_NAMESRV_ADDR: rocketmq-namesrv:9876
+      MYSQL_MAX_OPEN_CONNS: "30"
+      LOG_FORMAT: json
+      INSTANCE_ID: go-app-2
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4317
     depends_on:
       mysql:
         condition: service_healthy
@@ -58,10 +89,19 @@ services:
     expose:
       - "8088"
     container_name: local-review-go-3
+    env_file:
+      - .env
     environment:
       MYSQL_ADDR: mysql
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-8888.216}
       REDIS_ADDR: redis
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-8888.216}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-local-review-key-change-in-production}
       ROCKETMQ_NAMESRV_ADDR: rocketmq-namesrv:9876
+      MYSQL_MAX_OPEN_CONNS: "30"
+      LOG_FORMAT: json
+      INSTANCE_ID: go-app-3
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4317
     depends_on:
       mysql:
         condition: service_healthy

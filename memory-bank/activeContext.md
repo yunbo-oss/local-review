@@ -8,10 +8,14 @@
 
 > **核心痛点**：单机 → 可水平扩展的分布式集群。
 
-1. **Nginx + 多实例部署** 🔲
-   - 目标：1 个 Nginx + 3 个 Go 实例在 Docker 中启动，Nginx 负载均衡
-   - 配置：`configs/nginx.conf`、`docker-compose.distributed.yml`
-   - 可观测性：OpenTelemetry（Trace、Metrics、Logs）
+1. **Nginx + 多实例部署** ✅
+   - 已实现：1 Nginx + 3 Go 实例，`least_conn` 负载均衡
+   - 健康检查：`/health` 端点 + Nginx `max_fails=3 fail_timeout=30s` 被动健康检查
+   - 日志：JSON 格式 + `instance_id`，便于集中收集
+   - 可观测性：OpenTelemetry Trace（Jaeger OTLP），未配置 endpoint 时自动 noop
+   - 配置一致性：`env_file` 统一 JWT_SECRET_KEY 等
+   - 连接池：`MYSQL_MAX_OPEN_CONNS=30` 每实例，避免 3×100 超限
+   - 可选：`docker-compose.observability.yml` 接入 Loki + Promtail 集中日志
 
 ### 第二阶段：高并发缓存体系 (Cache & Consistency)
 

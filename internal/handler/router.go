@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/gin-gonic/gin"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 )
 
 type Handlers struct {
@@ -25,11 +26,16 @@ func ConfigRouter(r *gin.Engine, handlers Handlers) {
 		panic("handlers not fully wired: please initialize all handlers before configuring routes")
 	}
 
+	// OpenTelemetry Trace：最先挂载，为每个请求创建 span
+	r.Use(otelgin.Middleware("local-review-go"))
 	// 全局中间件：处理所有请求的Token
 	r.Use(middleware.GlobalTokenMiddleware())
 
 	// 添加UV统计中间件（应用到所有路由）
 	r.Use(middleware.UVStatisticsMiddleware())
+
+	// 健康检查：供 Nginx upstream 被动健康检查，不经过 UV 统计等业务逻辑
+	r.GET("/health", Health)
 	r.GET("/ping", func(ctx *gin.Context) {
 		ctx.JSON(http.StatusOK, "pong")
 	})

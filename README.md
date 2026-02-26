@@ -15,10 +15,14 @@ make run               # 或 go run ./cmd/server
 ### 分布式部署（Docker）
 
 ```bash
-# 1 个 Nginx + 3 个 Go 实例，Nginx 负载均衡
+cp .env.example .env   # 首次需创建，保证 JWT_SECRET_KEY 等各实例一致
+# 1 个 Nginx + 3 个 Go 实例 + Jaeger（Trace 可观测性）
 docker-compose -f docker-compose.yml -f docker-compose.distributed.yml up -d
 # 访问 http://localhost:80（经 Nginx 转发）
+# Jaeger UI: http://localhost:16686
 ```
+
+**已实现**：Nginx 负载均衡、健康检查（`/health`）、JSON 日志 + 实例 ID、OpenTelemetry Trace、连接池调优（每实例 30）、配置一致性（env_file）。
 
 项目采用 `cmd/` + `internal/` 目录结构，详见 [AGENTS.md](AGENTS.md)。
 
@@ -28,10 +32,11 @@ docker-compose -f docker-compose.yml -f docker-compose.distributed.yml up -d
 
 ### 第一阶段：分布式架构与可观测性（优先）
 
-1.  **Nginx + 多实例部署** 🔲
-    * **目标**：1 个 Nginx + 3 个 Go 实例在 Docker 中启动，Nginx 做负载均衡。
-    * **要点**：多实例无状态、JWT 无状态认证、RocketMQ 消费者组自动协调、避免进程内有状态。
-    * **可观测性**：OpenTelemetry（Trace、Metrics、Logs）。
+1.  **Nginx + 多实例部署** ✅
+    * **已实现**：1 Nginx + 3 Go 实例，`least_conn` 负载均衡，`max_fails`/`fail_timeout` 被动健康检查。
+    * **无状态**：JWT、共享 MySQL/Redis/RocketMQ。
+    * **可观测性**：OpenTelemetry Trace（Jaeger）、JSON 日志 + instance_id。
+    * **可选**：`docker-compose.observability.yml` 接入 Loki 集中日志。
 
 ### 第二阶段：高并发缓存体系 (Cache & Consistency)
 

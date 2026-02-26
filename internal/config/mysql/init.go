@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -54,14 +55,22 @@ func Init() {
 		panic(err)
 	}
 
-	// 设置连接池参数
-	// MaxOpenConns: 最大打开连接数，建议设置为数据库 max_connections 的 70-80%
-	// 对于中小型应用，100 是一个合理的值
-	sqlDB.SetMaxOpenConns(100)
+	// 设置连接池参数（分布式部署时 3 实例会放大连接数，单实例默认 100，多实例建议 30/实例）
+	// MYSQL_MAX_OPEN_CONNS：可通过环境变量覆盖，默认单机 100、多实例场景建议 30
+	maxOpen := 100
+	if v := getEnv("MYSQL_MAX_OPEN_CONNS", ""); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			maxOpen = n
+		}
+	}
+	sqlDB.SetMaxOpenConns(maxOpen)
 
-	// MaxIdleConns: 最大空闲连接数，建议设置为 MaxOpenConns 的 1/4 到 1/2
-	// 保持一定数量的空闲连接可以快速响应请求，避免频繁创建连接
-	sqlDB.SetMaxIdleConns(25)
+	// MaxIdleConns: 最大空闲连接数，建议为 MaxOpenConns 的 1/4 到 1/2
+	maxIdle := maxOpen / 4
+	if maxIdle < 5 {
+		maxIdle = 5
+	}
+	sqlDB.SetMaxIdleConns(maxIdle)
 
 	// ConnMaxLifetime: 连接的最大生存时间
 	// 设置为 1 小时，避免长时间空闲连接占用资源，同时允许连接复用

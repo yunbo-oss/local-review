@@ -18,8 +18,8 @@ import (
 )
 
 func main() {
+	config.Init() // 含 log.Init()，需在 gin.Default() 之前
 	r := gin.Default()
-	config.Init()
 
 	shopRepo := repository.NewShopRepo(mysql.GetMysqlDB())
 	shopLogic := logic.NewShopLogic(logic.ShopLogicDeps{ShopRepo: shopRepo})
