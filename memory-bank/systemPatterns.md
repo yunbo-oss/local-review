@@ -13,7 +13,7 @@ Handler → Logic → Repository（接口）→ Repository（实现）→ DB
 
 ## 关键模式
 
-- **分布式（后置）**：多实例无状态、JWT 无状态认证、RocketMQ 消费者组自动协调
+- **分布式**：1 Nginx + 3 Go 实例（Docker），Nginx `least_conn` 负载均衡，多实例无状态、JWT 无状态认证、RocketMQ 消费者组自动协调
 - **可观测性**：OpenTelemetry（Trace、Metrics、Logs）
 - **依赖注入**：cmd/server/main.go 中创建 Repo → 注入 Logic → 创建 Handler
 - **统一响应**：`httpx.Result[T]`、`OkWithData`、`Fail`

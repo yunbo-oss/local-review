@@ -76,6 +76,7 @@ local-review-go/
 │           ├── regex.go, random.go, worker.go, ...
 │           └── RedisData.go
 ├── configs/                # 配置文件
+│   └── nginx.conf          # Nginx 负载均衡（1 Nginx + 3 Go 实例）
 ├── front-end/              # 前端静态资源
 ├── doc/                    # 文档
 ├── script/                 # Lua 脚本
@@ -88,6 +89,17 @@ local-review-go/
 ---
 
 ## 4. 开发环境与启动
+
+### 分布式部署（Nginx + 3 Go 实例）
+
+```bash
+# 1 个 Nginx + 3 个 Go 实例，Nginx 负载均衡
+docker-compose -f docker-compose.yml -f docker-compose.distributed.yml up -d
+# 访问 http://localhost:80
+```
+
+- **Nginx**：`configs/nginx.conf`，`least_conn` 负载均衡
+- **Go 实例**：go-app-1/2/3，无状态，共享 MySQL、Redis、RocketMQ
 
 ### 环境变量（优先使用，否则用默认值）
 
@@ -261,7 +273,12 @@ go test ./internal/logic/...
 - 重试与死信：RocketMQ 自带消费重试，超限后自动进入死信队列。
 - 多实例部署时，RocketMQ 消费者组自动协调，无需手动维护实例标识。
 
-### 7.3 认证与路由
+### 7.3 部署架构
+
+- **分布式**：1 Nginx + 3 Go 实例，Nginx `least_conn` 负载均衡，见 `docker-compose.distributed.yml`。
+- **RAG 检索**：规划使用 Redis Vector（非 Elasticsearch）做向量检索，配合 LLM 实现 AI 智能点评。
+
+### 7.4 认证与路由
 
 - 需登录接口挂在 `authGroup` 下，使用 `middleware.AuthRequired()`。
 - 公开接口（登录、验证码、热门博客等）挂在 `publicGroup` 下。

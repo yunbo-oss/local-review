@@ -20,7 +20,7 @@
 
 ### 规划中技术栈
 
+- Nginx + 多实例 Docker 部署（1 Nginx + 3 Go 实例）
 - OpenTelemetry（Trace、Metrics、Logs 可观测性）
-- Sentinel-Go（可扩展限流熔断能力）
-- Elasticsearch（地理位置搜索）
+- Redis Vector（RAG 向量检索，替代 Elasticsearch）
 - LLM + RAG（AI 智能点评）
