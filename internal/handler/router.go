@@ -93,7 +93,7 @@ func configAuthRoutes(apiGroup *gin.RouterGroup, handlers Handlers) {
 		}
 
 		voucherOrderController := authGroup.Group("/voucher-order")
-
+		voucherOrderController.Use(middleware.SeckillRateLimit())
 		{
 			voucherOrderController.POST("/seckill/:id", handlers.VoucherOrder.SeckillVoucher)
 		}

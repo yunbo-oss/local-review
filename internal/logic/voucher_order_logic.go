@@ -24,14 +24,16 @@ import (
 type VoucherOrderLogic interface {
 	SeckillVoucher(ctx context.Context, voucherID, userID int64) error
 	StartConsumers()
+	SetSeckillVoucherBloomFilter(bf *utils.BloomFilter)
 }
 
 type voucherOrderLogic struct {
-	redis                  *redisConfig.Client
-	voucherOrderRepo       repoInterfaces.VoucherOrderRepo
-	seckillVoucherRepo     repoInterfaces.SeckillVoucherRepo
-	producer               RocketMQProducer
-	orderTimeoutProducer   OrderTimeoutProducer
+	redis                    *redisConfig.Client
+	voucherOrderRepo         repoInterfaces.VoucherOrderRepo
+	seckillVoucherRepo      repoInterfaces.SeckillVoucherRepo
+	producer                RocketMQProducer
+	orderTimeoutProducer    OrderTimeoutProducer
+	seckillVoucherBloomFilter *utils.BloomFilter
 }
 
 // RocketMQProducer 秒杀订单消息发送接口，便于测试时 mock
@@ -62,12 +64,17 @@ func NewVoucherOrderLogic(deps VoucherOrderLogicDeps) VoucherOrderLogic {
 		seckillVoucherRepo = repository.NewSeckillVoucherRepo(mysql.GetMysqlDB())
 	}
 	return &voucherOrderLogic{
-		redis:                redisClient.GetRedisClient(),
-		voucherOrderRepo:     voucherOrderRepo,
-		seckillVoucherRepo:   seckillVoucherRepo,
-		producer:             deps.Producer,
-		orderTimeoutProducer: deps.OrderTimeoutProducer,
+		redis:                    redisClient.GetRedisClient(),
+		voucherOrderRepo:         voucherOrderRepo,
+		seckillVoucherRepo:       seckillVoucherRepo,
+		producer:                 deps.Producer,
+		orderTimeoutProducer:     deps.OrderTimeoutProducer,
+		seckillVoucherBloomFilter: nil,
 	}
+}
+
+func (l *voucherOrderLogic) SetSeckillVoucherBloomFilter(bf *utils.BloomFilter) {
+	l.seckillVoucherBloomFilter = bf
 }
 
 func (l *voucherOrderLogic) StartConsumers() {
@@ -91,6 +98,16 @@ func (l *voucherOrderLogic) StartConsumers() {
 }
 
 func (l *voucherOrderLogic) SeckillVoucher(ctx context.Context, voucherID int64, userID int64) error {
+	// 布隆过滤器防穿透：不存在的 voucherId 直接返回，避免击穿缓存/DB
+	if l.seckillVoucherBloomFilter != nil {
+		exists, err := l.seckillVoucherBloomFilter.Contains(voucherID)
+		if err != nil {
+			logrus.Warnf("秒杀券布隆过滤器校验失败 voucher=%d: %v", voucherID, err)
+		} else if !exists {
+			return errors.New("秒杀券不存在")
+		}
+	}
+
 	voucher, err := l.querySeckillVoucherById(ctx, voucherID)
 	if err != nil {
 		return fmt.Errorf("query seckill voucher %d: %w", voucherID, err)

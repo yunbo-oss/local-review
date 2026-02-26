@@ -50,6 +50,8 @@ func (h *VoucherOrderHandler) SeckillVoucher(c *gin.Context) {
 		errorMsg := err.Error()
 		if errorMsg == "秒杀尚未开始" || errorMsg == "秒杀已结束" {
 			c.JSON(http.StatusBadRequest, httpx.Fail[string](errorMsg))
+		} else if errorMsg == "秒杀券不存在" {
+			c.JSON(http.StatusNotFound, httpx.Fail[string](errorMsg))
 		} else if errorMsg == "the condition is not meet" {
 			c.JSON(http.StatusConflict, httpx.Fail[string]("seckill failed: stock insufficient or already purchased"))
 		} else {

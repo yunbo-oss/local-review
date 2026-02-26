@@ -8,6 +8,7 @@ import (
 	"local-review-go/internal/model"
 	"local-review-go/internal/repository"
 	repoInterfaces "local-review-go/internal/repository/interface"
+	"local-review-go/pkg/utils"
 	"local-review-go/pkg/utils/redisx"
 	"strconv"
 	"time"
@@ -20,11 +21,13 @@ type VoucherLogic interface {
 	AddVoucher(ctx context.Context, voucher *model.Voucher) error
 	AddSeckillVoucher(ctx context.Context, voucher *model.Voucher) error
 	QueryVoucherOfShop(ctx context.Context, shopID int64) ([]model.Voucher, error)
+	SetSeckillVoucherBloomFilter(bf *utils.BloomFilter)
 }
 
 type voucherLogic struct {
-	voucherRepo        repoInterfaces.VoucherRepo
-	seckillVoucherRepo repoInterfaces.SeckillVoucherRepo
+	voucherRepo             repoInterfaces.VoucherRepo
+	seckillVoucherRepo      repoInterfaces.SeckillVoucherRepo
+	seckillVoucherBloomFilter *utils.BloomFilter
 }
 
 // VoucherLogicDeps 用于实例化 voucherLogic 的依赖
@@ -43,9 +46,14 @@ func NewVoucherLogic(deps VoucherLogicDeps) VoucherLogic {
 		seckillVoucherRepo = repository.NewSeckillVoucherRepo(mysql.GetMysqlDB())
 	}
 	return &voucherLogic{
-		voucherRepo:        voucherRepo,
-		seckillVoucherRepo: seckillVoucherRepo,
+		voucherRepo:              voucherRepo,
+		seckillVoucherRepo:      seckillVoucherRepo,
+		seckillVoucherBloomFilter: nil,
 	}
+}
+
+func (l *voucherLogic) SetSeckillVoucherBloomFilter(bf *utils.BloomFilter) {
+	l.seckillVoucherBloomFilter = bf
 }
 
 func (l *voucherLogic) AddVoucher(ctx context.Context, voucher *model.Voucher) error {
@@ -78,7 +86,7 @@ func (l *voucherLogic) AddSeckillVoucher(ctx context.Context, voucher *model.Vou
 		return err
 	}
 
-	// 事务成功后，异步更新Redis
+	// 事务成功后，异步更新 Redis 库存
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
@@ -89,6 +97,13 @@ func (l *voucherLogic) AddSeckillVoucher(ctx context.Context, voucher *model.Vou
 			retryUpdateRedis(redisKey, voucher.Stock)
 		}
 	}()
+
+	// 新增秒杀券时同步加入布隆过滤器，便于后续秒杀请求防穿透
+	if l.seckillVoucherBloomFilter != nil && voucher.Id > 0 {
+		if err := l.seckillVoucherBloomFilter.Add(voucher.Id); err != nil {
+			logrus.Warnf("秒杀券加入布隆过滤器失败 voucher=%d: %v", voucher.Id, err)
+		}
+	}
 
 	return nil
 }

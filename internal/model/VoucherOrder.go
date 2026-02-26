@@ -19,8 +19,8 @@ const (
 
 type VoucherOrder struct {
 	Id         int64     `gorm:"primary;column:id" json:"id"`
-	UserId     int64     `gorm:"column:user_id" json:"userId"`
-	VoucherId  int64     `gorm:"column:voucher_id" json:"voucherId"`
+	UserId     int64     `gorm:"column:user_id;uniqueIndex:idx_user_voucher" json:"userId"`
+	VoucherId  int64     `gorm:"column:voucher_id;uniqueIndex:idx_user_voucher" json:"voucherId"`
 	PayType    int       `gorm:"column:pay_type" json:"payType"`
 	Status     int       `gorm:"column:status" json:"status"`
 	CreateTime time.Time `gorm:"column:create_time" json:"create_time"`

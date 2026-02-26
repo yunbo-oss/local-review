@@ -96,6 +96,7 @@ func main() {
 
 	// Init BloomFilter (异步预热)
 	initBloomFilter(shopLogic, shopRepo)
+	initSeckillVoucherBloomFilter(voucherOrderLogic, voucherLogic, seckillVoucherRepo)
 
 	r.Run(":8088")
 
@@ -159,5 +160,38 @@ func initBloomFilter(shopLogic logic.ShopLogic, shopRepo repoInterfaces.ShopRepo
 		}
 
 		logrus.Infof("Bloom Filter pre-heating completed: %d/%d shops loaded successfully", successCount, len(ids))
+	}()
+}
+
+// initSeckillVoucherBloomFilter 秒杀券布隆过滤器预热，防恶意请求不存在的 voucherId 穿透
+func initSeckillVoucherBloomFilter(voucherOrderLogic logic.VoucherOrderLogic, voucherLogic logic.VoucherLogic, seckillVoucherRepo repoInterfaces.SeckillVoucherRepo) {
+	logrus.Info("Starting Seckill Voucher Bloom Filter pre-heating (async)...")
+
+	client := redis.GetRedisClient()
+	bf := utils.NewBloomFilter(client, "bf:seckill-voucher", 10000, 0.01)
+	voucherOrderLogic.SetSeckillVoucherBloomFilter(bf)
+	voucherLogic.SetSeckillVoucherBloomFilter(bf)
+
+	go func() {
+		logrus.Info("Seckill Voucher Bloom Filter pre-heating started in background...")
+
+		ids, err := seckillVoucherRepo.ListAllVoucherIDs(context.Background())
+		if err != nil {
+			logrus.Errorf("Failed to query seckill voucher IDs for Bloom Filter: %v", err)
+			return
+		}
+
+		if len(ids) == 0 {
+			logrus.Info("No seckill vouchers found for Bloom Filter pre-heating")
+			return
+		}
+
+		if err := bf.AddBatch(ids); err != nil {
+			logrus.Warnf("Seckill Voucher Bloom Filter batch add failed: %v, falling back to single add", err)
+			for _, id := range ids {
+				_ = bf.Add(id)
+			}
+		}
+		logrus.Infof("Seckill Voucher Bloom Filter pre-heating completed: %d vouchers loaded", len(ids))
 	}()
 }

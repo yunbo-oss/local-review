@@ -68,3 +68,21 @@ func (r *seckillVoucherRepo) IncrStock(ctx context.Context, voucherID int64, tx 
 		WHERE voucher_id = ?
 	`, voucherID).Error
 }
+
+func (r *seckillVoucherRepo) ListAllVoucherIDs(ctx context.Context) ([]int64, error) {
+	var rows []struct {
+		VoucherId int64
+	}
+	err := r.db.WithContext(ctx).
+		Model(&model.SecKillVoucher{}).
+		Select("voucher_id").
+		Find(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]int64, len(rows))
+	for i := range rows {
+		ids[i] = rows[i].VoucherId
+	}
+	return ids, nil
+}
