@@ -18,9 +18,8 @@ Handler → Logic → Repository（接口）→ Repository（实现）→ DB
 - **依赖注入**：cmd/server/main.go 中创建 Repo → 注入 Logic → 创建 Handler
 - **统一响应**：`httpx.Result[T]`、`OkWithData`、`Fail`
 - **Redis key**：集中在 `pkg/utils/redisx/keys.go`
-- **布隆过滤器**：店铺 ID 预热，防缓存穿透
-- **秒杀（当前）**：Redis 预扣减 + RocketMQ 异步消费
-- **秒杀（规划）**：RocketMQ 削峰 + Redis Lua 预减 + Sentinel 限流 + 延迟消息超时关单
+- **布隆过滤器**：店铺 ID、秒杀券 ID 预热，防缓存穿透
+- **秒杀（当前）**：Redis Lua 预减 + RocketMQ 事务消息 + 异步消费 + 限流 + 订单超时延迟消息 + 唯一索引兜底
 
 ## 开发流程
 

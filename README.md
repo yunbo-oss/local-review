@@ -1,19 +1,17 @@
 # Local Review Go
 
-用Go重写了黑马点评基本功能
-
-我在cursor的帮助下用go重构并优化了这个点评项目。
+我在cursor的帮助下用GO重构并优化了黑马点评项目。
 
 ### 快速启动
 
 ```bash
 # 依赖 MySQL、Redis、RocketMQ（可用 docker-compose up -d 启动）
 cp .env.example .env   # 按需修改
+./script/rocketmq-init-topic.sh  # 可选：预创建 Topic（RocketMQ 5.x 通常自动创建）
 make run               # 或 go run ./cmd/server
 # 访问 http://localhost:8088
 ```
 
-秒杀功能需 RocketMQ，首次启动后可执行 `make rocketmq-topic` 创建 Topic（部分环境会自动创建）。
 
 项目采用 `cmd/` + `internal/` 目录结构，详见 [AGENTS.md](AGENTS.md)。
 
@@ -35,34 +33,35 @@ make run               # 或 go run ./cmd/server
 ### 第二阶段：高可靠异步架构 (Reliability & Async)
 
 3.  **秒杀削峰填谷 (RocketMQ 改造)** ✅
-    * **已实现**：Redis Lua 预减 → 发送 RocketMQ → 立即返回「排队中」→ 消费者异步写 MySQL。
+    * **已实现**：事务消息（半消息 → Lua 预减 → Commit/Rollback）→ 消费者异步写 MySQL → 立即返回「排队中」。
     * 重试与死信由 RocketMQ 自带。
 
-4.  **服务熔断与限流 (Sentinel)**
-    * **痛点**：秒杀瞬间流量超过 Go 服务端处理上限，导致 CPU 飙升甚至服务崩溃。
-    * **方案**：集成 Sentinel-Go。
-    * **策略**：针对秒杀接口配置 QPS 限流（如限制 1000 QPS）。超出阈值的请求直接返回 "系统繁忙"，保护下游服务不被压垮。
+4.  **服务熔断与限流** ✅
+    * **已实现**：基于 `golang.org/x/time/rate`，秒杀接口 QPS 限流（默认 1000，可配 `SECKILL_RATE_LIMIT`/`SECKILL_RATE_BURST`），超限返回 429。规划：Sentinel-Go 可扩展更多能力。
 
-5.  **订单超时处理 (Delay Message)**
-    * **原方案**：Cron 定时任务每分钟轮询全表，性能差且有延迟。
-    * **新方案**：利用 RocketMQ 的 **延迟消息** (Level 16 / 30min)。
-    * **流程**：下单后投递延迟消息。30分钟后消费者收到消息，回查支付状态。若未支付，则执行“关单+回滚库存”，实现精准且低负载的超时控制。
+5.  **订单超时处理 (Delay Message)** ✅
+    * **已实现**：RocketMQ 延迟消息 (Level 16 / 30min)。下单后投递 → 30 分钟后消费者回查支付状态 → 未支付则关单 + 回滚 Redis/MySQL。
+    * 环境变量 `ROCKETMQ_DELAY_TIME_LEVEL=4` 可改为 30 秒延迟，便于测试。
+
+6.  **秒杀防护增强** ✅
+    * **唯一索引**：`tb_voucher_order (user_id, voucher_id)` 唯一约束，分布式锁失效时数据库兜底。
+    * **秒杀券布隆过滤器**：启动预热 `bf:seckill-voucher`，防恶意请求不存在的 voucherId 穿透。
 
 ### 第三阶段：搜索与智能化 (Search & AI)
 
-6.  **Elasticsearch 地理位置搜索**
+7.  **Elasticsearch 地理位置搜索**
     * **痛点**：MySQL `LIKE` 无法高效处理全文检索，`Distance` 计算无法利用索引。
     * **方案**：引入 Elasticsearch。
     * **同步策略**：采用**应用层双写**策略（DB 事务提交后异步写入 ES），保证数据基本一致。利用 ES 的 `Geo-Distance` 实现高性能的“附近商户”查询。
 
-7.  **AI 智能点评助手 (RAG 实现)**
+8.  **AI 智能点评助手 (RAG 实现)**
     * **功能**：集成 LLM 大模型。
     * **流程**：用户提问 -> ES 检索 Top5 相关店铺 -> 组装 Prompt -> AI 生成推荐建议。
     * **体验**：通过 SSE (Server-Sent Events) 实现流式输出，让点评回复具有“真人打字”般的即时感。
 
 ### 第四阶段（可选/后置）：分布式架构与可观测性
 
-8.  **多实例部署与可观测性**
+9.  **多实例部署与可观测性**
     * **目标**：单机 → 可水平扩展的分布式集群。
     * **要点**：
         * 多实例无状态部署，认证使用 JWT（无状态），无需 Session 存储。

@@ -26,14 +26,13 @@
    - 保证「扣 Redis」与「发消息」原子性，避免 Redis 扣了但消息未发
    - 重试与死信由 RocketMQ 自带
 
-4. **服务熔断与限流 (Sentinel)** 🔲
-   - 痛点：秒杀瞬间流量超限，CPU 飙升甚至崩溃
-   - 方案：集成 Sentinel-Go，秒杀接口 QPS 限流（如 1000），超限返回「系统繁忙」
+4. **服务熔断与限流** ✅
+   - 已实现：`golang.org/x/time/rate` 秒杀接口限流（默认 1000 QPS，可配 `SECKILL_RATE_LIMIT`/`SECKILL_RATE_BURST`），超限返回 429
 
-5. **订单超时处理 (Delay Message)** 🔲
-   - 原方案：Cron 每分钟轮询全表，性能差且有延迟
-   - 新方案：RocketMQ 延迟消息 (Level 16 / 30min)
-   - 流程：下单后投递延迟消息 → 30 分钟后消费者回查支付状态 → 未支付则关单 + 回滚库存
+5. **订单超时处理 (Delay Message)** ✅
+   - 已实现：RocketMQ 延迟消息 (Level 16 / 30min)
+   - 流程：下单后投递 → 30 分钟后消费者回查 → 未支付则关单 + 回滚 Redis/MySQL
+   - 测试：`ROCKETMQ_DELAY_TIME_LEVEL=4` 可改为 30 秒
 
 ### 第三阶段：搜索与智能化 (Search & AI)
 
@@ -55,6 +54,15 @@
    - 目标：单机 → 可水平扩展的分布式集群
    - 要点：多实例无状态、认证用 JWT（无状态）、RocketMQ 消费者组自动协调、避免进程内有状态
    - OpenTelemetry：Trace、Metrics、Logs
+
+---
+
+## 近期完成：秒杀防护增强 ✅
+
+- **唯一索引**：`tb_voucher_order (user_id, voucher_id)` 唯一约束，分布式锁失效时数据库兜底
+- **限流**：秒杀接口 QPS 限流（`golang.org/x/time/rate`），默认 1000 QPS，超限 429
+- **秒杀券布隆过滤器**：`bf:seckill-voucher` 启动预热，防恶意请求不存在的 voucherId 穿透；AddSeckillVoucher 时同步加入
+- **订单超时延迟消息**：30 分钟未支付自动关单 + 回滚 Redis/MySQL
 
 ---
 
