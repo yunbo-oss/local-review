@@ -137,8 +137,8 @@ func configPublicRoutes(apiGroup *gin.RouterGroup, handlers Handlers) {
 	{
 		userControllerWithOutMid := publicGroup.Group("/user")
 		{
-			userControllerWithOutMid.POST("/code", handlers.User.SendCode)
-			userControllerWithOutMid.POST("/login", handlers.User.Login)
+			userControllerWithOutMid.POST("/code", middleware.SendCodeRateLimit(), handlers.User.SendCode)
+			userControllerWithOutMid.POST("/login", middleware.LoginRateLimit(), handlers.User.Login)
 		}
 
 		shopTypeController := publicGroup.Group("/shop-type")
