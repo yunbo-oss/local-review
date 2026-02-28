@@ -48,6 +48,8 @@ services:
       INSTANCE_ID: go-app-1
       SECKILL_RATE_LIMIT: "50"
       SECKILL_RATE_BURST: "80"
+      LOGIN_RATE_LIMIT: "1000"
+      LOGIN_RATE_BURST: "100"
     command: sh -c "sleep 20 && ./server"
     depends_on:
       mysql:
@@ -87,6 +89,8 @@ services:
       INSTANCE_ID: go-app-2
       SECKILL_RATE_LIMIT: "50"
       SECKILL_RATE_BURST: "80"
+      LOGIN_RATE_LIMIT: "1000"
+      LOGIN_RATE_BURST: "100"
     command: sh -c "sleep 20 && ./server"
     depends_on:
       mysql:
@@ -126,6 +130,8 @@ services:
       INSTANCE_ID: go-app-3
       SECKILL_RATE_LIMIT: "50"
       SECKILL_RATE_BURST: "80"
+      LOGIN_RATE_LIMIT: "1000"
+      LOGIN_RATE_BURST: "100"
     command: sh -c "sleep 20 && ./server"
     depends_on:
       mysql:

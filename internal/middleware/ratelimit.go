@@ -107,8 +107,21 @@ func getAuthLimiter(ip string, limit rate.Limit, burst int) *rate.Limiter {
 }
 
 // LoginRateLimit 登录接口按 IP 限流，默认每 IP 每分钟 5 次
+// 压测时可通过 LOGIN_RATE_LIMIT、LOGIN_RATE_BURST 调高（如 120、60 支持 51 用户快速登录）
 func LoginRateLimit() gin.HandlerFunc {
-	return perIPRateLimit(5.0/60, 5, "请求过于频繁，请稍后重试")
+	limit := 5.0 / 60
+	burst := 5
+	if v, ok := os.LookupEnv("LOGIN_RATE_LIMIT"); ok {
+		if i, err := strconv.Atoi(v); err == nil && i > 0 {
+			limit = float64(i) / 60
+		}
+	}
+	if v, ok := os.LookupEnv("LOGIN_RATE_BURST"); ok {
+		if i, err := strconv.Atoi(v); err == nil && i > 0 {
+			burst = i
+		}
+	}
+	return perIPRateLimit(rate.Limit(limit), burst, "请求过于频繁，请稍后重试")
 }
 
 // SendCodeRateLimit 验证码接口按 IP 限流，默认每 IP 每分钟 3 次

@@ -7,6 +7,11 @@
 set -e
 REDIS_CMD="docker exec local-review-redis redis-cli -a 8888.216"
 
+echo "→ 清空 Redis 秒杀订单标记 (seckill:order:{voucherId})，否则 Lua 会误判已抢购"
+for vid in 6 7 8 9 10 11 12 13 14 15 16 17 18; do
+  $REDIS_CMD DEL "seckill:order:$vid" 2>/dev/null || true
+done
+
 echo "→ 初始化 Redis 秒杀库存 (seckill:stock:{voucherId})"
 $REDIS_CMD SET seckill:stock:6 500 EX 86400 2>/dev/null || true
 $REDIS_CMD SET seckill:stock:7 300 EX 86400 2>/dev/null || true
