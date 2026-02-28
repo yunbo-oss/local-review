@@ -34,8 +34,8 @@ make run
 # 1. 创建 .env（保证 JWT_SECRET_KEY 等各实例一致）
 cp .env.example .env
 
-# 2. 启动分布式（精简版，无 Jaeger，推荐）
-docker compose -f docker-compose.yml -f docker-compose.distributed.minimal.yml up -d --build
+# 2. 启动分布式（1 Nginx + 3 Go + Jaeger）
+docker compose -f docker-compose.yml -f docker-compose.distributed.yml up -d --build
 
 # 3. 可选：预创建 RocketMQ Topic、种子数据（压测需 seed + seed-load-test + seed-redis）
 ./script/rocketmq-init-topic.sh
@@ -44,14 +44,7 @@ make seed-load-test
 make seed-redis
 # 若服务已启动再执行 seed，需重启 Go 实例以刷新布隆过滤器
 
-# 访问 http://localhost:80（经 Nginx 负载均衡）
-```
-
-**完整版（含 Jaeger 可观测性）**：需能拉取 `jaegertracing/all-in-one` 镜像时使用：
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.distributed.yml up -d --build
-# Jaeger UI: http://localhost:16686
+# 访问 http://localhost:80（Nginx）| http://localhost:16686（Jaeger UI）
 ```
 
 ### 功能测试与压测
@@ -81,7 +74,6 @@ make load-test-seckill      # 秒杀压测（多用户+多券，8G 内存）
     * **已实现**：1 Nginx + 3 Go 实例，`least_conn` 负载均衡，`max_fails`/`fail_timeout` 被动健康检查。
     * **无状态**：JWT、共享 MySQL/Redis/RocketMQ。
     * **可观测性**：OpenTelemetry Trace（Jaeger）、JSON 日志 + instance_id。
-    * **可选**：`docker-compose.observability.yml` 接入 Loki 集中日志。
 
 ### 第二阶段：高并发缓存体系 (Cache & Consistency)
 

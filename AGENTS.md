@@ -107,7 +107,7 @@ make run                               # 或 go run ./cmd/server
 
 ```bash
 cp .env.example .env
-docker compose -f docker-compose.yml -f docker-compose.distributed.minimal.yml up -d --build
+docker compose -f docker-compose.yml -f docker-compose.distributed.yml up -d --build
 ./script/rocketmq-init-topic.sh        # 首次部署建议执行
 make seed && make seed-redis           # 可选：种子数据
 # 访问 http://localhost:80
@@ -126,7 +126,7 @@ make load-test-seckill                 # 秒杀压测（需 seed + seed-load-tes
 - **JWT_SECRET_KEY**：多实例部署时各实例必须一致，通过 `.env` 或 `env_file` 统一配置。
 - **RocketMQ Topic**：首次部署建议执行 `./script/rocketmq-init-topic.sh`，否则消费者可能因 topic 不存在而启动失败。
 - **种子数据**：压测或功能测试前需 `make seed`（MySQL）和 `make seed-redis`（Redis 秒杀库存 + 验证码）。**布隆过滤器**在启动时从 DB 加载店铺 ID，若先启动服务再执行 seed，需重启 Go 实例以刷新布隆过滤器。
-- **分布式 Nginx 502**：若 Go 实例启动慢于 Nginx，Nginx 可能将 upstream 标记为失败；`docker-compose.distributed.minimal.yml` 已配置 `depends_on: service_healthy`，Nginx 会等待 Go 就绪后再启动。
+- **分布式 Nginx 502**：若 Go 实例启动慢于 Nginx，Nginx 可能将 upstream 标记为失败；`docker-compose.distributed.yml` 已配置 `depends_on: service_healthy`，Nginx 会等待 Go 就绪后再启动。
 - **RocketMQ Go 客户端**：Docker 中需使用 IP 而非 hostname，`script/docker-entrypoint.sh` 会在启动时用 nslookup 解析 `rocketmq-namesrv` 为 IP。
 
 ### 4.3 环境变量（优先使用，否则用默认值）

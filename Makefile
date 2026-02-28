@@ -46,3 +46,7 @@ seed-redis:
 # 秒杀压测（多用户+多券，8G 内存推荐限流 50 QPS/实例）
 load-test-seckill:
 	k6 run -e BASE_URL=http://localhost:80 script/load-test-seckill.js
+
+# 秒杀压测-全速（不设 sleep，测机器上限，需 docker-compose 中 SECKILL_RATE_LIMIT 调高）
+load-test-seckill-max:
+	k6 run -e BASE_URL=http://localhost:80 -e NO_SLEEP=1 script/load-test-seckill.js

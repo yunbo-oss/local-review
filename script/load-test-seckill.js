@@ -17,16 +17,17 @@ const API = `${BASE_URL}/api`;
 
 const TEST_CODE = '123456';
 
-// 51 个用户
+// 151 个用户（13800138000 + 13800138001-50 + 13800138051-13800138150）
 const PHONES = [
   '13800138000',
   ...Array.from({ length: 50 }, (_, i) => `138001380${String(i + 1).padStart(2, '0')}`),
+  ...Array.from({ length: 100 }, (_, i) => `13800138${String(i + 51).padStart(3, '0')}`),
 ];
 
-// 13 个秒杀券（6-18）
-const VOUCHER_IDS = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18];
+// 25 个秒杀券（6-30）
+const VOUCHER_IDS = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30];
 
-// 压测前预先登录 51 用户（登录限流已移除，可快速登录）
+// 压测前预先登录（登录限流已移除，可快速登录）
 export function setup() {
   const BASE_URL = __ENV.BASE_URL || 'http://localhost:80';
   const API = `${BASE_URL}/api`;
@@ -55,15 +56,17 @@ const seckillSuccess = new Counter('seckill_success');
 const seckillRateLimited = new Counter('seckill_rate_limited');
 const seckillAlreadyBought = new Counter('seckill_already_bought');
 
+const VUS = PHONES.length;
+const ITERATIONS = __ENV.NO_SLEEP === '1' ? 500 : 200;
+
 export const options = {
-  setupTimeout: '90s',
+  setupTimeout: '120s',
   scenarios: {
     seckill: {
-      // 必须 51 VU 同时跑，每 VU 一用户，否则 constant-arrival-rate 只起 1-3 个 VU
       executor: 'per-vu-iterations',
-      vus: 51,
-      iterations: 200,
-      maxDuration: '120s',
+      vus: VUS,
+      iterations: ITERATIONS,
+      maxDuration: __ENV.NO_SLEEP === '1' ? '90s' : '180s',
     },
   },
   thresholds: {
@@ -76,7 +79,7 @@ function seckill(data) {
   const token = data.tokens[vuId - 1];
   if (!token) return;
 
-  // 每个 VU 轮询不同券，分散到 13 个券上，避免都抢同一张
+  // 每个 VU 轮询不同券，分散到多张券上
   const iter = exec.vu.iterationInScenario;
   const voucherIdx = (vuId - 1 + iter) % VOUCHER_IDS.length;
   const voucherId = VOUCHER_IDS[voucherIdx];
@@ -93,8 +96,8 @@ function seckill(data) {
 
   check(res, { 'seckill responded': (r) => r.status > 0 });
 
-  // 控制 QPS：51 VU × 2.5 req/s ≈ 127，低于限流 150
-  sleep(0.4);
+  // 不设 sleep，全速压测测机器上限
+  if (__ENV.NO_SLEEP !== '1') sleep(0.4);
 }
 
 export default seckill;

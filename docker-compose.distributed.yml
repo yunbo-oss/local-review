@@ -1,9 +1,6 @@
-# 分布式部署：1 个 Nginx + 3 个 Go 实例 + Jaeger（可观测性）
-# 与 docker-compose.yml 合并使用
-# 启动：docker-compose -f docker-compose.yml -f docker-compose.distributed.yml up -d
-# 配置一致性：通过 env_file 统一 JWT_SECRET_KEY、MYSQL_PASSWORD、REDIS_PASSWORD 等
-
-version: '3.8'
+# 分布式 + Jaeger：1 Nginx + 3 Go 实例 + 链路追踪
+# 启动：docker compose -f docker-compose.yml -f docker-compose.distributed.yml up -d --build
+# 访问：http://localhost:80（Nginx）| http://localhost:16686（Jaeger UI）
 
 services:
   nginx:
@@ -14,19 +11,21 @@ services:
     volumes:
       - ./configs/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
-      - go-app-1
-      - go-app-2
-      - go-app-3
+      go-app-1:
+        condition: service_healthy
+      go-app-2:
+        condition: service_healthy
+      go-app-3:
+        condition: service_healthy
     networks:
       - app-net
 
-  # Jaeger 全量模式：Trace 收集 + UI（http://localhost:16686）
   jaeger:
-    image: jaegertracing/all-in-one:1.61
+    image: jaegertracing/all-in-one:1.73.0
     container_name: local-review-jaeger
     ports:
-      - "16686:16686"   # UI
-      - "4317:4317"     # OTLP gRPC
+      - "16686:16686"
+      - "4317:4317"
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
     networks:
@@ -37,6 +36,13 @@ services:
     expose:
       - "8088"
     container_name: local-review-go-1
+    restart: on-failure
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8088/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 35s
     env_file:
       - .env
     environment:
@@ -50,11 +56,20 @@ services:
       LOG_FORMAT: json
       INSTANCE_ID: go-app-1
       OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4317
+      SECKILL_RATE_LIMIT: "10000"
+      SECKILL_RATE_BURST: "20000"
+    command: sh -c "sleep 20 && ./server"
     depends_on:
       mysql:
         condition: service_healthy
       redis:
         condition: service_healthy
+      rocketmq-namesrv:
+        condition: service_started
+      rocketmq-broker:
+        condition: service_started
+      jaeger:
+        condition: service_started
     networks:
       - app-net
 
@@ -63,6 +78,13 @@ services:
     expose:
       - "8088"
     container_name: local-review-go-2
+    restart: on-failure
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8088/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 35s
     env_file:
       - .env
     environment:
@@ -76,11 +98,20 @@ services:
       LOG_FORMAT: json
       INSTANCE_ID: go-app-2
       OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4317
+      SECKILL_RATE_LIMIT: "10000"
+      SECKILL_RATE_BURST: "20000"
+    command: sh -c "sleep 20 && ./server"
     depends_on:
       mysql:
         condition: service_healthy
       redis:
         condition: service_healthy
+      rocketmq-namesrv:
+        condition: service_started
+      rocketmq-broker:
+        condition: service_started
+      jaeger:
+        condition: service_started
     networks:
       - app-net
 
@@ -89,6 +120,13 @@ services:
     expose:
       - "8088"
     container_name: local-review-go-3
+    restart: on-failure
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8088/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 35s
     env_file:
       - .env
     environment:
@@ -102,10 +140,19 @@ services:
       LOG_FORMAT: json
       INSTANCE_ID: go-app-3
       OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4317
+      SECKILL_RATE_LIMIT: "10000"
+      SECKILL_RATE_BURST: "20000"
+    command: sh -c "sleep 20 && ./server"
     depends_on:
       mysql:
         condition: service_healthy
       redis:
         condition: service_healthy
+      rocketmq-namesrv:
+        condition: service_started
+      rocketmq-broker:
+        condition: service_started
+      jaeger:
+        condition: service_started
     networks:
       - app-net
