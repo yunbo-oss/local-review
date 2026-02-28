@@ -90,18 +90,46 @@ local-review-go/
 
 ## 4. 开发环境与启动
 
-### 分布式部署（Nginx + 3 Go 实例）
+### 4.1 启动命令
+
+**本地开发（单实例）**：
 
 ```bash
-# 1 个 Nginx + 3 个 Go 实例，Nginx 负载均衡
-docker-compose -f docker-compose.yml -f docker-compose.distributed.yml up -d
+docker compose up -d                    # 启动 MySQL、Redis、RocketMQ
+cp .env.example .env && go mod tidy
+./script/rocketmq-init-topic.sh        # 可选：预创建 Topic
+make seed && make seed-redis           # 可选：种子数据
+make run                               # 或 go run ./cmd/server
+# 访问 http://localhost:8088
+```
+
+**分布式部署（1 Nginx + 3 Go 实例）**：
+
+```bash
+cp .env.example .env
+docker compose -f docker-compose.yml -f docker-compose.distributed.minimal.yml up -d --build
+./script/rocketmq-init-topic.sh        # 首次部署建议执行
+make seed && make seed-redis           # 可选：种子数据
 # 访问 http://localhost:80
 ```
 
-- **Nginx**：`configs/nginx.conf`，`least_conn` 负载均衡
-- **Go 实例**：go-app-1/2/3，无状态，共享 MySQL、Redis、RocketMQ
+**功能测试**：
 
-### 环境变量（优先使用，否则用默认值）
+```bash
+make test-api                          # 接口冒烟测试
+./script/api-test.sh http://localhost:80   # 指定 BASE_URL（分布式用 80）
+make load-test-seckill                 # 秒杀压测（需 seed + seed-load-test + seed-redis）
+```
+
+### 4.2 注意事项
+
+- **JWT_SECRET_KEY**：多实例部署时各实例必须一致，通过 `.env` 或 `env_file` 统一配置。
+- **RocketMQ Topic**：首次部署建议执行 `./script/rocketmq-init-topic.sh`，否则消费者可能因 topic 不存在而启动失败。
+- **种子数据**：压测或功能测试前需 `make seed`（MySQL）和 `make seed-redis`（Redis 秒杀库存 + 验证码）。**布隆过滤器**在启动时从 DB 加载店铺 ID，若先启动服务再执行 seed，需重启 Go 实例以刷新布隆过滤器。
+- **分布式 Nginx 502**：若 Go 实例启动慢于 Nginx，Nginx 可能将 upstream 标记为失败；`docker-compose.distributed.minimal.yml` 已配置 `depends_on: service_healthy`，Nginx 会等待 Go 就绪后再启动。
+- **RocketMQ Go 客户端**：Docker 中需使用 IP 而非 hostname，`script/docker-entrypoint.sh` 会在启动时用 nslookup 解析 `rocketmq-namesrv` 为 IP。
+
+### 4.3 环境变量（优先使用，否则用默认值）
 
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
@@ -115,19 +143,7 @@ docker-compose -f docker-compose.yml -f docker-compose.distributed.yml up -d
 | `REDIS_PASSWORD` | Redis 密码 | 8888.216 |
 | `JWT_SECRET_KEY` | JWT 密钥 | local-review-key-change-in-production（生产必须修改） |
 
-### 启动命令
-
-```bash
-# 安装依赖
-go mod tidy
-
-# 启动服务（默认 :8088）
-go run ./cmd/server
-# 或使用 Makefile
-make run
-```
-
-### 构建
+### 4.4 构建
 
 ```bash
 go build -o bin/local-review-go ./cmd/server

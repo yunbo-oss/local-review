@@ -10,6 +10,9 @@ RUN apk --no-cache add ca-certificates tzdata
 ENV TZ=Asia/Shanghai
 WORKDIR /app
 COPY --from=builder /app/server .
+COPY --from=builder /app/script ./script
 COPY front-end ./front-end
+RUN chmod +x /app/script/docker-entrypoint.sh
 EXPOSE 8088
+ENTRYPOINT ["/app/script/docker-entrypoint.sh"]
 CMD ["./server"]

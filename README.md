@@ -2,25 +2,70 @@
 
 我在cursor的帮助下用GO重构并优化了黑马点评项目。
 
-### 快速启动
+---
+
+## 启动命令
+
+### 方式一：本地开发（单实例）
 
 ```bash
-# 依赖 MySQL、Redis、RocketMQ（可用 docker-compose up -d 启动）
-cp .env.example .env   # 按需修改
-./script/rocketmq-init-topic.sh  # 可选：预创建 Topic（RocketMQ 5.x 通常自动创建）
-make run               # 或 go run ./cmd/server
+# 1. 启动依赖（MySQL、Redis、RocketMQ）
+docker compose up -d
+
+# 2. 创建 .env 并安装依赖
+cp .env.example .env
+go mod tidy
+
+# 3. 可选：预创建 RocketMQ Topic、种子数据（压测需 make seed-load-test）
+./script/rocketmq-init-topic.sh
+make seed
+make seed-redis
+
+# 4. 启动服务
+make run
+# 或 go run ./cmd/server
+
 # 访问 http://localhost:8088
 ```
 
-### 分布式部署（Docker）
+### 方式二：分布式部署（1 Nginx + 3 Go 实例）
 
 ```bash
-cp .env.example .env   # 首次需创建，保证 JWT_SECRET_KEY 等各实例一致
-# 1 个 Nginx + 3 个 Go 实例 + Jaeger（Trace 可观测性）
-docker-compose -f docker-compose.yml -f docker-compose.distributed.yml up -d
-# 访问 http://localhost:80（经 Nginx 转发）
+# 1. 创建 .env（保证 JWT_SECRET_KEY 等各实例一致）
+cp .env.example .env
+
+# 2. 启动分布式（精简版，无 Jaeger，推荐）
+docker compose -f docker-compose.yml -f docker-compose.distributed.minimal.yml up -d --build
+
+# 3. 可选：预创建 RocketMQ Topic、种子数据（压测需 seed + seed-load-test + seed-redis）
+./script/rocketmq-init-topic.sh
+make seed
+make seed-load-test
+make seed-redis
+# 若服务已启动再执行 seed，需重启 Go 实例以刷新布隆过滤器
+
+# 访问 http://localhost:80（经 Nginx 负载均衡）
+```
+
+**完整版（含 Jaeger 可观测性）**：需能拉取 `jaegertracing/all-in-one` 镜像时使用：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.distributed.yml up -d --build
 # Jaeger UI: http://localhost:16686
 ```
+
+### 功能测试与压测
+
+```bash
+# 接口冒烟测试（需服务已启动）
+make test-api
+# 或指定 BASE_URL: ./script/api-test.sh http://localhost:80
+
+# 压测（需先 make seed && make seed-load-test && make seed-redis）
+make load-test-seckill      # 秒杀压测（多用户+多券，8G 内存）
+```
+
+压测方式与报告见 [doc/LOAD_TEST.md](doc/LOAD_TEST.md)。
 
 **已实现**：Nginx 负载均衡、健康检查（`/health`）、JSON 日志 + 实例 ID、OpenTelemetry Trace、连接池调优（每实例 30）、配置一致性（env_file）。
 

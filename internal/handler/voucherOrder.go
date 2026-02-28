@@ -1,9 +1,11 @@
 package handler
 
 import (
-	"local-review-go/pkg/httpx"
+	"errors"
 	"local-review-go/internal/logic"
 	"local-review-go/internal/middleware"
+	"local-review-go/internal/model"
+	"local-review-go/pkg/httpx"
 	"net/http"
 	"strconv"
 
@@ -48,7 +50,9 @@ func (h *VoucherOrderHandler) SeckillVoucher(c *gin.Context) {
 	if err != nil {
 		// 根据错误类型判断状态码
 		errorMsg := err.Error()
-		if errorMsg == "秒杀尚未开始" || errorMsg == "秒杀已结束" {
+		if errors.Is(err, model.ErrStockNotEnough) {
+			c.JSON(http.StatusBadRequest, httpx.Fail[string]("库存不足"))
+		} else if errorMsg == "秒杀尚未开始" || errorMsg == "秒杀已结束" {
 			c.JSON(http.StatusBadRequest, httpx.Fail[string](errorMsg))
 		} else if errorMsg == "秒杀券不存在" {
 			c.JSON(http.StatusNotFound, httpx.Fail[string](errorMsg))
