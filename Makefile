@@ -47,6 +47,10 @@ seed-redis:
 seed-vector:
 	go run ./cmd/seed-vector
 
+# RAG 索引 schema 变更后：删除旧索引，再 make seed-vector 重新导入
+drop-vector-index:
+	chmod +x script/drop-vector-index.sh && ./script/drop-vector-index.sh
+
 # 测试 LLM API 是否可用（Embedding + Chat，仅需 LLM_API_KEY）
 test-llm:
 	go run ./cmd/test-llm

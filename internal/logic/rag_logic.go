@@ -2,7 +2,9 @@ package logic
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"local-review-go/internal/llm"
@@ -18,11 +20,21 @@ const (
 	ragSystemPrompt = `你是一个大众点评的智能助手。
 根据以下检索到的店铺信息及用户点评，回答用户的问题。请简洁、友好地给出推荐建议。
 若检索到的店铺信息不足以回答，可说明并建议用户补充需求。`
+
+	// filter 提取的 system prompt
+	ragFilterExtractPrompt = `你是一个意图解析助手。从用户的店铺检索问题中提取结构化过滤条件，输出 JSON。
+可选区域：朝阳区、海淀区、西城区、东城区、丰台区（用户提到其他区域时用最接近的或留空）。
+可选类型：美食、咖啡、酒店（用户说火锅、川菜、咖啡厅等时映射到对应类型）。
+人均价格：用户说「人均100」「100以内」「不超过200」等时提取为 maxPrice；「人均50以上」为 minPrice。
+评分：用户要求「评分高的」「4星以上」等可设为 minScore（满分50，45 约等于 4.5 星）。
+仅输出 JSON，不要其他文字。未提及的字段填 0 或空字符串。
+格式：{"area":"","typeName":"","maxPrice":0,"minPrice":0,"minScore":0,"minComments":0}`
 )
 
 // RAGLogic RAG 智能点评逻辑
 type RAGLogic interface {
 	Chat(ctx context.Context, question string, onChunk func(string)) error
+	ChatWithFilter(ctx context.Context, question string, filter *repoInterfaces.VectorSearchFilter, onChunk func(string)) error
 	IngestShop(ctx context.Context, shopID int64, name, typeName, area, textContent string, embedding []float32) error
 }
 
@@ -51,10 +63,21 @@ func NewRAGLogic(deps RAGLogicDeps) RAGLogic {
 	}
 }
 
-// Chat 用户提问 → 向量检索 → LLM 生成 → 流式输出
+// Chat 用户提问 → 向量检索 → LLM 生成 → 流式输出（无过滤）
 func (l *ragLogic) Chat(ctx context.Context, question string, onChunk func(string)) error {
+	return l.ChatWithFilter(ctx, question, nil, onChunk)
+}
+
+// ChatWithFilter 带预过滤的 RAG 对话（Filtered Vector Search）
+// 若 filter 为 nil，则通过 LLM 从用户提问中自动提取过滤条件
+func (l *ragLogic) ChatWithFilter(ctx context.Context, question string, filter *repoInterfaces.VectorSearchFilter, onChunk func(string)) error {
 	if l.embedding == nil || l.chat == nil || l.vector == nil {
 		return fmt.Errorf("RAG 服务未配置（请设置 LLM_API_KEY）")
+	}
+
+	// 0. 若未传入 filter，用 LLM 从提问中提取
+	if filter == nil {
+		filter = l.extractFilterFromQuestion(ctx, question)
 	}
 
 	// 1. 问题转向量
@@ -63,8 +86,8 @@ func (l *ragLogic) Chat(ctx context.Context, question string, onChunk func(strin
 		return fmt.Errorf("embedding 问题: %w", err)
 	}
 
-	// 2. KNN 检索 TopK 店铺
-	shops, err := l.vector.SearchShops(ctx, queryVec, "", ragTopK)
+	// 2. 带预过滤的 KNN 检索 TopK 店铺
+	shops, err := l.vector.SearchShops(ctx, queryVec, filter, ragTopK)
 	if err != nil {
 		return fmt.Errorf("向量检索: %w", err)
 	}
@@ -88,6 +111,54 @@ func (l *ragLogic) Chat(ctx context.Context, question string, onChunk func(strin
 		return fmt.Errorf("生成回答: %w", err)
 	}
 	return nil
+}
+
+// extractFilterFromQuestion 用 LLM 从用户提问中提取过滤条件
+func (l *ragLogic) extractFilterFromQuestion(ctx context.Context, question string) *repoInterfaces.VectorSearchFilter {
+	messages := []openai.ChatCompletionMessage{
+		{Role: openai.ChatMessageRoleSystem, Content: ragFilterExtractPrompt},
+		{Role: openai.ChatMessageRoleUser, Content: "用户问题：" + question},
+	}
+	resp, err := l.chat.ChatComplete(ctx, messages)
+	if err != nil {
+		logrus.Warnf("LLM 提取 filter 失败，将不过滤: %v", err)
+		return nil
+	}
+	return parseFilterFromJSON(resp)
+}
+
+// parseFilterFromJSON 解析 LLM 返回的 JSON 为 VectorSearchFilter
+func parseFilterFromJSON(s string) *repoInterfaces.VectorSearchFilter {
+	s = strings.TrimSpace(s)
+	// 去除 markdown 代码块
+	if m := regexp.MustCompile("(?s)```(?:json)?\\s*([^`]+)```").FindStringSubmatch(s); len(m) > 1 {
+		s = strings.TrimSpace(m[1])
+	}
+	var v struct {
+		Area        string  `json:"area"`
+		TypeName    string  `json:"typeName"`
+		MaxPrice    int64   `json:"maxPrice"`
+		MinPrice    int64   `json:"minPrice"`
+		MinScore    int     `json:"minScore"`
+		MinComments int     `json:"minComments"`
+	}
+	if err := json.Unmarshal([]byte(s), &v); err != nil {
+		logrus.Warnf("解析 filter JSON 失败: %v, raw: %s", err, s)
+		return nil
+	}
+	f := &repoInterfaces.VectorSearchFilter{
+		Area:        strings.TrimSpace(v.Area),
+		TypeName:    strings.TrimSpace(v.TypeName),
+		MaxPrice:    v.MaxPrice,
+		MinPrice:    v.MinPrice,
+		MinScore:    v.MinScore,
+		MinComments: v.MinComments,
+	}
+	// 全空则返回 nil
+	if f.Area == "" && f.TypeName == "" && f.MaxPrice == 0 && f.MinPrice == 0 && f.MinScore == 0 && f.MinComments == 0 {
+		return nil
+	}
+	return f
 }
 
 // buildShopContext 组装 RAG 上下文：店铺基本信息 + 该店铺的用户探店笔记（Blog）

@@ -34,6 +34,7 @@
    - 流程：用户提问 → Embedding API 转向量 → Redis Stack KNN 检索 Top5 店铺 → LLM 生成推荐 → SSE 流式输出
    - 已实现：Redis Stack 向量索引、Embedding/Chat 客户端、VectorRepo、RAG Logic、Chat Handler、seed-vector 离线导入
    - **数据同步**：店铺创建/更新时发 MQ（shop-update），RAG 消费者异步更新向量
+   - **Filtered Vector Search**：预过滤（area、type_name、avg_price、score、comments）+ 语义阈值 MaxDistance；`POST /api/rag/chat` 支持 `filter` 参数
 
 ### 店铺更新 MQ 异步化 ✅
 

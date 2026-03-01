@@ -38,6 +38,10 @@ func InitShopVectorIndex(ctx context.Context, client *redis.Client, dim int) err
 		"type_name", "TAG",
 		"area", "TAG",
 		"text_content", "TEXT",
+		"avg_price", "NUMERIC", "SORTABLE",
+		"score", "NUMERIC", "SORTABLE",
+		"comments", "NUMERIC", "SORTABLE",
+		"sold", "NUMERIC", "SORTABLE",
 		"embedding", "VECTOR", "HNSW", "6", "TYPE", "FLOAT32", "DIM", dimStr, "DISTANCE_METRIC", "COSINE",
 	}
 	err := client.Do(ctx, args...).Err()

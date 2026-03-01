@@ -27,9 +27,11 @@ type EmbeddingClient interface {
 	Dimension() int
 }
 
-// ChatClient 对话接口（支持流式）
+// ChatClient 对话接口（支持流式 + 非流式）
 type ChatClient interface {
 	ChatStream(ctx context.Context, messages []openai.ChatCompletionMessage, onChunk func(string)) error
+	// ChatComplete 非流式完成，返回完整回复（用于 filter 提取等需要结构化输出的场景）
+	ChatComplete(ctx context.Context, messages []openai.ChatCompletionMessage) (string, error)
 }
 
 // Config 从环境变量读取 LLM 配置
@@ -127,6 +129,22 @@ func (c *openAIClient) EmbedBatch(ctx context.Context, texts []string) ([][]floa
 
 func (c *openAIClient) Dimension() int {
 	return c.config.EmbeddingDim
+}
+
+// ChatComplete 非流式对话，返回完整内容
+func (c *openAIClient) ChatComplete(ctx context.Context, messages []openai.ChatCompletionMessage) (string, error) {
+	resp, err := c.client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
+		Model:    c.config.ChatModel,
+		Messages: messages,
+		Stream:   false,
+	})
+	if err != nil {
+		return "", fmt.Errorf("create chat completion: %w", err)
+	}
+	if len(resp.Choices) == 0 {
+		return "", fmt.Errorf("chat completion empty")
+	}
+	return resp.Choices[0].Message.Content, nil
 }
 
 // ChatStream 流式对话

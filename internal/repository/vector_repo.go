@@ -29,6 +29,10 @@ func (r *vectorRepo) StoreShop(ctx context.Context, doc *repoInterfaces.ShopVect
 		"type_name", doc.TypeName,
 		"area", doc.Area,
 		"text_content", doc.TextContent,
+		"avg_price", doc.AvgPrice,
+		"score", doc.Score,
+		"comments", doc.Comments,
+		"sold", doc.Sold,
 		"embedding", embedBytes,
 	).Err()
 }
@@ -39,22 +43,20 @@ func (r *vectorRepo) DeleteShop(ctx context.Context, shopID int64) error {
 	return r.client.Del(ctx, key).Err()
 }
 
-// SearchShops KNN 检索。typeFilter 为空则不过滤类型
-func (r *vectorRepo) SearchShops(ctx context.Context, queryEmbedding []float32, typeFilter string, k int) ([]repoInterfaces.ShopSearchResult, error) {
+// SearchShops 带预过滤的 KNN 向量检索（Filtered Vector Search）
+// 预过滤器：TAG（area, type_name）+ NUMERIC 范围（avg_price, score, comments）
+// 语义阈值：MaxDistance 在结果解析后过滤（COSINE 距离越小越相似）
+func (r *vectorRepo) SearchShops(ctx context.Context, queryEmbedding []float32, filter *repoInterfaces.VectorSearchFilter, k int) ([]repoInterfaces.ShopSearchResult, error) {
 	if k <= 0 {
 		k = 5
 	}
 	vecBytes := llm.Float32ToBytes(queryEmbedding)
 
-	var query string
-	if typeFilter != "" {
-		// TAG 过滤：@type_name:{美食}，需转义特殊字符
-		query = fmt.Sprintf("(@type_name:{%s})=>[KNN %d @embedding $vec AS score]", typeFilter, k)
-	} else {
-		query = fmt.Sprintf("(*)=>[KNN %d @embedding $vec AS score]", k)
-	}
+	// 构建预过滤表达式 + KNN
+	// 格式：(预过滤)=>[KNN k @embedding $vec AS score]
+	preFilter := buildPreFilter(filter)
+	query := fmt.Sprintf("(%s)=>[KNN %d @embedding $vec AS score]", preFilter, k)
 
-	// FT.SEARCH idx:shop:vector "query" PARAMS 2 vec <binary> DIALECT 2 SORTBY score ASC
 	args := []interface{}{
 		"FT.SEARCH", redisx.VEC_SHOP_INDEX,
 		query,
@@ -68,7 +70,79 @@ func (r *vectorRepo) SearchShops(ctx context.Context, queryEmbedding []float32, 
 	if err != nil {
 		return nil, fmt.Errorf("FT.SEARCH: %w", err)
 	}
-	return parseSearchResult(res, k)
+	results, err := parseSearchResult(res, k)
+	if err != nil {
+		return nil, err
+	}
+	// 语义相似度阈值：过滤掉距离过大的结果
+	if filter != nil && filter.MaxDistance > 0 {
+		filtered := results[:0]
+		for _, r := range results {
+			if r.Score <= filter.MaxDistance {
+				filtered = append(filtered, r)
+			}
+		}
+		results = filtered
+	}
+	return results, nil
+}
+
+// buildPreFilter 构建 RediSearch 预过滤表达式
+// 空 filter 或全空条件返回 "*"
+func buildPreFilter(filter *repoInterfaces.VectorSearchFilter) string {
+	if filter == nil {
+		return "*"
+	}
+	var parts []string
+	if filter.Area != "" {
+		parts = append(parts, fmt.Sprintf("@area:{%s}", escapeTagValue(filter.Area)))
+	}
+	if filter.TypeName != "" {
+		parts = append(parts, fmt.Sprintf("@type_name:{%s}", escapeTagValue(filter.TypeName)))
+	}
+	if filter.MaxPrice > 0 || filter.MinPrice > 0 {
+		minVal, maxVal := "-inf", "+inf"
+		if filter.MinPrice > 0 {
+			minVal = strconv.FormatInt(filter.MinPrice, 10)
+		}
+		if filter.MaxPrice > 0 {
+			maxVal = strconv.FormatInt(filter.MaxPrice, 10)
+		}
+		parts = append(parts, fmt.Sprintf("@avg_price:[%s %s]", minVal, maxVal))
+	}
+	if filter.MinScore > 0 {
+		parts = append(parts, fmt.Sprintf("@score:[%d +inf]", filter.MinScore))
+	}
+	if filter.MinComments > 0 {
+		parts = append(parts, fmt.Sprintf("@comments:[%d +inf]", filter.MinComments))
+	}
+	if len(parts) == 0 {
+		return "*"
+	}
+	// 多个条件 AND 连接
+	result := ""
+	for _, p := range parts {
+		result += "(" + p + ")"
+	}
+	return result
+}
+
+// escapeTagValue 转义 RediSearch TAG 特殊字符：, " ' { } ( ) \
+func escapeTagValue(s string) string {
+	if s == "" {
+		return s
+	}
+	var b []byte
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch c {
+		case ',', '"', '\'', '{', '}', '(', ')', '\\':
+			b = append(b, '\\', c)
+		default:
+			b = append(b, c)
+		}
+	}
+	return string(b)
 }
 
 // parseSearchResult 解析 FT.SEARCH 返回的 slice

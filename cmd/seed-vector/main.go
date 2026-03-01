@@ -97,6 +97,10 @@ func main() {
 				TypeName:    typeName,
 				Area:        shop.Area,
 				TextContent: textContent,
+				AvgPrice:    shop.AvgPrice,
+				Score:       shop.Score,
+				Comments:    shop.Comments,
+				Sold:        shop.Sold,
 				Embedding:   vecs[0],
 			}
 			if err := vecRepo.StoreShop(ctx, doc); err != nil {
