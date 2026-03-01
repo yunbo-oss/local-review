@@ -81,6 +81,21 @@ func (r *blogRepo) ListByIDs(ctx context.Context, ids []int64) ([]model.Blog, er
 	return blogs, err
 }
 
+// ListByShopID 按店铺 ID 查询探店笔记（按点赞数排序，取前 limit 条）
+func (r *blogRepo) ListByShopID(ctx context.Context, shopID int64, limit int) ([]model.Blog, error) {
+	if limit <= 0 {
+		limit = 5
+	}
+	var blogs []model.Blog
+	err := r.db.WithContext(ctx).
+		Table((&model.Blog{}).TableName()).
+		Where("shop_id = ?", shopID).
+		Order("liked desc").
+		Limit(limit).
+		Find(&blogs).Error
+	return blogs, err
+}
+
 func (r *blogRepo) IncrLike(ctx context.Context, id int64) error {
 	return r.db.WithContext(ctx).
 		Table((&model.Blog{}).TableName()).

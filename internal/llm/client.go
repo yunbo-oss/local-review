@@ -55,7 +55,7 @@ func LoadConfig() Config {
 	if chatModel == "" {
 		chatModel = defaultChatModel
 	}
-	dim := 1536
+	dim := 1024
 	if d := os.Getenv("LLM_EMBEDDING_DIM"); d != "" {
 		if n, err := fmt.Sscanf(d, "%d", &dim); err == nil && n == 1 {
 			// ok

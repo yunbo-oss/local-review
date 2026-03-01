@@ -83,6 +83,7 @@ func main() {
 		EmbeddingClient: embClient,
 		ChatClient:      chatClient,
 		VectorRepo:      vecRepo,
+		BlogRepo:        blogRepo,
 	})
 	ragHandler := handler.NewRAGHandler(ragLogic)
 	if err := redis.InitShopVectorIndex(context.Background(), redis.GetRedisClient(), llmCfg.EmbeddingDim); err != nil {
