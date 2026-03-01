@@ -26,6 +26,7 @@ func Init() {
 		Addr:         addr,
 		Password:     password,
 		DB:           DBINDEX,
+		Protocol:     2, // RESP2：FT.SEARCH 返回数组格式；RESP3 返回 map 格式，go-redis Slice() 会解析失败
 		PoolSize:     100,             // 连接池大小，建议设置为 CPU 核心数的 10 倍
 		MinIdleConns: 10,              // 最小空闲连接数，保持一定数量的连接以快速响应
 		MaxRetries:   3,               // 最大重试次数

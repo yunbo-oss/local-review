@@ -2,12 +2,15 @@ package llm
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
 	"math"
+	"net/http"
 	"os"
+	"strings"
 
 	"github.com/sashabaranov/go-openai"
 	"github.com/sirupsen/logrus"
@@ -36,11 +39,12 @@ type ChatClient interface {
 
 // Config 从环境变量读取 LLM 配置
 type Config struct {
-	BaseURL        string
-	APIKey         string
-	EmbeddingModel string
-	ChatModel      string
-	EmbeddingDim   int
+	BaseURL               string
+	APIKey                string
+	EmbeddingModel        string
+	ChatModel             string
+	EmbeddingDim          int
+	TLSInsecureSkipVerify bool // 跳过 TLS 证书校验（仅开发/调试，生产慎用）
 }
 
 func LoadConfig() Config {
@@ -63,12 +67,18 @@ func LoadConfig() Config {
 			// ok
 		}
 	}
+	tlsSkip := false
+	if v := strings.ToLower(strings.TrimSpace(os.Getenv("LLM_TLS_INSECURE_SKIP_VERIFY"))); v == "1" || v == "true" || v == "yes" {
+		tlsSkip = true
+		logrus.Warn("LLM_TLS_INSECURE_SKIP_VERIFY=true，已跳过 TLS 证书校验（仅限开发/调试）")
+	}
 	return Config{
-		BaseURL:        baseURL,
-		APIKey:         apiKey,
-		EmbeddingModel: embModel,
-		ChatModel:      chatModel,
-		EmbeddingDim:   dim,
+		BaseURL:               baseURL,
+		APIKey:                apiKey,
+		EmbeddingModel:        embModel,
+		ChatModel:             chatModel,
+		EmbeddingDim:          dim,
+		TLSInsecureSkipVerify: tlsSkip,
 	}
 }
 
@@ -86,6 +96,13 @@ func NewOpenAIClient(config Config) (EmbeddingClient, ChatClient) {
 	}
 	cfg := openai.DefaultConfig(config.APIKey)
 	cfg.BaseURL = config.BaseURL
+	if config.TLSInsecureSkipVerify {
+		cfg.HTTPClient = &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			},
+		}
+	}
 	c := &openAIClient{
 		client: openai.NewClientWithConfig(cfg),
 		config: config,

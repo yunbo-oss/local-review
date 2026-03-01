@@ -53,17 +53,18 @@ func (r *vectorRepo) SearchShops(ctx context.Context, queryEmbedding []float32, 
 	vecBytes := llm.Float32ToBytes(queryEmbedding)
 
 	// 构建预过滤表达式 + KNN
-	// 格式：(预过滤)=>[KNN k @embedding $vec AS score]
+	// 格式：(预过滤)=>[KNN k @embedding $vec AS vector_score]
+	// 注意：schema 已有 score 字段（店铺评分），KNN 距离需用不同别名避免冲突
 	preFilter := buildPreFilter(filter)
-	query := fmt.Sprintf("(%s)=>[KNN %d @embedding $vec AS score]", preFilter, k)
+	query := fmt.Sprintf("(%s)=>[KNN %d @embedding $vec AS vector_score]", preFilter, k)
 
 	args := []interface{}{
 		"FT.SEARCH", redisx.VEC_SHOP_INDEX,
 		query,
 		"PARAMS", "2", "vec", vecBytes,
 		"DIALECT", "2",
-		"SORTBY", "score", "ASC",
-		"RETURN", "5", "name", "type_name", "area", "text_content", "score",
+		"SORTBY", "vector_score", "ASC",
+		"RETURN", "5", "name", "type_name", "area", "text_content", "vector_score",
 	}
 	cmd := r.client.Do(ctx, args...)
 	res, err := cmd.Slice()
@@ -192,7 +193,7 @@ func parseSearchResult(res []interface{}, k int) ([]repoInterfaces.ShopSearchRes
 				area = v
 			case "text_content":
 				textContent = v
-			case "score":
+			case "vector_score":
 				if s, err := strconv.ParseFloat(v, 64); err == nil {
 					score = s
 				}

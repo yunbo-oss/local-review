@@ -22,6 +22,10 @@ clean:
 test-api:
 	chmod +x script/api-test.sh && ./script/api-test.sh
 
+# RAG 智能点评测试（需 make seed && make seed-redis && make seed-vector，服务已启动且配置 LLM_API_KEY）
+test-rag:
+	chmod +x script/rag-test.sh && ./script/rag-test.sh
+
 # 创建 RocketMQ 秒杀 Topic（首次启动 RocketMQ 后执行）
 rocketmq-topic:
 	./script/rocketmq-init-topic.sh
