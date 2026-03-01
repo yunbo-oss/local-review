@@ -15,6 +15,10 @@ const (
 	USER_SIGN_KEY        = "sign:"
 	DISTRIBUTED_LOCK_KEY = "lock:voucher:"
 	UVKeyPrefix          = "uv:"
+
+	// RAG 向量检索
+	VEC_SHOP_KEY_PREFIX = "vec:shop:"   // Hash 前缀，用于 RediSearch 索引
+	VEC_SHOP_INDEX      = "idx:shop:vector"
 )
 
 const (

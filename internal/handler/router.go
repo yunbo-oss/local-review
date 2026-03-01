@@ -19,12 +19,14 @@ type Handlers struct {
 	Follow       *FollowHandler
 	Upload       *UploadHandler
 	Statistics   *StatisticsHandler
+	RAG          *RAGHandler
 }
 
 func ConfigRouter(r *gin.Engine, handlers Handlers) {
 	if handlers.Shop == nil || handlers.User == nil || handlers.ShopType == nil || handlers.Voucher == nil || handlers.VoucherOrder == nil || handlers.Blog == nil || handlers.Follow == nil || handlers.Upload == nil || handlers.Statistics == nil {
 		panic("handlers not fully wired: please initialize all handlers before configuring routes")
 	}
+	// RAG 可选：未配置 LLM_API_KEY 时 handlers.RAG 可为 nil
 
 	// OpenTelemetry Trace：最先挂载，为每个请求创建 span
 	r.Use(otelgin.Middleware("local-review-go"))
@@ -128,6 +130,14 @@ func configAuthRoutes(apiGroup *gin.RouterGroup, handlers Handlers) {
 		{
 			uploadController.POST("/blog", handlers.Upload.UploadImage)
 			uploadController.GET("/blog/delete", handlers.Upload.DeleteBlogImg)
+		}
+
+		// RAG 智能点评（需登录）
+		if handlers.RAG != nil {
+			ragController := authGroup.Group("/rag")
+			{
+				ragController.POST("/chat", handlers.RAG.Chat)
+			}
 		}
 	}
 }

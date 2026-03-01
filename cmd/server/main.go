@@ -6,6 +6,7 @@ import (
 	"local-review-go/internal/config/mysql"
 	"local-review-go/internal/config/redis"
 	"local-review-go/internal/handler"
+	"local-review-go/internal/llm"
 	"local-review-go/internal/logic"
 	"local-review-go/internal/model"
 	"local-review-go/internal/mq"
@@ -22,12 +23,19 @@ func main() {
 	r := gin.Default()
 
 	shopRepo := repository.NewShopRepo(mysql.GetMysqlDB())
-	shopLogic := logic.NewShopLogic(logic.ShopLogicDeps{ShopRepo: shopRepo})
+	shopTypeRepo := repository.NewShopTypeRepo(mysql.GetMysqlDB())
+	shopUpdateProducer, err := mq.NewShopUpdateProducer()
+	if err != nil {
+		logrus.Fatalf("RocketMQ 店铺更新生产者初始化失败: %v", err)
+	}
+	shopLogic := logic.NewShopLogic(logic.ShopLogicDeps{
+		ShopRepo:           shopRepo,
+		ShopUpdateProducer: shopUpdateProducer,
+	})
 	shopHandler := handler.NewShopHandler(shopLogic)
 
 	userRepo := repository.NewUserRepo(mysql.GetMysqlDB())
 	userInfoRepo := repository.NewUserInfoRepo(mysql.GetMysqlDB())
-	shopTypeRepo := repository.NewShopTypeRepo(mysql.GetMysqlDB())
 	blogRepo := repository.NewBlogRepo(mysql.GetMysqlDB())
 	followRepo := repository.NewFollowRepo(mysql.GetMysqlDB())
 
@@ -67,6 +75,20 @@ func main() {
 	statisticsLogic := logic.NewStatisticsLogic()
 	statisticsHandler := handler.NewStatisticsHandler(statisticsLogic)
 
+	// RAG 智能点评（可选，需 LLM_API_KEY + Redis Stack）
+	llmCfg := llm.LoadConfig()
+	embClient, chatClient := llm.NewOpenAIClient(llmCfg)
+	vecRepo := repository.NewVectorRepo(redis.GetRedisClient())
+	ragLogic := logic.NewRAGLogic(logic.RAGLogicDeps{
+		EmbeddingClient: embClient,
+		ChatClient:      chatClient,
+		VectorRepo:      vecRepo,
+	})
+	ragHandler := handler.NewRAGHandler(ragLogic)
+	if err := redis.InitShopVectorIndex(context.Background(), redis.GetRedisClient(), llmCfg.EmbeddingDim); err != nil {
+		logrus.Warnf("RAG 向量索引初始化失败（需 Redis Stack）: %v", err)
+	}
+
 	// Auto Migrate
 	mysql.GetMysqlDB().AutoMigrate(
 		&model.User{},
@@ -91,8 +113,23 @@ func main() {
 		Follow:       followHandler,
 		Upload:       uploadHandler,
 		Statistics:   statisticsHandler,
+		RAG:          ragHandler,
 	})
 	voucherOrderLogic.StartConsumers()
+
+	// 店铺更新 MQ 消费者：异步删缓存 + 异步更新 RAG 向量
+	go func() {
+		cacheHandler := mq.NewShopUpdateCacheHandler(redis.GetRedisClient())
+		if err := mq.StartShopUpdateCacheConsumer(cacheHandler); err != nil {
+			logrus.Errorf("店铺更新-缓存消费者启动失败: %v", err)
+		}
+	}()
+	go func() {
+		ragHandler := mq.NewShopUpdateRAGHandler(embClient, vecRepo, shopRepo, shopTypeRepo)
+		if err := mq.StartShopUpdateRAGConsumer(ragHandler); err != nil {
+			logrus.Errorf("店铺更新-RAG 消费者启动失败: %v", err)
+		}
+	}()
 
 	// Init BloomFilter (异步预热)
 	initBloomFilter(shopLogic, shopRepo)

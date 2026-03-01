@@ -1,4 +1,4 @@
-.PHONY: run build test tidy clean air test-api seed seed-redis seed-load-test seed-reset-load-test load-test-seckill
+.PHONY: run build test tidy clean air test-api seed seed-redis seed-load-test seed-reset-load-test seed-vector load-test-seckill
 
 run:
 	go run ./cmd/server
@@ -42,6 +42,14 @@ seed-reset-load-test:
 # 压测前：初始化 Redis 秒杀库存 + 测试用户验证码（需 Docker 中 Redis 运行）
 seed-redis:
 	chmod +x script/seed-redis.sh && ./script/seed-redis.sh
+
+# RAG 智能点评：店铺向量化导入（需 Redis Stack + LLM_API_KEY + make seed）
+seed-vector:
+	go run ./cmd/seed-vector
+
+# 测试 LLM API 是否可用（Embedding + Chat，仅需 LLM_API_KEY）
+test-llm:
+	go run ./cmd/test-llm
 
 # 秒杀压测（多用户+多券，8G 内存推荐限流 50 QPS/实例）
 load-test-seckill:

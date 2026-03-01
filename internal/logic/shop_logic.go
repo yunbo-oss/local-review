@@ -42,21 +42,28 @@ type ShopLogic interface {
 	SetBloomFilter(filter *utils.BloomFilter)
 }
 
+// ShopUpdateProducer 店铺更新 MQ 生产者（可选，nil 时更新仍同步删缓存）
+type ShopUpdateProducer interface {
+	SendShopUpdate(ctx context.Context, shopID int64) error
+}
+
 // ShopLogicDeps 用于实例化 shopLogic 的依赖。
 type ShopLogicDeps struct {
-	Redis       *redisv9.Client
-	DB          *gorm.DB
-	BloomFilter *utils.BloomFilter
-	ShopRepo    repoInterfaces.ShopRepo
+	Redis              *redisv9.Client
+	DB                 *gorm.DB
+	BloomFilter        *utils.BloomFilter
+	ShopRepo           repoInterfaces.ShopRepo
+	ShopUpdateProducer ShopUpdateProducer
 }
 
 type shopLogic struct {
-	redis          *redisv9.Client
-	db             *gorm.DB
-	shopRepo       repoInterfaces.ShopRepo
-	distLock       *utils.DistributedLock
-	bloomFilter    *utils.BloomFilter
-	redisDataQueue chan int64
+	redis              *redisv9.Client
+	db                 *gorm.DB
+	shopRepo           repoInterfaces.ShopRepo
+	distLock           *utils.DistributedLock
+	bloomFilter        *utils.BloomFilter
+	shopUpdateProducer ShopUpdateProducer
+	redisDataQueue     chan int64
 }
 
 // NewShopLogic 构建店铺业务层。
@@ -77,12 +84,13 @@ func NewShopLogic(deps ShopLogicDeps) ShopLogic {
 	}
 
 	l := &shopLogic{
-		redis:          redisCli,
-		db:             db,
-		shopRepo:       shopRepo,
-		distLock:       utils.NewDistributedLock(redisCli),
-		bloomFilter:    deps.BloomFilter,
-		redisDataQueue: make(chan int64, maxRedisDataQueue),
+		redis:              redisCli,
+		db:                 db,
+		shopRepo:           shopRepo,
+		distLock:           utils.NewDistributedLock(redisCli),
+		bloomFilter:        deps.BloomFilter,
+		shopUpdateProducer: deps.ShopUpdateProducer,
+		redisDataQueue:     make(chan int64, maxRedisDataQueue),
 	}
 
 	// 启动缓存异步更新协程
@@ -118,6 +126,12 @@ func (s *shopLogic) SaveShop(ctx context.Context, shop *model.Shop) error {
 		}
 	}
 
+	// 发 MQ，RAG 消费者异步写入向量
+	if s.shopUpdateProducer != nil && shop.Id > 0 {
+		if err := s.shopUpdateProducer.SendShopUpdate(ctx, shop.Id); err != nil {
+			logrus.Warnf("新建店铺 MQ 发送失败 shopId=%d: %v，需手动执行 make seed-vector", shop.Id, err)
+		}
+	}
 	return nil
 }
 
@@ -203,7 +217,7 @@ func (s *shopLogic) QueryShopByIdWithCache(ctx context.Context, id int64) (model
 	return model.Shop{}, fmt.Errorf("get shop cache %d: %w", id, err)
 }
 
-// UpdateShopWithCacheCallBack 缓存更新的最佳实践方法
+// UpdateShopWithCacheCallBack 更新店铺：DB 事务成功后发 MQ，由消费者异步删缓存
 func (s *shopLogic) UpdateShopWithCacheCallBack(ctx context.Context, db *gorm.DB, shop *model.Shop) error {
 	return db.Transaction(func(tx *gorm.DB) error {
 		_, err := s.shopRepo.GetByID(ctx, shop.Id)
@@ -217,14 +231,19 @@ func (s *shopLogic) UpdateShopWithCacheCallBack(ctx context.Context, db *gorm.DB
 			return fmt.Errorf("db update shop %d: %w", shop.Id, err)
 		}
 
-		// delete the cache
-		redisKey := redisx.CACHE_SHOP_KEY + strconv.FormatInt(shop.Id, 10)
-		err = s.redis.Del(ctx, redisKey).Err()
-
-		if err != nil {
-			return fmt.Errorf("del shop cache %d: %w", shop.Id, err)
+		// 发 MQ，消费者异步删缓存 + 更新 RAG 向量（替代直接删缓存）
+		if s.shopUpdateProducer != nil {
+			if sendErr := s.shopUpdateProducer.SendShopUpdate(ctx, shop.Id); sendErr != nil {
+				logrus.Warnf("店铺更新 MQ 发送失败 shopId=%d: %v，将同步删缓存兜底", shop.Id, sendErr)
+				redisKey := redisx.CACHE_SHOP_KEY + strconv.FormatInt(shop.Id, 10)
+				_ = s.redis.Del(ctx, redisKey).Err()
+			}
+		} else {
+			redisKey := redisx.CACHE_SHOP_KEY + strconv.FormatInt(shop.Id, 10)
+			if err = s.redis.Del(ctx, redisKey).Err(); err != nil {
+				return fmt.Errorf("del shop cache %d: %w", shop.Id, err)
+			}
 		}
-
 		return nil
 	})
 }

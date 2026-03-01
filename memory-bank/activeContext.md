@@ -30,10 +30,16 @@
 
 ### 第四阶段：搜索与智能化 (Search & AI)
 
-7. **AI 智能点评助手 (RAG)** 🔲
-   - 流程：用户提问 → **Redis Vector** 检索 Top5 相关店铺 → 组装 Prompt → AI 生成推荐
-   - 体验：SSE 流式输出
-   - 注：已砍掉 Elasticsearch，改用 Redis Vector
+7. **AI 智能点评助手 (RAG)** ✅
+   - 流程：用户提问 → Embedding API 转向量 → Redis Stack KNN 检索 Top5 店铺 → LLM 生成推荐 → SSE 流式输出
+   - 已实现：Redis Stack 向量索引、Embedding/Chat 客户端、VectorRepo、RAG Logic、Chat Handler、seed-vector 离线导入
+   - **数据同步**：店铺创建/更新时发 MQ（shop-update），RAG 消费者异步更新向量
+
+### 店铺更新 MQ 异步化 ✅
+
+- **缓存**：UpdateShop 不再同步删缓存，改为发 MQ → 消费者异步 Del
+- **RAG 向量**：SaveShop/UpdateShop 发 MQ → RAG 消费者异步 Embedding + 更新 Redis 向量
+- **Topic**：`shop-update`，两消费者组：`shop-update-cache-consumer-group`、`shop-update-rag-consumer-group`
 
 ---
 

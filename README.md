@@ -64,6 +64,8 @@ make load-test-seckill      # 秒杀压测（多用户+多券，8G 内存）
 
 项目采用 `cmd/` + `internal/` 目录结构，详见 [AGENTS.md](AGENTS.md)。
 
+**RAG 智能点评**：需 Redis Stack（docker-compose 已替换为 `redis-stack-server`），配置 `LLM_API_KEY` 后执行 `make seed-vector` 导入店铺向量。
+
 ---
 
 以下是计划和正在进行的改动说明（按推荐顺序）：
@@ -89,9 +91,9 @@ make load-test-seckill      # 秒杀压测（多用户+多券，8G 内存）
 
 ### 第四阶段：搜索与智能化 (Search & AI)
 
-7.  **AI 智能点评助手 (RAG 实现)** 🔲
-    * **功能**：集成 LLM 大模型。
-    * **流程**：用户提问 → **Redis Vector** 检索 Top5 相关店铺 → 组装 Prompt → AI 生成推荐建议。
-    * **体验**：通过 SSE (Server-Sent Events) 实现流式输出，让点评回复具有「真人打字」般的即时感。
+7.  **AI 智能点评助手 (RAG 实现)** ✅
+    * **功能**：集成 LLM 大模型（DeepSeek/智谱/通义等 OpenAI 兼容 API）。
+    * **流程**：用户提问 → Embedding API 转向量 → Redis Stack KNN 检索 Top5 店铺 → LLM 生成推荐 → SSE 流式输出。
+    * **使用**：配置 `LLM_API_KEY`，执行 `make seed-vector` 导入店铺向量，`POST /api/rag/chat` 需登录。
 
 ---
