@@ -2,7 +2,46 @@
 
 基于 **Gin + Nginx** 的分布式点评/电商应用，涵盖用户鉴权、优惠券秒杀、商户检索、AI 智能点评等核心模块。
 
-**启动与测试**：详见 [doc/QUICKSTART.md](doc/QUICKSTART.md)。
+**启动与测试**：详见 [doc/QUICKSTART.md](doc/QUICKSTART.md)。  
+**架构图**：详见 [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md)。
+
+### 系统架构概览
+
+```mermaid
+flowchart TB
+    subgraph Client["客户端"]
+        User[用户/前端]
+    end
+
+    subgraph Gateway["Nginx"]
+        LB[least_conn<br/>upstream go_backend]
+    end
+
+    subgraph App["Go 应用层"]
+        Go1[实例 1]
+        Go2[实例 2]
+        Go3[实例 3]
+    end
+
+    subgraph Data["数据层"]
+        MySQL[(MySQL)]
+        Redis[(Redis Stack<br/>缓存+向量)]
+        MQ[RocketMQ]
+    end
+
+    subgraph Ext["外部"]
+        LLM[LLM API]
+    end
+
+    User -->|:80| LB
+    LB --> Go1 & Go2 & Go3
+    Go1 & Go2 & Go3 --> MySQL
+    Go1 & Go2 & Go3 --> Redis
+    Go1 & Go2 & Go3 --> MQ
+    Go1 & Go2 & Go3 -.->|RAG| LLM
+```
+
+> GitHub、GitLab、Typora 等支持 Mermaid 的 Markdown 渲染器会直接显示上图；若不显示，可查看 [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md)。
 
 ---
 
