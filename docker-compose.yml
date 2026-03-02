@@ -22,10 +22,12 @@ services:
       retries: 10
 
   # Redis Stack：支持向量检索（RAG 智能点评）
+  # 用 REDIS_ARGS 设置密码，避免 command 覆盖导致 RediSearch 模块未加载
   redis:
     image: redis/redis-stack-server:latest
     container_name: local-review-redis
-    command: redis-server --requirepass "8888.216"
+    environment:
+      REDIS_ARGS: "--requirepass 8888.216"
     ports:
       - "6379:6379"
       - "8001:8001"   # RedisInsight Web UI

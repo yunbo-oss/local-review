@@ -75,7 +75,7 @@ make load-test-seckill-max
 - **依赖**：Redis Stack（docker-compose 已替换为 `redis-stack-server`）、`LLM_API_KEY`
 - **向量导入**：`make seed-vector`（需先 `make seed`）
 - **接口**：`POST /api/rag/chat` 需登录，支持 SSE 流式输出
-- **测试**：`make test-rag`
+- **展示**：`make demo-rag`（3 问题流式）
 
 ## 六、常用 Make 命令
 
@@ -90,5 +90,7 @@ make load-test-seckill-max
 | `make seed-redis` | 初始化 Redis 秒杀库存 + 验证码 |
 | `make seed-reset-load-test` | 重置订单和库存 |
 | `make seed-vector` | RAG 店铺向量导入 |
+| `make init-rag` | RAG 一键初始化 |
+| `make demo-rag` | RAG 展示（流式） |
 | `make load-test-seckill` | 秒杀压测 |
 | `make load-test-seckill-max` | 秒杀压测（全速） |

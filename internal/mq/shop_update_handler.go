@@ -7,6 +7,7 @@ import (
 
 	"local-review-go/internal/llm"
 	"local-review-go/internal/model"
+	"local-review-go/internal/rag"
 	repoInterfaces "local-review-go/internal/repository/interface"
 	"local-review-go/pkg/utils/redisx"
 
@@ -32,6 +33,7 @@ func NewShopUpdateRAGHandler(
 	vecRepo repoInterfaces.VectorRepo,
 	shopRepo repoInterfaces.ShopRepo,
 	shopTypeRepo repoInterfaces.ShopTypeRepo,
+	blogRepo repoInterfaces.BlogRepo,
 ) ShopUpdateRAGHandler {
 	return func(ctx context.Context, msg *ShopUpdateMsg) error {
 		if embClient == nil || vecRepo == nil {
@@ -52,7 +54,12 @@ func NewShopUpdateRAGHandler(
 				}
 			}
 		}
-		textContent := buildShopTextForRAG(shop, typeName)
+		// 获取该店铺用户点评摘要，用于 embedding（承载 filter 无法表达的语义）
+		blogs := []model.Blog{}
+		if blogRepo != nil {
+			blogs, _ = blogRepo.ListByShopID(ctx, msg.ShopID, rag.MaxBlogsForEmbedding)
+		}
+		textContent := rag.BuildShopTextForEmbedding(shop, blogs)
 		vecs, err := embClient.EmbedBatch(ctx, []string{textContent})
 		if err != nil {
 			return fmt.Errorf("embed shop %d: %w", msg.ShopID, err)
@@ -78,10 +85,4 @@ func NewShopUpdateRAGHandler(
 		logrus.Infof("店铺 RAG 向量已更新 shopId=%d", msg.ShopID)
 		return nil
 	}
-}
-
-func buildShopTextForRAG(shop *model.Shop, typeName string) string {
-	return fmt.Sprintf("店铺名: %s, 类型: %s, 区域: %s, 地址: %s, 评分: %d/50, 评论数: %d, 人均: %d元, 营业: %s",
-		shop.Name, typeName, shop.Area, shop.Address,
-		shop.Score, shop.Comments, shop.AvgPrice, shop.OpenHours)
 }

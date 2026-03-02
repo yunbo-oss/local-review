@@ -4,15 +4,15 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"local-review-go/internal/config"
 	"local-review-go/internal/config/mysql"
 	"local-review-go/internal/config/redis"
 	"local-review-go/internal/llm"
-	"local-review-go/internal/model"
+	"local-review-go/internal/rag"
 	"local-review-go/internal/repository"
 	repoInterfaces "local-review-go/internal/repository/interface"
 )
@@ -41,6 +41,7 @@ func main() {
 	vecRepo := repository.NewVectorRepo(client)
 	shopRepo := repository.NewShopRepo(mysql.GetMysqlDB())
 	shopTypeRepo := repository.NewShopTypeRepo(mysql.GetMysqlDB())
+	blogRepo := repository.NewBlogRepo(mysql.GetMysqlDB())
 
 	// 构建 typeId -> typeName
 	types, err := shopTypeRepo.ListAll(ctx)
@@ -77,12 +78,18 @@ func main() {
 			continue
 		}
 
-		for _, shop := range shops {
+		for i, shop := range shops {
+			// 间隔 1.5 秒避免 API 限流（RPM），首条不延迟
+			if i > 0 {
+				time.Sleep(1500 * time.Millisecond)
+			}
 			typeName := typeMap[shop.TypeId]
 			if typeName == "" {
 				typeName = "其他"
 			}
-			textContent := buildShopText(&shop, typeName)
+			// 获取该店铺用户点评摘要，用于 embedding（承载 filter 无法表达的语义）
+			blogs, _ := blogRepo.ListByShopID(ctx, shop.Id, rag.MaxBlogsForEmbedding)
+			textContent := rag.BuildShopTextForEmbedding(&shop, blogs)
 			vecs, err := embClient.EmbedBatch(ctx, []string{textContent})
 			if err != nil {
 				log.Printf("店铺 %d Embedding 失败: %v", shop.Id, err)
@@ -113,10 +120,4 @@ func main() {
 	}
 
 	log.Printf("向量导入完成: %d/%d", success, len(ids))
-}
-
-func buildShopText(shop *model.Shop, typeName string) string {
-	return fmt.Sprintf("店铺名: %s, 类型: %s, 区域: %s, 地址: %s, 评分: %d/50, 评论数: %d, 人均: %d元, 营业: %s",
-		shop.Name, typeName, shop.Area, shop.Address,
-		shop.Score, shop.Comments, shop.AvgPrice, shop.OpenHours)
 }

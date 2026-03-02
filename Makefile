@@ -22,9 +22,13 @@ clean:
 test-api:
 	chmod +x script/api-test.sh && ./script/api-test.sh
 
-# RAG 智能点评测试（需 make seed && make seed-redis && make seed-vector，服务已启动且配置 LLM_API_KEY）
-test-rag:
-	chmod +x script/rag-test.sh && ./script/rag-test.sh
+# RAG 智能点评：展示（3 问题流式）
+demo-rag:
+	chmod +x script/rag.sh && ./script/rag.sh --demo
+
+# RAG 一键初始化：seed + seed-redis + seed-vector + 后台启动服务（面试前执行一次）
+init-rag:
+	chmod +x script/rag.sh && ./script/rag.sh --init
 
 # 创建 RocketMQ 秒杀 Topic（首次启动 RocketMQ 后执行）
 rocketmq-topic:
@@ -53,7 +57,7 @@ seed-vector:
 
 # RAG 索引 schema 变更后：删除旧索引，再 make seed-vector 重新导入
 drop-vector-index:
-	chmod +x script/drop-vector-index.sh && ./script/drop-vector-index.sh
+	chmod +x script/rag.sh && ./script/rag.sh --drop-index
 
 # 测试 LLM API 是否可用（Embedding + Chat，仅需 LLM_API_KEY）
 test-llm:

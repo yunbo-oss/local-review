@@ -31,10 +31,11 @@
 ### 第四阶段：搜索与智能化 (Search & AI)
 
 7. **AI 智能点评助手 (RAG)** ✅
-   - 流程：用户提问 → Embedding API 转向量 → Redis Stack KNN 检索 Top5 店铺 → LLM 生成推荐 → SSE 流式输出
+   - 流程：用户提问 → LLM 提取 filter → Embedding API 转向量 → Redis Stack KNN 检索 Top5 店铺 → LLM 生成推荐 → SSE 流式输出
    - 已实现：Redis Stack 向量索引、Embedding/Chat 客户端、VectorRepo、RAG Logic、Chat Handler、seed-vector 离线导入
    - **数据同步**：店铺创建/更新时发 MQ（shop-update），RAG 消费者异步更新向量
    - **Filtered Vector Search**：预过滤（area、type_name、avg_price、score、comments）+ 语义阈值 MaxDistance；`POST /api/rag/chat` 支持 `filter` 参数
+   - **Embedding 语义优化**：embedding 文本为「店铺名 + 用户点评摘要」，与 filter 覆盖字段分离，承载「浪漫」「适合约会」等 filter 无法表达的语义；`internal/rag/text.go` 提供 `BuildShopTextForEmbedding(shop, blogs)`
 
 ### 店铺更新 MQ 异步化 ✅
 

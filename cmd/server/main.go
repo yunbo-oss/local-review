@@ -126,7 +126,7 @@ func main() {
 		}
 	}()
 	go func() {
-		ragHandler := mq.NewShopUpdateRAGHandler(embClient, vecRepo, shopRepo, shopTypeRepo)
+		ragHandler := mq.NewShopUpdateRAGHandler(embClient, vecRepo, shopRepo, shopTypeRepo, blogRepo)
 		if err := mq.StartShopUpdateRAGConsumer(ragHandler); err != nil {
 			logrus.Errorf("店铺更新-RAG 消费者启动失败: %v", err)
 		}
