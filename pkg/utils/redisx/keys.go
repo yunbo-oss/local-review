@@ -13,8 +13,9 @@ const (
 	FEED_KEY             = "feed:"
 	SHOP_GEO_KEY         = "shop:geo:"
 	USER_SIGN_KEY        = "sign:"
-	DISTRIBUTED_LOCK_KEY = "lock:voucher:"
-	UVKeyPrefix          = "uv:"
+	DISTRIBUTED_LOCK_KEY   = "lock:voucher:"
+	LOCK_REBUILD_STOCK    = "lock:rebuild:stock:"
+	UVKeyPrefix           = "uv:"
 
 	// RAG 向量检索
 	VEC_SHOP_KEY_PREFIX = "vec:shop:"   // Hash 前缀，用于 RediSearch 索引

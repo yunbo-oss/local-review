@@ -11,16 +11,13 @@
 - 博客
 - 关注
 - UV 统计
+- AI 智能点评 (RAG)
 
 ### 当前技术栈
 
 - Go 1.24+、Gin、GORM、MySQL、Redis、JWT、RocketMQ
+- Nginx + 多实例 Docker 部署（1 Nginx + 3 Go 实例）
 - 布隆过滤器（店铺、秒杀券防穿透）
 - 限流（`golang.org/x/time/rate`，秒杀接口）
-
-### 规划中技术栈
-
-- Nginx + 多实例 Docker 部署（1 Nginx + 3 Go 实例）
-- OpenTelemetry（Trace、Metrics、Logs 可观测性）
-- Redis Vector（RAG 向量检索，替代 Elasticsearch）
-- LLM + RAG（AI 智能点评）
+- OpenTelemetry Trace（Jaeger OTLP）
+- Redis Stack 向量索引 + LLM（RAG 智能点评）

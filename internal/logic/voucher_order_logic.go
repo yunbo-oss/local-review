@@ -19,7 +19,6 @@ import (
 	redisConfig "github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
-	"golang.org/x/sync/singleflight"
 )
 
 type VoucherOrderLogic interface {
@@ -27,8 +26,6 @@ type VoucherOrderLogic interface {
 	StartConsumers()
 	SetSeckillVoucherBloomFilter(bf *utils.BloomFilter)
 }
-
-var seckillStockRebuildGroup singleflight.Group
 
 type voucherOrderLogic struct {
 	redis                     *redisConfig.Client
@@ -202,41 +199,55 @@ func (l *voucherOrderLogic) createVoucherOrder(ctx context.Context, order model.
 	})
 }
 
-// ensureSeckillStockInRedis 确保 Redis 库存 key 存在；若过期则从 MySQL 回填，避免 Lua 直接拒绝
+// ensureSeckillStockInRedis 确保 Redis 库存 key 存在；若过期则从 MySQL 回填，避免 Lua 直接拒绝。
+// 使用分布式锁防止多实例并发回填，保证同一 voucherId 只回填一次。
 func (l *voucherOrderLogic) ensureSeckillStockInRedis(ctx context.Context, voucherID int64, voucher *model.SecKillVoucher) error {
 	stockKey := redisx.SECKILL_STOCK_KEY + strconv.FormatInt(voucherID, 10)
-	exists, err := l.redis.Exists(ctx, stockKey).Result()
-	if err != nil {
-		return fmt.Errorf("check redis stock key: %w", err)
-	}
-	if exists > 0 {
-		return nil
-	}
+	lockKey := redisx.LOCK_REBUILD_STOCK + strconv.FormatInt(voucherID, 10)
+	lock := utils.NewDistributedLock(l.redis)
 
-	// key 不存在，使用 singleflight 避免并发回填
-	key := fmt.Sprintf("rebuild:%d", voucherID)
-	_, err, _ = seckillStockRebuildGroup.Do(key, func() (interface{}, error) {
-		// 双重检查：可能其他 goroutine 已回填
+	for i := 0; i < 5; i++ {
+		exists, err := l.redis.Exists(ctx, stockKey).Result()
+		if err != nil {
+			return fmt.Errorf("check redis stock key: %w", err)
+		}
+		if exists > 0 {
+			return nil
+		}
+
+		lockCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		acquired, token, lockErr := lock.LockWithWatchDog(lockCtx, lockKey, 10*time.Second)
+		cancel()
+		if lockErr != nil {
+			return fmt.Errorf("lock rebuild stock %d: %w", voucherID, lockErr)
+		}
+		if !acquired {
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+		defer lock.UnlockWithWatchDog(ctx, lockKey, token)
+
+		// 双重检查：可能其他实例已回填
 		exists2, _ := l.redis.Exists(ctx, stockKey).Result()
 		if exists2 > 0 {
-			return nil, nil
+			return nil
 		}
-		// 从 MySQL 获取最新库存（voucher 可能已过时）
+
 		sv, err := l.seckillVoucherRepo.GetByID(ctx, voucherID)
 		if err != nil {
-			return nil, fmt.Errorf("get seckill voucher %d: %w", voucherID, err)
+			return fmt.Errorf("get seckill voucher %d: %w", voucherID, err)
 		}
 		if sv.Stock <= 0 {
-			return nil, model.ErrStockNotEnough
+			return model.ErrStockNotEnough
 		}
 		ttl := 24 * time.Hour
 		if err := l.redis.Set(ctx, stockKey, sv.Stock, ttl).Err(); err != nil {
-			return nil, fmt.Errorf("set redis stock: %w", err)
+			return fmt.Errorf("set redis stock: %w", err)
 		}
 		logrus.Infof("秒杀库存 Redis 回填成功 voucherId=%d stock=%d", voucherID, sv.Stock)
-		return nil, nil
-	})
-	return err
+		return nil
+	}
+	return fmt.Errorf("rebuild stock voucher %d failed after retries", voucherID)
 }
 
 // querySeckillVoucherById 查询秒杀优惠券，优先走 Redis 缓存，减轻 MySQL 压力

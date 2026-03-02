@@ -20,6 +20,8 @@ Handler → Logic → Repository（接口）→ Repository（实现）→ DB
 - **Redis key**：集中在 `pkg/utils/redisx/keys.go`
 - **布隆过滤器**：店铺 ID、秒杀券 ID 预热，防缓存穿透
 - **秒杀（当前）**：Redis Lua 预减 + RocketMQ 事务消息 + 异步消费 + 限流 + 订单超时延迟消息 + 唯一索引兜底
+- **缓存一致性**：Cache Aside + MQ 异步删缓存（shop-update Topic 双消费者：删缓存 + 更新 RAG 向量）
+- **RAG**：Redis Stack HNSW 向量索引 + Embedding + 元数据过滤 + KNN + LLM 意图解析
 
 ## 开发流程
 

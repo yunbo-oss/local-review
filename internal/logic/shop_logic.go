@@ -322,8 +322,18 @@ func (s *shopLogic) QueryShopByIdWithCacheNull(ctx context.Context, id int64) (m
 	return model.Shop{}, fmt.Errorf("get shop cache %d: %w", id, err)
 }
 
-// QueryShopByIdPassThrough 利用互斥锁解决热点 Key 问题(也就是缓存击穿问题)
+// QueryShopByIdPassThrough 利用分布式锁解决热点 Key 击穿问题；含布隆过滤器防穿透
 func (s *shopLogic) QueryShopByIdPassThrough(ctx context.Context, id int64) (model.Shop, error) {
+	// 1. 布隆过滤器防穿透（与 CacheNull 一致）
+	if s.bloomFilter != nil {
+		exists, err := s.bloomFilter.Contains(id)
+		if err != nil {
+			logrus.Warnf("BloomFilter check failed for shop %d: %v, proceeding", id, err)
+		} else if !exists {
+			return model.Shop{}, errors.New("shop not found (blocked by Bloom Filter)")
+		}
+	}
+
 	redisKey := redisx.CACHE_SHOP_KEY + strconv.FormatInt(id, 10)
 
 	for {

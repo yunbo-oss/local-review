@@ -70,4 +70,13 @@
 
 ---
 
+---
+
+## 文档索引
+
+- **README**：项目概览、架构设计、启动说明
+- **AGENTS.md**：AI 编码助手开发规范
+- **.cursorrules**：Cursor 会话级规则（读 AGENTS.md、查 memory-bank、Plan→Build→Test）
+- **memory-bank/**：项目上下文（projectbrief、systemPatterns、productContext、developerContext、activeContext）
+
 *最后更新：请在有重大进展时更新此文件。*

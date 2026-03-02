@@ -39,7 +39,7 @@ func (h *ShopHandler) QueryShopById(c *gin.Context) {
 		return
 	}
 	ctx := c.Request.Context()
-	shop, err := h.logic.QueryShopByIdWithCacheNull(ctx, id)
+	shop, err := h.logic.QueryShopByIdPassThrough(ctx, id)
 
 	if err != nil {
 		logrus.Error("query failed!")
