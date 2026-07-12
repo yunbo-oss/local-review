@@ -55,6 +55,11 @@ seed-redis:
 seed-vector:
 	go run ./cmd/seed-vector
 
+# RAG 检索评估：Recall@5、MRR（需 seed + seed-vector + LLM_API_KEY）
+# 测试集：script/rag-eval.json，可自定义 --test-set 路径
+eval-rag:
+	go run ./cmd/eval-rag
+
 # RAG 索引 schema 变更后：删除旧索引，再 make seed-vector 重新导入
 drop-vector-index:
 	chmod +x script/rag.sh && ./script/rag.sh --drop-index

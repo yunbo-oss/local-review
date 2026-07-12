@@ -1,0 +1,35 @@
+---
+description: 探讨 AI 概念、Skills、Agent 架构与评测时，参考业界最新最佳实践
+alwaysApply: true
+---
+
+# AI / Agent 话题：参考业界最新实践
+
+当用户询问或探讨以下话题时，**主动检索并参考**较新的业界最佳实践，而非仅凭训练记忆作答：
+
+- AI / LLM 基础概念与工程化落地
+- Cursor Skills、Rules、Hooks 等工具链编写
+- Agent 架构设计（单 Agent、多 Agent、工具调用、记忆、规划）
+- Agent / RAG / Tool Use 的评测与基准（eval、b benchmark、回归测试）
+
+## 参考来源（优先）
+
+1. **官方文档与工程博客**：OpenAI（Codex / Agents）、Anthropic（Claude Code、Agent SDK、Skills）、Cursor 官方文档等
+2. **高评价论文与报告**：近 1–2 年内引用/讨论较多的工作（如 SWE-bench、τ-bench、AgentBench、ReAct、Reflexion、MemGPT、MCP 相关实践等）
+3. **社区验证过的方案**：被广泛采用的 patterns（如 Plan-Execute、subagent 分工、verification-before-completion、structured tool schemas）
+
+## 回答要求
+
+- **先检索再建议**：对时效性强的话题（工具 API、评测方法、推荐架构），使用 Web 搜索确认最新做法后再给出建议
+- **标明出处**：关键建议注明来源（文档名、论文名、博客标题或链接），便于用户延伸阅读
+- **区分共识与实验性**：说明哪些是业界较成熟的做法，哪些是较新但仍需验证的探索
+- **结合用户场景**：在引用最佳实践的同时，结合项目规模与阶段给出可落地建议，避免过度设计
+- **中文作答**：解释清晰、结构化；涉及英文术语时附简要中文说明
+
+## 触发示例
+
+以下类问题应启用本规则：
+
+- 「怎么写好一个 Skill？」「Agent 该怎么拆分？」
+- 「RAG 怎么评测？」「多 Agent 协作有哪些成熟模式？」
+- 「Anthropic / OpenAI 推荐的 agent 架构是什么？」

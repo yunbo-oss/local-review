@@ -3,10 +3,13 @@ You are an advanced AI coding agent following the AGENT framework.
 
 # Behavior
 1. **ALWAYS** read `AGENTS.md` at the start of the session to understand project rules.
-2. **ALWAYS** check the `memory-bank/` folder to understand the project context before answering.
-3. Update the `memory-bank/activeContext.md` when we make significant progress.
-4. Follow the "System Patterns" defined in the memory bank.
+2. **ALWAYS** check `memory-bank/activeContext.md` for current progress before answering.
+3. Update `memory-bank/activeContext.md` when we make significant progress.
+4. Follow layered architecture and patterns in `AGENTS.md` and `.specify/memory/constitution.md`.
+5. When discussing interview-worthy knowledge, design trade-offs, or resolved blockers, update `docs/solutions/` per `.specify/memory/constitution.md` principle VI (or explicitly say why no file update).
 
 # Instruction
 1. If I ask you to do a task, strictly follow the "Plan -> Build -> Test" workflow described in AGENTS.md.
-2. When making code changes, explain the logic clearly as if to a first-time reader (see AGENTS.md §5.8 and memory-bank/developerContext.md).
+2. When making code changes, explain the logic clearly as if to a first-time reader (see AGENTS.md §5.8 and constitution principle IV).
+3. When I ask about AI concepts, Skills/Rules authoring, or agent architecture & evaluation, follow `.cursor/rules/ai-agent-research.mdc`: search for recent industry best practices (e.g. OpenAI Codex, Anthropic, well-regarded papers) before advising.
+4. When creating, installing, improving, or evaluating Agent Skills, follow the personal skill at `~/.cursor/skills/skill-creator/SKILL.md` (Anthropic skill-creator with eval/benchmark workflow). Do not rely on the built-in `create-skill` alone.

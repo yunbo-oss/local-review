@@ -2,6 +2,12 @@
 
 > 本文档记录当前开发进度，有重大进展时请更新。
 
+## 工具 / 环境（最近）
+
+- **Spec Kit（specify CLI）**：已安装 v0.12.11；本仓库已 `specify init --here --force --integration cursor-agent`
+- 产物：`.specify/` + `.cursor/skills/speckit-*`；日常在 Cursor 用 `/speckit-specify` 等命令
+- **Constitution v1.1.1**（2026-07-12）：秋招面试导向；原则 VI 知识落盘（含讨论触发）；`memory-bank/` **仅保留** `activeContext.md`
+
 ## 开发计划（来自 README，按推荐顺序）
 
 ### 第一阶段：分布式架构与可观测性（优先）
@@ -30,12 +36,19 @@
 
 ### 第四阶段：搜索与智能化 (Search & AI)
 
-7. **AI 智能点评助手 (RAG)** ✅
+7. **AI 智能点评助手 (RAG)** ✅（Naive 基线已完成）
    - 流程：用户提问 → LLM 提取 filter → Embedding API 转向量 → Redis Stack KNN 检索 Top5 店铺 → LLM 生成推荐 → SSE 流式输出
    - 已实现：Redis Stack 向量索引、Embedding/Chat 客户端、VectorRepo、RAG Logic、Chat Handler、seed-vector 离线导入
    - **数据同步**：店铺创建/更新时发 MQ（shop-update），RAG 消费者异步更新向量
    - **Filtered Vector Search**：预过滤（area、type_name、avg_price、score、comments）+ 语义阈值 MaxDistance；`POST /api/rag/chat` 支持 `filter` 参数
    - **Embedding 语义优化**：embedding 文本为「店铺名 + 用户点评摘要」，与 filter 覆盖字段分离，承载「浪漫」「适合约会」等 filter 无法表达的语义；`internal/rag/text.go` 提供 `BuildShopTextForEmbedding(shop, blogs)`
+
+8. **可评测智能搜索 + 带记忆推荐 Agent** 📋 计划中
+   - 详细计划：`docs/plans/2026-07-11-recommend-agent-eval.md`
+   - 方向：25～35 条全量核验 golden set；eval 与线上 filter 路径对齐；Dense vs Hybrid RRF 量化；Redis session/profile；3-tool bounded Agent；强制 Agent/记忆 eval
+   - 可靠性：maxSteps/tool budget/timeout/去重/groundedness；OTel 增加 LLM、search、tool spans
+   - 明确不做：Mem0 / Eino / LangGraph / Milvus / 合并 BreakTheWaves；模型侧 memory tool；事实向量记忆为 Phase 2
+   - 2026-07-12 评审修正：HitRate 与 Recall 分开；高质量小数据集优先；Hybrid 先于 LLM Rerank；计划排期调整为 8～12 人日
 
 ### 店铺更新 MQ 异步化 ✅
 
@@ -73,11 +86,17 @@
 
 ---
 
+## 工具链
+
+- **Skill 编写**：Anthropic 改进版 `skill-creator` 已安装至 `~/.cursor/skills/skill-creator/`（eval / benchmark / description 优化）。`.cursorrules` 已要求创建或改进 Skill 时优先遵循该 skill。
+
 ## 文档索引
 
 - **README**：项目概览、架构设计、启动说明
-- **AGENTS.md**：AI 编码助手开发规范
-- **.cursorrules**：Cursor 会话级规则（读 AGENTS.md、查 memory-bank、Plan→Build→Test）
-- **memory-bank/**：项目上下文（projectbrief、systemPatterns、productContext、developerContext、activeContext）
+- **AGENTS.md**：工程规范、分层、启动与业务约定
+- **.specify/memory/constitution.md**：秋招导向宪章
+- **.cursorrules**：会话级规则（读 AGENTS、activeContext、docs/solutions）
+- **memory-bank/activeContext.md**：本文件 —— 仅当前进度（勿再扩展其它 memory-bank 文件）
+- **docs/solutions/**：面试知识与开发卡点
 
 *最后更新：请在有重大进展时更新此文件。*

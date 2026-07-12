@@ -1,7 +1,7 @@
 # Local Review Go
 
 基于 **Gin + Nginx** 的分布式点评/电商应用，涵盖用户鉴权、优惠券秒杀、商户检索、AI 智能搜索等核心模块。
-秒杀模块参考了黑马点评的实现，在 Cursor 的帮助下使用 Go 进行了重构。AI 协作规范见 [.cursorrules](.cursorrules)、[AGENTS.md](AGENTS.md)、[memory-bank/](memory-bank/)。
+秒杀模块参考了黑马点评的实现，在 Cursor 的帮助下使用 Go 进行了重构。AI 协作规范见 [.cursorrules](.cursorrules)、[AGENTS.md](AGENTS.md)、[memory-bank/activeContext.md](memory-bank/activeContext.md)；面试知识库见 [docs/solutions/](docs/solutions/)。
 
 **启动与测试**：详见 [doc/QUICKSTART.md](doc/QUICKSTART.md)。
 

@@ -1,0 +1,30 @@
+[
+  {
+    "question": "朝阳区有什么适合约会的浪漫餐厅？",
+    "expected_shop_ids": [5, 7, 15]
+  },
+  {
+    "question": "海淀区人均100以内的美食",
+    "expected_shop_ids": [2, 21]
+  },
+  {
+    "question": "西城区评分高的咖啡厅",
+    "expected_shop_ids": [3, 16]
+  },
+  {
+    "question": "东城区烤鸭店推荐",
+    "expected_shop_ids": [9, 25]
+  },
+  {
+    "question": "丰台区便宜的酒店",
+    "expected_shop_ids": [10]
+  },
+  {
+    "question": "朝阳区火锅",
+    "expected_shop_ids": [5, 23]
+  },
+  {
+    "question": "海淀区咖啡",
+    "expected_shop_ids": [8, 12]
+  }
+]
