@@ -238,16 +238,30 @@ SSE 只展示「正在检索/读取详情」等状态，**不输出模型隐藏�
 - 每条 `relevant_shop_ids`、`oracle_filter`、`evidence` 都人工核验。
 - `test` 一旦冻结，不因某次策略失败而改标签；发现标注错误需记录变更原因并升级 dataset version。
 
-**指标**
+**指标**（2026-07-13 对齐 NVIDIA `rag-eval` skill + [Redis RAG metrics](https://redis.io/blog/rag-metrics/) + [FutureAGI 2026](https://futureagi.com/blog/rag-evaluation-metrics-2025/)）
 
-| 指标 | 正确定义 | 用途 |
-|------|----------|------|
-| HitRate@5 | Top5 是否至少命中一个 relevant | 查询级成功率 |
-| Recall@5 | Top5 命中 relevant 数 / relevant 总数 | 多相关项召回 |
-| MRR | 第一个 relevant 排名的倒数 | 首个好结果位置 |
-| FilterFieldAccuracy | LLM filter 各字段与 oracle 一致率 | filter extractor |
-| FilterCompliance@5 | 返回结果满足硬 filter 的比例 | 防过滤回归 |
-| InfraErrorRate | embedding / Redis / LLM 基础设施失败率 | 与质量分分离 |
+检索层（001 必报；`cmd/eval-rag` + `.cursor/skills/rag-eval/`）：
+
+| 指标 | 正确定义 | 用途 | 业界别名 |
+|------|----------|------|----------|
+| HitRate@5 | Top5 是否至少命中一个 relevant | 查询级 sanity | Success@5 |
+| Recall@5 | Top5 命中 relevant 数 / relevant 总数 | 多相关项 coverage | context recall（有 gold ids） |
+| Precision@5 | Top5 中 relevant 数 / 5 | TopK 噪声控制 | context precision（离散版） |
+| MRR | 第一个 relevant 排名的倒数均值 | 首个好结果位置 | — |
+| nDCG@5 | 二元 relevant 的 DCG/IDCG@5 | 排序质量 | BEIR/MTEB 常用 |
+| FilterFieldAccuracy | LLM filter 各字段与 oracle 一致率 | filter extractor | 领域附加 |
+| FilterCompliance@5 | 返回结果满足硬 filter 的比例 | 防过滤回归 | 领域附加 |
+| InfraErrorRate | embedding / Redis / LLM 基础设施失败率 | 与质量分分离 | — |
+
+生成层（002 再报；RAGAS 风格，001 不阻塞）：
+
+| 指标 | 用途 |
+|------|------|
+| faithfulness / groundedness | 回答是否被检索证据支撑 |
+| answer_relevance | 回答是否切题 |
+| context_precision / context_recall | 无 gold 时 LLM judge；有 gold 时与 Precision/Recall 对照 |
+
+**评测环境**：baseline 在 **Mac/CI + Docker Compose** 录制（MySQL + Redis Stack + seed）；**不推荐**以 AidLux 犀牛派/社区版 AidLux 作为主评测环境（社区版无 Docker；全栈过重；见 skill `references/local-retrieval-eval.md` §5）。腾讯「犀牛鸟」为科研合作计划，非部署平台。
 
 ### 1.7 Agent / 记忆 eval（Phase 1 强制）
 
@@ -446,6 +460,8 @@ go test ./cmd/eval-rag -run TestMetrics -count=1
 Expected: FAIL。
 
 **Step 2: 实现指标纯函数与 report**
+
+指标 bundle（见 §1.6）：HitRate@K、Recall@K、Precision@K、MRR、nDCG@K、Filter*、InfraErrorRate。参考 `.cursor/skills/rag-eval/SKILL.md`。
 
 ```go
 type EvalReport struct {
@@ -1073,7 +1089,7 @@ git commit -m "docs(agent): add reproducible eval and interview demo"
 
 - [ ] embedding 维度在配置、API 返回与 Redis 索引之间一致；`latest` 镜像已锁定。
 - [ ] `retrieval.v1.json` 有 25～35 条全量人工核验 case，冻结 test split 并记录 SHA-256。
-- [ ] eval 同时输出 HitRate@5、真正 Recall@5、MRR、filter 指标和 infra error。
+- [ ] eval 同时输出 HitRate@5、Recall@5、Precision@5、MRR、nDCG@5、filter 指标和 infra error。
 - [ ] `oracle+dense/hybrid` 与 `llm+dense/hybrid` 路径均可运行，报告包含完整实验元数据。
 - [ ] Hybrid RRF 与 dense 的真实对比已保存；提升、持平或下降均有失败分析。
 - [ ] `agent.v1.json` 有 10～15 条场景，确定性 graders 与关键 case 多 trial 可运行。

@@ -43,12 +43,14 @@
    - **Filtered Vector Search**：预过滤（area、type_name、avg_price、score、comments）+ 语义阈值 MaxDistance；`POST /api/rag/chat` 支持 `filter` 参数
    - **Embedding 语义优化**：embedding 文本为「店铺名 + 用户点评摘要」，与 filter 覆盖字段分离，承载「浪漫」「适合约会」等 filter 无法表达的语义；`internal/rag/text.go` 提供 `BuildShopTextForEmbedding(shop, blogs)`
 
-8. **可评测智能搜索 + 带记忆推荐 Agent** 📋 计划中
-   - 详细计划：`docs/plans/2026-07-11-recommend-agent-eval.md`
-   - 方向：25～35 条全量核验 golden set；eval 与线上 filter 路径对齐；Dense vs Hybrid RRF 量化；Redis session/profile；3-tool bounded Agent；强制 Agent/记忆 eval
-   - 可靠性：maxSteps/tool budget/timeout/去重/groundedness；OTel 增加 LLM、search、tool spans
+8. **可评测智能搜索 + 带记忆推荐 Agent** 📋 Spec 拆分中
+   - 源计划：`docs/plans/2026-07-11-recommend-agent-eval.md`
+   - **本规格**：`specs/001-evaluable-hybrid-retrieval/` — 可信检索评测 + 共享检索入口 + Hybrid 对照（计划 Task 0–3）
+- **RAG eval skill**：`.cursor/skills/rag-eval/`（改编自 NVIDIA rag-eval v2.6.0；指标已修订 Precision@K + nDCG@K）
+- **评测环境**：Docker Compose 本地为主；AidLux 犀牛派不作 baseline 环境
+   - **后续**：`002` Recommend Agent + 结构化记忆 + Agent eval（计划 Task 4–8，未开）
    - 明确不做：Mem0 / Eino / LangGraph / Milvus / 合并 BreakTheWaves；模型侧 memory tool；事实向量记忆为 Phase 2
-   - 2026-07-12 评审修正：HitRate 与 Recall 分开；高质量小数据集优先；Hybrid 先于 LLM Rerank；计划排期调整为 8～12 人日
+   - 2026-07-12：HitRate≠Recall；小高质量集；Hybrid 先于 LLM Rerank；整包 Spec 拆成 001/002
 
 ### 店铺更新 MQ 异步化 ✅
 
