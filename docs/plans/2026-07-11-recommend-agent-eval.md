@@ -2,9 +2,11 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** 在现有 Go 分布式点评与 Naive RAG 之上，构建「可复现评测的智能搜索 + 有界工具调用 + 可纠正结构化记忆」闭环，并用可信数字说明优化收益。
+**Goal:** 在现有 Go 分布式点评与 Naive RAG 之上，构建「Hybrid 检索底座 + 有界工具调用 + 可纠正结构化记忆」闭环；**对外数字优先证明 Agent（相对 Hybrid RAG）的收益**，不为 dense vs hybrid 单独占简历篇幅。
 
-**Architecture:** 不引入 Mem0 / Eino / LangGraph / Deep Agents / Milvus。先修正现有 RAG 的配置与评测口径，再建立与线上路径一致的 retrieval eval；检索优化优先采用现有 Redis TEXT + HNSW 的 Hybrid RRF。Agent 为 3 个只读领域工具的自研 bounded tool-loop；会话与 profile 由服务端加载和持久化，模型不直接读写记忆。Trace 复用 OpenTelemetry，但补充 search / LLM / tool 自定义 span。Phase 1 仅做 Redis 结构化记忆，事实向量记忆继续后置。
+**Architecture:** 不引入 Mem0 / Eino / LangGraph / Deep Agents / Milvus。先修配置契约与共享检索入口，**线上默认 Hybrid RRF**（Redis TEXT + HNSW），再开 002 Agent。**不做 dense vs hybrid 对照交付**（dense 仅可选诊断开关，不录正式 baseline、不写进简历）。检索评测保留正确指标与 golden set，主要服务「Hybrid RAG 作为 Agent 对照基线」。Agent 为 3 个只读领域工具的自研 bounded tool-loop；会话与 profile 由服务端加载和持久化。Phase 1 仅做 Redis 结构化记忆。
+
+**取舍（2026-07-21）：** 面试位置有限 → 省略 dense↔hybrid 对外讲述与强制 A/B；把人日优先给 Memory + Agent + Agent eval。
 
 **Tech Stack:** Go 1.24+、Gin、Redis Stack（Hash + TEXT + HNSW）、go-openai、现有 `RAGLogic` / `VectorRepo`、OpenTelemetry、JSON golden set、`cmd/eval-rag`、`cmd/eval-agent`。
 
@@ -30,11 +32,13 @@
 ### 0.2 面试亮点优先级（勿颠倒）
 
 1. **已有后端底座**：秒杀事务消息、布隆过滤器、MQ 异步更新、Nginx 多实例——后端岗位主菜。
-2. **可信评测闭环**：线上路径一致、正确指标、稳定环境、baseline 与失败样本。
-3. **领域 Agent 编排**：3 个边界清晰的只读工具、预算/超时/停止条件、SSE 与 OTel。
-4. **可纠正记忆**：session + profile Hash，明确覆盖、删除、并发更新和注入优先级。
+2. **领域 Agent 编排**：3 个边界清晰的只读工具、预算/超时/停止条件、SSE 与 OTel。
+3. **可纠正记忆**：session + profile Hash，明确覆盖、删除、并发更新和注入优先级。
+4. **可信评测（服务 Agent）**：golden set + 正确指标；对照叙事是 **Hybrid RAG vs Agent**，不是 dense vs hybrid。
 
-不要表述为「所有后端岗位都必须会 Agent」。面试话术应是：**后端基本盘决定下限，Agent / RAG / eval 能力扩大 AI 应用与智能业务后端岗位的适配面。**
+不要表述为「所有后端岗位都必须会 Agent」。面试话术应是：**后端基本盘决定下限，Agent / Hybrid 检索 / eval 能力扩大 AI 应用与智能业务后端岗位的适配面。**
+
+**简历不写：** dense→hybrid 提升百分比。若被追问「为什么 Hybrid」，一句话答：词面补店名/专有名词，向量补氛围语义；默认上 Hybrid，精力用在 Agent。
 
 ### 0.3 明确不做（YAGNI）
 
@@ -45,7 +49,8 @@
 | 完整 Reco 微服务（独立召回池/曝光） | 与点评域重复；用 Agent 工作流表达推荐即可 |
 | Phase 1 用户事实向量记忆 | 先 Hash；不够再 Phase 2 |
 | 模型侧 `read_memory` / `update_memory` | profile 已由服务端注入；让模型任意读写会增加调用噪声、污染与安全风险 |
-| 默认使用生成式 LLM Rerank | 非确定、慢且贵；先做可复现的 Hybrid RRF，候选召回足够后再考虑专用 reranker |
+| 默认使用生成式 LLM Rerank | 非确定、慢且贵；默认 Hybrid RRF，候选召回足够后再考虑专用 reranker |
+| **dense vs hybrid 对照交付 / 简历叙事** | 面试位置有限；线上直接 Hybrid；对照精力留给 **RAG vs Agent** |
 | 外部 LLM eval 直接做 PR 强门禁 | API 与模型存在抖动；Phase 1 仅提供本地/手工回归命令 |
 | 生成侧完整 Ragas CI | 先保证检索、工具轨迹、记忆状态与 groundedness；开放式回答质量后置 |
 | 为达到 n≥50 批量同义改写 | 当前 catalog 约 25 家店，相关样本会制造统计虚胖；质量优先于数量 |
@@ -68,8 +73,7 @@ rag-evals/
     retrieval.v1.json          # 25～35 条全量人工核验，含 dev/test 标记
     agent.v1.json              # 10～15 条多轮 Agent/记忆场景
   baseline/
-    dense_prod_v1.json         # 线上 filter + dense 的已知基线
-    hybrid_prod_v1.json        # Hybrid 对照结果（完成后）
+    hybrid_prod_v1.json        # 生产口径：llm filter + hybrid（Agent 对照用的 RAG 基线）
   reports/                     # gitignore，本地/CI 产物
     retrieval_latest.json
     agent_latest.json
@@ -106,25 +110,22 @@ question + explicit filter + optional profile
        │    ├─ 显式请求条件（最高优先级）
        │    ├─ LLM filter extractor
        │    └─ profile 默认值（仅补空字段）
-       ├─ ShopSearchLogic.Search(strategy=dense|hybrid)
+       ├─ ShopSearchLogic.Search(strategy=hybrid|dense)
        │    ├─ Embed(question)
-       │    ├─ VectorRepo.SearchShops
-       │    └─ [hybrid] Text Search + RRF
+       │    ├─ VectorRepo.SearchShops（KNN）
+       │    └─ [默认 hybrid] Text Search + RRF
        └─ []ShopSearchResult
               ├─ RAG：buildShopContext → ChatStream
               └─ Agent：作为 tool result 返回
 ```
 
-检索评测把两个变量正交拆开：
+**默认策略：`hybrid`。** `dense` 仅作可选诊断（`--retriever=dense`），**不要求录 baseline，不要求 A/B 报告。**
 
-- `--filter-mode=none|oracle|llm`
-- `--retriever=dense|hybrid`
+正式评测最小集合：
 
-其中：
-
-- `oracle + dense/hybrid` 用于隔离比较 retriever。
-- `llm + dense/hybrid` 用于代表线上真实路径。
-- `none + dense` 只作为旧版诊断，不作为生产 baseline。
+- `--filter-mode=llm --retriever=hybrid` → 生产口径 / Agent 对照用的 RAG 基线
+- `--filter-mode=oracle --retriever=hybrid` → 可选，隔离 filter 抽取噪声
+- `--filter-mode=none` → 仅诊断，不对外
 
 ### 1.2 推荐 Agent（新建）
 
@@ -504,9 +505,9 @@ Loader 同时兼容正式 `{version,cases}` schema 与旧 `script/rag-eval.json`
 --test-set=rag-evals/golden/retrieval.v1.json
 --split=test
 --filter-mode=none        # none | oracle | llm
---retriever=dense         # dense | hybrid
+--retriever=hybrid        # hybrid（默认）| dense（仅诊断）
 --out=rag-evals/reports/retrieval_latest.json
---baseline=rag-evals/baseline/dense_prod_v1.json
+--baseline=rag-evals/baseline/hybrid_prod_v1.json
 --write-baseline=false
 ```
 
@@ -516,14 +517,14 @@ Loader 同时兼容正式 `{version,cases}` schema 与旧 `script/rag-eval.json`
 - 正式 test 只要 `n_infra_error > 0` 就非零退出，防止把服务故障误写成检索变差。
 - 仍生成 report，便于排障。
 
-**Step 6: 输出比较**
+**Step 6: 输出示例（后续 Agent 对照时用同一格式）**
 
 ```text
 HitRate@5: 42.0% → 61.0%  (+19.0pp, +45.2% rel)
 Recall@5:  35.0% → 52.0%  (+17.0pp, +48.6% rel)
 MRR:       0.310 → 0.480
 n_total=30 n_evaluated=30 infra_errors=0
-filter_mode=llm retriever=dense
+filter_mode=llm retriever=hybrid
 ```
 
 **Step 7: 运行指标单测**
@@ -538,36 +539,35 @@ Expected: PASS。
 
 ```makefile
 eval-rag-smoke:
-	go run ./cmd/eval-rag --test-set=script/rag-eval.json --filter-mode=none --retriever=dense
+	go run ./cmd/eval-rag --test-set=script/rag-eval.json --filter-mode=none --retriever=hybrid
 
 eval-rag-oracle:
-	go run ./cmd/eval-rag --filter-mode=oracle --retriever=dense
+	go run ./cmd/eval-rag --filter-mode=oracle --retriever=hybrid
 
 eval-rag-prod:
-	go run ./cmd/eval-rag --filter-mode=llm --retriever=dense
+	go run ./cmd/eval-rag --filter-mode=llm --retriever=hybrid
 ```
 
-**Step 9: 记录两份 dense baseline**
+**Step 9: 录 Hybrid 生产基线（供后续 Agent 对照，非 dense A/B）**
 
 ```bash
-go run ./cmd/eval-rag --filter-mode=oracle --retriever=dense \
-  --out=rag-evals/reports/dense_oracle.json
-go run ./cmd/eval-rag --filter-mode=llm --retriever=dense \
-  --write-baseline --out=rag-evals/reports/dense_prod.json
+go run ./cmd/eval-rag --filter-mode=llm --retriever=hybrid \
+  --write-baseline --out=rag-evals/reports/hybrid_prod.json
 ```
 
-Expected: `n_infra_error=0`，并生成 `rag-evals/baseline/dense_prod_v1.json`。
+Expected: `n_infra_error=0`，并生成 `rag-evals/baseline/hybrid_prod_v1.json`。  
+**不做** dense 对照跑分；`--retriever=dense` 仅本地排障时可选。
 
 **Step 10: Commit（若用户要求）**
 
 ```bash
-git add cmd/eval-rag internal/logic/shop_search_logic.go internal/logic/shop_search_logic_test.go internal/repository/interface/vector.go internal/repository/vector_repo.go internal/logic/rag_logic.go cmd/server/main.go Makefile rag-evals/baseline/dense_prod_v1.json
-git commit -m "feat(eval): align retrieval evaluation with production"
+git add cmd/eval-rag internal/logic/shop_search_logic.go internal/logic/shop_search_logic_test.go internal/repository/interface/vector.go internal/repository/vector_repo.go internal/logic/rag_logic.go cmd/server/main.go Makefile rag-evals/baseline/hybrid_prod_v1.json
+git commit -m "feat(eval): align retrieval evaluation with hybrid production path"
 ```
 
 ---
 
-### Task 3: Hybrid RRF 检索与固定 A/B
+### Task 3: Hybrid RRF 检索（默认上线，无 dense A/B）
 
 **Files:**
 - Create: `internal/rag/rrf.go`
@@ -615,11 +615,11 @@ Expected: FAIL。
 - `FuseRRF(k=60)` 融合并截断 Top5。
 - 不依赖 Redis 8.4 `FT.HYBRID`，保持与当前 Redis Stack 兼容，且 RRF 纯函数可单测。
 
-**Step 4: 接入共享检索策略**
+**Step 4: 接入共享检索策略（默认 hybrid）**
 
-- `ShopSearchLogic` 根据 `RAG_RETRIEVER=dense|hybrid` 选择策略。
+- 默认 `RAG_RETRIEVER=hybrid`；`dense` 仅诊断。
 - `/api/rag/chat`、Agent `search_shops`、eval 共用该实现。
-- 文本查询失败时整次请求报错，不静默退化，避免实验口径漂移；线上是否降级可在 Phase 2 单独设计。
+- 文本查询失败时整次请求报错，不静默退化成 dense 却仍标 hybrid。
 
 **Step 5: 运行测试**
 
@@ -629,30 +629,21 @@ go test ./internal/rag/... ./internal/repository/... ./internal/logic/... -count
 
 Expected: PASS。
 
-**Step 6: 固定变量做 A/B**
+**Step 6: 冻结 Hybrid 基线（跳过 dense 对照）**
 
 ```bash
-go run ./cmd/eval-rag --filter-mode=oracle --retriever=dense \
-  --out=rag-evals/reports/dense_oracle.json
-go run ./cmd/eval-rag --filter-mode=oracle --retriever=hybrid \
-  --out=rag-evals/reports/hybrid_oracle.json
-
 go run ./cmd/eval-rag --filter-mode=llm --retriever=hybrid \
-  --baseline=rag-evals/baseline/dense_prod_v1.json \
-  --out=rag-evals/reports/hybrid_prod.json
+  --write-baseline --out=rag-evals/reports/hybrid_prod.json
 ```
 
-Expected: 三次运行均 `n_infra_error=0`。提升、持平或下降都如实保留，并按 tag 分析失败。
+Expected: `n_infra_error=0`；复制为 `rag-evals/baseline/hybrid_prod_v1.json`。  
+此基线用途：**002 中 Agent vs Hybrid RAG**，不是 dense vs hybrid。
 
-**Step 7: 写已知结果**
-
-将真实 `hybrid_prod.json` 复制为 `rag-evals/baseline/hybrid_prod_v1.json`；README/文档只引用可复现数字。
-
-**Step 8: Commit（若用户要求）**
+**Step 7: Commit（若用户要求）**
 
 ```bash
 git add internal/rag/rrf.go internal/rag/rrf_test.go internal/repository/interface/vector.go internal/repository/vector_repo.go internal/repository/vector_repo_test.go internal/logic/shop_search_logic.go internal/logic/shop_search_logic_test.go cmd/eval-rag Makefile rag-evals/baseline/hybrid_prod_v1.json
-git commit -m "feat(rag): add evaluated hybrid retrieval with RRF"
+git commit -m "feat(rag): default hybrid retrieval with RRF"
 ```
 
 ---
@@ -1044,8 +1035,8 @@ Expected: report 含 task success、groundedness、trajectory、trial consistenc
 **Step 4: Makefile**
 
 ```makefile
-eval-rag-compare:
-	go run ./cmd/eval-rag --filter-mode=llm --retriever=hybrid --baseline=rag-evals/baseline/dense_prod_v1.json
+eval-rag:
+	go run ./cmd/eval-rag --filter-mode=llm --retriever=hybrid
 
 eval-agent:
 	go run ./cmd/eval-agent --test-set=rag-evals/golden/agent.v1.json
@@ -1056,10 +1047,10 @@ demo-agent:
 
 **Step 5: 文档必须包含**
 
-- 线上 RAG 与 Agent 数据流；
-- dense vs hybrid 的真实数字、固定条件和失败案例；
+- 线上 Hybrid RAG 与 Agent 数据流；
+- **Agent vs Hybrid RAG** 的真实数字（非 dense vs hybrid）、固定条件和失败案例；
 - Agent outcome / groundedness / trajectory / 成本指标；
-- 为什么不用 Mem0 / Milvus / Eino；
+- 为什么不用 Mem0 / Milvus / Eino；为什么不做 dense↔hybrid 简历叙事；
 - 为什么 memory 不暴露成模型工具；
 - 一个成功 trace 和一个失败 trace 的分析；
 - 一条命令如何复现实验；
@@ -1069,7 +1060,7 @@ demo-agent:
 
 ```bash
 go test ./... -count=1
-make eval-rag-compare
+make eval-rag
 make eval-agent
 make demo-agent
 ```
@@ -1090,15 +1081,15 @@ git commit -m "docs(agent): add reproducible eval and interview demo"
 - [ ] embedding 维度在配置、API 返回与 Redis 索引之间一致；`latest` 镜像已锁定。
 - [ ] `retrieval.v1.json` 有 25～35 条全量人工核验 case，冻结 test split 并记录 SHA-256。
 - [ ] eval 同时输出 HitRate@5、Recall@5、Precision@5、MRR、nDCG@5、filter 指标和 infra error。
-- [ ] `oracle+dense/hybrid` 与 `llm+dense/hybrid` 路径均可运行，报告包含完整实验元数据。
-- [ ] Hybrid RRF 与 dense 的真实对比已保存；提升、持平或下降均有失败分析。
+- [ ] **默认 Hybrid** 上线；`llm+hybrid` 可跑并写入 `hybrid_prod_v1` 基线；**不要求** dense vs hybrid A/B 报告。
+- [ ] 线上 `/api/rag/chat` 与 eval / Agent `search_shops` 共用 `ShopSearchLogic`。
 - [ ] `agent.v1.json` 有 10～15 条场景，确定性 graders 与关键 case 多 trial 可运行。
 - [ ] `/api/agent/recommend` 只有 3 个只读领域工具，并具有 maxSteps、tool budget、timeout、去重与限流。
 - [ ] 回答引用的 shop_id 全部来自本轮工具结果。
 - [ ] session/profile 有 TTL；偏好支持添加、删除、清空与 CAS 并发合并。
 - [ ] OTel 可看到 agent / LLM / tool / embed / search spans，且不记录原始用户隐私内容。
-- [ ] `go test ./... -count=1`、`make eval-rag-compare`、`make eval-agent`、`make demo-agent` 均通过。
-- [ ] `doc/AGENT_AND_EVAL.md` 可独立复现实验与 demo。
+- [ ] `go test ./... -count=1`、`make eval-rag`、`make eval-agent`、`make demo-agent` 均通过。
+- [ ] `doc/AGENT_AND_EVAL.md` 可独立复现实验与 demo；对照叙事为 **Agent vs Hybrid RAG**。
 - [ ] **未**引入 Mem0 / Eino / LangGraph / Milvus / BreakTheWaves 整仓。
 
 ---
@@ -1108,15 +1099,15 @@ git commit -m "docs(agent): add reproducible eval and interview demo"
 | 阶段 | Tasks | 预估（人日，含想清楚+抽检） |
 |------|-------|---------------------------|
 | P0 前置正确性 | 0 | 0.5～1 |
-| P1 Golden + 评测台 | 1–2 | 2～3 |
-| P2 Hybrid RRF | 3 | 1～2 |
+| P1 Golden + 评测台（hybrid 口径） | 1–2 | 1.5～2.5（压缩 dense A/B） |
+| P2 Hybrid RRF 默认上线 | 3 | 1～1.5 |
 | P3 MemoryRepo + Profile | 4 | 1.5～2 |
 | P4 Agent eval + 核心 | 5–6 | 2～3 |
 | P5 接口、Trace、文档 | 7–8 | 1～2 |
 
-合计约 **8～12 人日**。AI 可以缩短编码时间，但人工标注、真实 API 联调、失败分析和把原理讲清楚不能省。
+合计约 **7～11 人日**。省下的对照时间优先给 P3–P5（Agent）。
 
-停止条件：上述 DoD 完成后停止扩功能，转入后端主线与面试复盘；不要继续加多 Agent、MCP、向量记忆或新数据库。
+停止条件：上述 DoD 完成后停止扩功能，转入后端主线与面试复盘；不要继续加多 Agent、MCP、向量记忆、dense A/B 叙事或新数据库。
 
 ---
 
@@ -1128,19 +1119,23 @@ git commit -m "docs(agent): add reproducible eval and interview demo"
 
 **AI 加分一条（完成后再填真实数字）：**
 
-> 设计可评测店铺推荐 Agent：基于 Redis Stack 实现 dense + lexical 的 Hybrid RRF 检索，以结构化 profile 注入个性化条件，并通过 3-tool bounded loop 完成多步推荐；在人工标注 golden set（n=`真实值`）上将 HitRate@5 从 `A` 提升至 `B`（`+Xpp`），同时评测 groundedness、工具轨迹、延迟与 token 成本。
+> 设计可评测店铺推荐 Agent：Redis Stack Hybrid RRF（词面+向量）作检索底座，结构化 profile 注入偏好，3-tool bounded loop 完成多步推荐；在 golden set（n=`真实值`）上相对单次 Hybrid RAG，任务成功率 / groundedness 从 `A` 到 `B`，并报告工具轨迹、延迟与 token。
+
+**追问「为什么不做 dense vs hybrid」：**
+
+> 简历篇幅有限；Hybrid 是业界默认组合，我们直接上生产路径。评测预算留给「单次 RAG vs Agent」——那才是产品层决策。
 
 **追问「为什么组件不多」：**
 
-> 该项目是单 Agent、单领域、硬偏好为主。缓存、检索、会话和 profile 使用同一 Redis 的不同 key/index/TTL，减少运维面；结构化 profile 比 Mem0 更可解释、可纠正、可做确定性测试。只有真实失败证明需要跨 Agent 共享或软事实语义召回时才升级组件。
+> 该项目是单 Agent、单领域、硬偏好为主。缓存、检索、会话和 profile 使用同一 Redis 的不同 key/index/TTL，减少运维面；结构化 profile 比 Mem0 更可解释、可纠正、可做确定性测试。
 
 **追问「提升多少」：**
 
-> 展示 report，先说明 dataset hash、seed/index、模型、filter mode、TopK 和样本数，再报绝对百分点与相对提升；同时展示失败 case。若没有提升，就说明哪类 query 下降以及下一步假设，不编数字。
+> 展示 Agent vs Hybrid RAG 的 report：dataset hash、模型、filter、TopK、n；再报绝对百分点与相对提升，并带失败 case。不编 dense↔hybrid 数字。
 
 **追问「为什么一定要 Agent」：**
 
-> 普通推荐仍可走单次 RAG；当问题需要先找候选、再读权威详情或点评，并根据中间结果决定是否继续时才进入 Agent。项目用 Agent eval 对比单次 RAG 的任务成功率、groundedness、工具数和成本；如果收益不成立，就把它降级为固定 workflow。
+> 普通推荐走单次 Hybrid RAG；需要先搜候选再读详情/点评、或依赖多轮偏好时才进 Agent。用 Agent eval 对比；若收益不成立可降级为固定 workflow。
 
 ---
 

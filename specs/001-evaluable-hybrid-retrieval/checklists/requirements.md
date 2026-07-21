@@ -34,4 +34,5 @@
 - Validation 2026-07-13: Pass after metric bundle revision (Precision@5, nDCG@5 added per rag-eval skill).
 - Split decision: Agent + memory deferred to follow-on feature `002-*` (see Out of Scope).
 - Source plan Tasks 0–3 map to this feature; Tasks 4–8 excluded.
-- Ready for `/speckit-plan` (optional `/speckit-clarify` if product owner wants to adjust case count or K).
+- **2026-07-21**: Product owner cut dense vs hybrid A/B as acceptance; default Hybrid; eval baseline serves Agent对照. Spec Status → Ready.
+- Ready for `/speckit-plan` or直接按源计划 Task 0→3 实现（跳过 dense 对照步骤）。

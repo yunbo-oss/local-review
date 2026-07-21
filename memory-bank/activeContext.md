@@ -43,14 +43,18 @@
    - **Filtered Vector Search**：预过滤（area、type_name、avg_price、score、comments）+ 语义阈值 MaxDistance；`POST /api/rag/chat` 支持 `filter` 参数
    - **Embedding 语义优化**：embedding 文本为「店铺名 + 用户点评摘要」，与 filter 覆盖字段分离，承载「浪漫」「适合约会」等 filter 无法表达的语义；`internal/rag/text.go` 提供 `BuildShopTextForEmbedding(shop, blogs)`
 
-8. **可评测智能搜索 + 带记忆推荐 Agent** 📋 Spec 拆分中
+8. **可评测智能搜索 + 带记忆推荐 Agent** 📋 001 Tasks 已生成 → 待 `/speckit-implement`
    - 源计划：`docs/plans/2026-07-11-recommend-agent-eval.md`
-   - **本规格**：`specs/001-evaluable-hybrid-retrieval/` — 可信检索评测 + 共享检索入口 + Hybrid 对照（计划 Task 0–3）
-- **RAG eval skill**：`.cursor/skills/rag-eval/`（改编自 NVIDIA rag-eval v2.6.0；指标已修订 Precision@K + nDCG@K）
+   - **本规格**：`specs/001-evaluable-hybrid-retrieval/` — Hybrid 默认 + 共享检索 + 可信评测（**不做 dense vs hybrid 对照交付**，2026-07-21）
+   - **Plan 产物**（2026-07-21）：`plan.md` / `research.md` / `data-model.md` / `contracts/` / `quickstart.md`
+   - **Tasks**：`specs/001-evaluable-hybrid-retrieval/tasks.md`（T001–T042；顺序 US2→US4→US1→US3）
+   - 实现顺序：契约 → 共享入口 → 评测基线 → Hybrid RRF + `hybrid_prod` 基线
+- **RAG eval skill**：`.cursor/skills/rag-eval/`（实现期需同步去掉过时的 dense 对照表述）
 - **评测环境**：Docker Compose 本地为主；AidLux 犀牛派不作 baseline 环境
-   - **后续**：`002` Recommend Agent + 结构化记忆 + Agent eval（计划 Task 4–8，未开）
-   - 明确不做：Mem0 / Eino / LangGraph / Milvus / 合并 BreakTheWaves；模型侧 memory tool；事实向量记忆为 Phase 2
-   - 2026-07-12：HitRate≠Recall；小高质量集；Hybrid 先于 LLM Rerank；整包 Spec 拆成 001/002
+   - **后续**：`002` Recommend Agent + 结构化记忆 + Agent eval（计划 Task 4–8）；**对外数字优先 Agent vs Hybrid RAG**
+   - 明确不做：Mem0 / Eino / LangGraph / Milvus；dense↔hybrid 简历叙事；模型侧 memory tool；事实向量记忆为 Phase 2
+   - 2026-07-12：HitRate≠Recall；小高质量集；整包 Spec 拆成 001/002
+   - 2026-07-21：跳过 dense A/B；Hybrid 直接默认；精力给 Agent
 
 ### 店铺更新 MQ 异步化 ✅
 
@@ -101,4 +105,4 @@
 - **memory-bank/activeContext.md**：本文件 —— 仅当前进度（勿再扩展其它 memory-bank 文件）
 - **docs/solutions/**：面试知识与开发卡点
 
-*最后更新：请在有重大进展时更新此文件。*
+*最后更新：2026-07-21 — 001 `/speckit-tasks` 完成（tasks.md T001–T042）。*

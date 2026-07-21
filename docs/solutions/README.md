@@ -33,4 +33,6 @@
 
 | 日期 | 类型 | 标题 | 文件 |
 |------|------|------|------|
-| — | — | （尚无条目；按 TEMPLATE 新增后登记于此） | — |
+| 2026-07-21 | interview | 模糊问句要不要上 Query 改写 | [2026-07-21-query-rewrite-when-needed.md](./interview/2026-07-21-query-rewrite-when-needed.md) |
+| 2026-07-21 | interview | 本仓库 RAG vs 标准 RAG；意图范围只有硬槽位 | [2026-07-21-rag-vs-standard-and-intent-scope.md](./interview/2026-07-21-rag-vs-standard-and-intent-scope.md) |
+| 2026-07-21 | interview | Hybrid 默认上线，跳过 dense 对照 | [hybrid-default-skip-dense-ab.md](./interview/hybrid-default-skip-dense-ab.md) |
