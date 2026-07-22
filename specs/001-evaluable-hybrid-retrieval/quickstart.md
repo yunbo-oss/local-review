@@ -7,7 +7,7 @@
 
 ## Prerequisites
 
-- Docker：MySQL + Redis Stack（compose 中镜像为**固定 tag/digest**，非 `latest`）
+- Docker：MySQL + Redis Stack（compose 钉死 `redis/redis-stack-server:7.4.0-v8`，非 `latest`）
 - `.env`：`LLM_API_KEY`、`LLM_EMBEDDING_DIM` 与所用 embedding 模型一致
 - 种子：`make seed` + `make seed-vector`（完整元数据写入）
 - 正式集：`rag-evals/golden/retrieval.v1.json`（25～35，evidence 非空）

@@ -39,14 +39,8 @@
 ## Constitution Check
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
-*Source: `.specify/memory/constitution.md` v1.0.0 (local-review-go)*
 
-- [ ] **I. Interview-First**: 本功能能讲清「问题 → 方案 → 取舍 → 验证」；列出预计面试卖点（1～3 条）
-- [ ] **II. Layered Architecture**: 设计遵守 Handler → Logic → Repo 接口 → 实现；无 Handler/Logic 直连 DB
-- [ ] **III. Plan → Build → Test**: 已写清验证方式（单测 / `make test-api` / 相关脚本）
-- [ ] **IV. Explain-as-You-Build**: 实现阶段将按 AGENTS.md §5.8 解释改动（计划中无需产出，但不得省略）
-- [ ] **V. Simplicity**: 无未证明收益的新框架/新中间件；若有复杂度，已填下方 Complexity Tracking
-- [ ] **VI. Knowledge Capture**: 已规划将面试知识点或卡点写入 `docs/solutions/`（interview/ 或 blockers/）
+[Gates determined based on constitution file]
 
 ## Project Structure
 

@@ -1,4 +1,4 @@
-.PHONY: run build test tidy clean air test-api seed seed-redis seed-load-test seed-reset-load-test seed-vector load-test-seckill
+.PHONY: run build test tidy clean air test-api seed seed-redis seed-load-test seed-reset-load-test seed-vector load-test-seckill eval-rag eval-rag-smoke eval-rag-oracle eval-rag-prod
 
 run:
 	go run ./cmd/server
@@ -55,10 +55,22 @@ seed-redis:
 seed-vector:
 	go run ./cmd/seed-vector
 
-# RAG 检索评估：Recall@5、MRR（需 seed + seed-vector + LLM_API_KEY）
-# 测试集：script/rag-eval.json，可自定义 --test-set 路径
+# RAG 检索评估（需 seed + seed-vector + LLM_API_KEY）
+# script/rag-eval.json = SMOKE ONLY，非正式 baseline；正式集见 rag-evals/golden/
 eval-rag:
 	go run ./cmd/eval-rag
+
+# Smoke：旧格式 ≤7 题，filter-mode=none，禁止写 baseline
+eval-rag-smoke:
+	go run ./cmd/eval-rag --test-set=script/rag-eval.json --filter-mode=none --retriever=hybrid
+
+# Oracle filter + hybrid（正式 golden）
+eval-rag-oracle:
+	go run ./cmd/eval-rag --filter-mode=oracle --retriever=hybrid --split=test
+
+# 生产口径：llm filter + hybrid（正式 golden）
+eval-rag-prod:
+	go run ./cmd/eval-rag --filter-mode=llm --retriever=hybrid --split=test
 
 # RAG 索引 schema 变更后：删除旧索引，再 make seed-vector 重新导入
 drop-vector-index:

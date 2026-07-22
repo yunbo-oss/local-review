@@ -36,7 +36,7 @@
 
 ## 3. Hybrid fusion: client RRF vs Redis `FT.HYBRID`
 
-**Decision**: 客户端 RRF：Dense KNN Top20 ∥ TEXT 检索 Top20 → `FuseRRF(k=60)` → 截断 TopK（默认 5）。查询字段：`name`（WEIGHT 5.0）+ `text_content`。平局按 `shop_id` 升序打破，保证可复现。默认 `RAG_RETRIEVER=hybrid`；`--retriever=dense` 仅诊断。
+**Decision**: 客户端 RRF：Dense KNN Top20 ∥ TEXT 检索 Top20 → `FuseRRF(k=60)` → 截断 TopK（默认 5）。查询字段：`name`（WEIGHT 5.0）+ `text_content`；TEXT 路 `FT.SEARCH` 显式 `SCORER BM25`（钉死 redis-stack 7.4 可用名，避免依赖默认 TFIDF）。平局按 `shop_id` 升序打破，保证可复现。默认 `RAG_RETRIEVER=hybrid`；`--retriever=dense` 仅诊断。
 
 **Rationale**: [Redis FT.HYBRID](https://redis.io/docs/latest/commands/ft.hybrid/) 依赖较新能力；客户端 RRF（Cormack et al. 常用 k=60）可单测、与当前 Redis Stack 兼容。源计划明确不默认 LLM rerank。
 

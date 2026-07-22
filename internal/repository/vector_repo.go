@@ -7,6 +7,7 @@ import (
 	repoInterfaces "local-review-go/internal/repository/interface"
 	"local-review-go/pkg/utils/redisx"
 	"strconv"
+	"strings"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -44,17 +45,12 @@ func (r *vectorRepo) DeleteShop(ctx context.Context, shopID int64) error {
 }
 
 // SearchShops 带预过滤的 KNN 向量检索（Filtered Vector Search）
-// 预过滤器：TAG（area, type_name）+ NUMERIC 范围（avg_price, score, comments）
-// 语义阈值：MaxDistance 在结果解析后过滤（COSINE 距离越小越相似）
 func (r *vectorRepo) SearchShops(ctx context.Context, queryEmbedding []float32, filter *repoInterfaces.VectorSearchFilter, k int) ([]repoInterfaces.ShopSearchResult, error) {
 	if k <= 0 {
 		k = 5
 	}
 	vecBytes := llm.Float32ToBytes(queryEmbedding)
 
-	// 构建预过滤表达式 + KNN
-	// 格式：(预过滤)=>[KNN k @embedding $vec AS vector_score]
-	// 注意：schema 已有 score 字段（店铺评分），KNN 距离需用不同别名避免冲突
 	preFilter := buildPreFilter(filter)
 	query := fmt.Sprintf("(%s)=>[KNN %d @embedding $vec AS vector_score]", preFilter, k)
 
@@ -64,23 +60,22 @@ func (r *vectorRepo) SearchShops(ctx context.Context, queryEmbedding []float32, 
 		"PARAMS", "2", "vec", vecBytes,
 		"DIALECT", "2",
 		"SORTBY", "vector_score", "ASC",
-		"RETURN", "5", "name", "type_name", "area", "text_content", "vector_score",
+		"RETURN", "9", "name", "type_name", "area", "text_content", "avg_price", "score", "comments", "sold", "vector_score",
 	}
 	cmd := r.client.Do(ctx, args...)
 	res, err := cmd.Slice()
 	if err != nil {
-		return nil, fmt.Errorf("FT.SEARCH: %w", err)
+		return nil, fmt.Errorf("FT.SEARCH KNN: %w", err)
 	}
 	results, err := parseSearchResult(res, k)
 	if err != nil {
 		return nil, err
 	}
-	// 语义相似度阈值：过滤掉距离过大的结果
 	if filter != nil && filter.MaxDistance > 0 {
 		filtered := results[:0]
-		for _, r := range results {
-			if r.Score <= filter.MaxDistance {
-				filtered = append(filtered, r)
+		for _, item := range results {
+			if item.Score <= filter.MaxDistance {
+				filtered = append(filtered, item)
 			}
 		}
 		results = filtered
@@ -88,8 +83,69 @@ func (r *vectorRepo) SearchShops(ctx context.Context, queryEmbedding []float32, 
 	return results, nil
 }
 
+// SearchText 带预过滤的全文检索（name WEIGHT 高 + text_content，SCORER BM25）
+func (r *vectorRepo) SearchText(ctx context.Context, query string, filter *repoInterfaces.VectorSearchFilter, k int) ([]repoInterfaces.ShopSearchResult, error) {
+	if k <= 0 {
+		k = 5
+	}
+	q := strings.TrimSpace(query)
+	if q == "" {
+		return nil, fmt.Errorf("text search query is empty")
+	}
+	preFilter := buildPreFilter(filter)
+	// 文本查询：转义后在 name|text_content 上检索，并与预过滤 AND；显式 BM25（避免依赖模块默认 TFIDF）
+	escaped := escapeTextQuery(q)
+	textClause := fmt.Sprintf("(@name|@text_content:(%s))", escaped)
+	var fullQuery string
+	if preFilter == "*" {
+		fullQuery = textClause
+	} else {
+		fullQuery = fmt.Sprintf("(%s %s)", preFilter, textClause)
+	}
+
+	args := []interface{}{
+		"FT.SEARCH", redisx.VEC_SHOP_INDEX,
+		fullQuery,
+		"SCORER", "BM25",
+		"LIMIT", "0", strconv.Itoa(k),
+		"RETURN", "8", "name", "type_name", "area", "text_content", "avg_price", "score", "comments", "sold",
+	}
+	cmd := r.client.Do(ctx, args...)
+	res, err := cmd.Slice()
+	if err != nil {
+		return nil, fmt.Errorf("FT.SEARCH TEXT: %w", err)
+	}
+	return parseSearchResult(res, k)
+}
+
+// escapeTextQuery 转义 RediSearch 文本查询特殊字符，并按空白拆成 OR 词
+func escapeTextQuery(s string) string {
+	fields := strings.Fields(s)
+	if len(fields) == 0 {
+		return s
+	}
+	escaped := make([]string, 0, len(fields))
+	for _, w := range fields {
+		escaped = append(escaped, escapeRediSearchToken(w))
+	}
+	return strings.Join(escaped, " | ")
+}
+
+func escapeRediSearchToken(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch r {
+		case ',', '.', '<', '>', '{', '}', '[', ']', '"', '\'', ':', ';', '!', '@', '#', '$', '%', '^', '&', '*', '(', ')', '-', '+', '=', '~', '|':
+			b.WriteRune('\\')
+			b.WriteRune(r)
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
 // buildPreFilter 构建 RediSearch 预过滤表达式
-// 空 filter 或全空条件返回 "*"
 func buildPreFilter(filter *repoInterfaces.VectorSearchFilter) string {
 	if filter == nil {
 		return "*"
@@ -120,7 +176,6 @@ func buildPreFilter(filter *repoInterfaces.VectorSearchFilter) string {
 	if len(parts) == 0 {
 		return "*"
 	}
-	// 多个条件 AND 连接
 	result := ""
 	for _, p := range parts {
 		result += "(" + p + ")"
@@ -128,7 +183,6 @@ func buildPreFilter(filter *repoInterfaces.VectorSearchFilter) string {
 	return result
 }
 
-// escapeTagValue 转义 RediSearch TAG 特殊字符：, " ' { } ( ) \
 func escapeTagValue(s string) string {
 	if s == "" {
 		return s
@@ -146,8 +200,6 @@ func escapeTagValue(s string) string {
 	return string(b)
 }
 
-// parseSearchResult 解析 FT.SEARCH 返回的 slice
-// 格式: [totalCount, docId1, [field1, val1, field2, val2, ...], docId2, ...]
 func parseSearchResult(res []interface{}, k int) ([]repoInterfaces.ShopSearchResult, error) {
 	if len(res) < 1 {
 		return nil, nil
@@ -158,7 +210,6 @@ func parseSearchResult(res []interface{}, k int) ([]repoInterfaces.ShopSearchRes
 	}
 
 	var results []repoInterfaces.ShopSearchResult
-	// res[1:] 为 docId, fields 交替
 	i := 1
 	for i < len(res) && len(results) < k {
 		docID, ok := res[i].(string)
@@ -177,10 +228,11 @@ func parseSearchResult(res []interface{}, k int) ([]repoInterfaces.ShopSearchRes
 		}
 		i++
 
-		// 解析 docID: "vec:shop:123" -> 123
 		shopID := parseShopIDFromKey(docID)
 		score := 0.0
 		name, typeName, area, textContent := "", "", "", ""
+		var avgPrice int64
+		var shopScore, comments, sold int
 		for j := 0; j+1 < len(fields); j += 2 {
 			f, _ := fields[j].(string)
 			v, _ := fields[j+1].(string)
@@ -193,6 +245,22 @@ func parseSearchResult(res []interface{}, k int) ([]repoInterfaces.ShopSearchRes
 				area = v
 			case "text_content":
 				textContent = v
+			case "avg_price":
+				if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+					avgPrice = n
+				}
+			case "score":
+				if n, err := strconv.Atoi(v); err == nil {
+					shopScore = n
+				}
+			case "comments":
+				if n, err := strconv.Atoi(v); err == nil {
+					comments = n
+				}
+			case "sold":
+				if n, err := strconv.Atoi(v); err == nil {
+					sold = n
+				}
 			case "vector_score":
 				if s, err := strconv.ParseFloat(v, 64); err == nil {
 					score = s
@@ -205,6 +273,10 @@ func parseSearchResult(res []interface{}, k int) ([]repoInterfaces.ShopSearchRes
 			TypeName:    typeName,
 			Area:        area,
 			TextContent: textContent,
+			AvgPrice:    avgPrice,
+			ShopScore:   shopScore,
+			Comments:    comments,
+			Sold:        sold,
 			Score:       score,
 		})
 	}

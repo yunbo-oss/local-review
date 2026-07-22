@@ -4,9 +4,21 @@
 
 ## 工具 / 环境（最近）
 
-- **Spec Kit（specify CLI）**：已安装 v0.12.11；本仓库已 `specify init --here --force --integration cursor-agent`
-- 产物：`.specify/` + `.cursor/skills/speckit-*`；日常在 Cursor 用 `/speckit-specify` 等命令
-- **Constitution v1.1.1**（2026-07-12）：秋招面试导向；原则 VI 知识落盘（含讨论触发）；`memory-bank/` **仅保留** `activeContext.md`
+- **Spec Kit（specify CLI）**：已安装；本仓库 `cursor-agent` 集成（`.specify/` + `.cursor/skills/speckit-*`）
+- **Constitution v1.1.1**：秋招面试导向；原则 VI 知识落盘；`memory-bank/` **仅保留** `activeContext.md`
+
+## 001 Evaluable Hybrid Retrieval（进行中）
+
+**状态**：代码已落地（US2/US4/US1/US3）；待本地 `docker compose` + `seed-vector` 后跑 `make eval-rag-smoke` / `eval-rag-prod` 录 `hybrid_prod` 基线。
+
+已完成要点：
+- 维度契约 fail-fast（删 1536 fallback；Embed 校验 `LLM_EMBEDDING_DIM`）
+- 删 `IngestShop`；Redis 镜像 pin `7.4.0-v8`
+- `ShopSearchLogic` 共享入口；默认 Hybrid（TEXT∥KNN + FuseRRF）；`RAGLogic` / `cmd/eval-rag` 共用
+- 正式 golden `rag-evals/golden/retrieval.v1.json`（30 题）；正确 HitRate≠Recall 指标 bundle
+- Makefile：`eval-rag-smoke` / `oracle` / `prod`
+
+下一步：起栈 → seed → seed-vector → `make eval-rag-prod --write-baseline`；知识落盘 `docs/solutions/interview/`。
 
 ## 开发计划（来自 README，按推荐顺序）
 

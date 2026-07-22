@@ -141,7 +141,30 @@ func (c *openAIClient) EmbedBatch(ctx context.Context, texts []string) ([][]floa
 	for i, d := range resp.Data {
 		result[i] = d.Embedding
 	}
+	if err := c.checkEmbeddingBatch(result); err != nil {
+		return nil, err
+	}
 	return result, nil
+}
+
+// validateEmbeddingDimension 校验单条向量长度与配置维度一致；禁止截断/填充。
+func validateEmbeddingDimension(dim int, vec []float32) error {
+	if dim <= 0 {
+		return fmt.Errorf("invalid embedding dimension config: %d (must be > 0)", dim)
+	}
+	if len(vec) != dim {
+		return fmt.Errorf("embedding dimension mismatch: got %d, want LLM_EMBEDDING_DIM=%d", len(vec), dim)
+	}
+	return nil
+}
+
+func (c *openAIClient) checkEmbeddingBatch(vecs [][]float32) error {
+	for i, v := range vecs {
+		if err := validateEmbeddingDimension(c.config.EmbeddingDim, v); err != nil {
+			return fmt.Errorf("embedding[%d]: %w", i, err)
+		}
+	}
+	return nil
 }
 
 func (c *openAIClient) Dimension() int {

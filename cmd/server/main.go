@@ -79,10 +79,14 @@ func main() {
 	llmCfg := llm.LoadConfig()
 	embClient, chatClient := llm.NewOpenAIClient(llmCfg)
 	vecRepo := repository.NewVectorRepo(redis.GetRedisClient())
-	ragLogic := logic.NewRAGLogic(logic.RAGLogicDeps{
+	shopSearch := logic.NewShopSearchLogic(logic.ShopSearchLogicDeps{
 		EmbeddingClient: embClient,
-		ChatClient:      chatClient,
 		VectorRepo:      vecRepo,
+	})
+	ragLogic := logic.NewRAGLogic(logic.RAGLogicDeps{
+		ChatClient:      chatClient,
+		ShopSearch:      shopSearch,
+		FilterExtractor: logic.NewLLMFilterExtractor(chatClient),
 		BlogRepo:        blogRepo,
 	})
 	ragHandler := handler.NewRAGHandler(ragLogic)

@@ -81,8 +81,8 @@ Redis key：`vec:shop:{id}`；索引：`idx:shop:vector`。
 
 | 字段 | 索引类型 | 用途 |
 |------|----------|------|
-| name | TEXT WEIGHT 5.0 | Hybrid 文本路 |
-| text_content | TEXT | Hybrid 文本路 |
+| name | TEXT WEIGHT 5.0 | Hybrid 文本路（BM25） |
+| text_content | TEXT | Hybrid 文本路（BM25） |
 | type_name / area | TAG | 预过滤 |
 | avg_price / score / comments / sold | NUMERIC | 预过滤 / 合规 |
 | embedding | VECTOR HNSW FLOAT32 COSINE | Dense 路 |

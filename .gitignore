@@ -37,3 +37,7 @@ Thumbs.db
 .env
 .env.local
 
+# RAG 评测本地报告（保留 golden / baseline）
+rag-evals/reports/*
+!rag-evals/reports/.gitignore
+

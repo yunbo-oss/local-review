@@ -29,9 +29,9 @@ allowed-tools: Read Grep Glob Bash(go *) Bash(make *) Write Edit
 
 ## When to use
 
-- 编写或修改 `cmd/eval-rag`、`rag-evals/golden/retrieval.v1.json`、检索指标、Hybrid 对照报告
+- 编写或修改 `cmd/eval-rag`、`rag-evals/golden/retrieval.v1.json`、检索指标与 `hybrid_prod` 基线
 - 审视 HitRate vs Recall 命名、filter 路径是否与线上一致
-- 面试叙事：如何用数字证明 Hybrid 检索收益
+- 面试叙事：Hybrid 生产路径 + 共享入口 + 正确指标（**不做** dense A/B 对照交付）
 
 ## When NOT to use
 
@@ -79,9 +79,9 @@ filter_mode ∈ { none, oracle, llm }
 retriever   ∈ { dense, hybrid }
 ```
 
-- 生产 baseline：`llm + dense`（及 `llm + hybrid` 对照）
-- 诊断 only：`none + dense`
-- 隔离 retriever：`oracle + dense/hybrid`
+- 生产 baseline：`llm + hybrid` → `rag-evals/baseline/hybrid_prod_v1.json`
+- 诊断 only：`none` / `--retriever=dense`（**不写**正式 baseline，**不做** dense↔hybrid 对照报告）
+- 隔离 filter 噪声：`oracle + hybrid`
 
 ## Workflow
 
@@ -95,12 +95,14 @@ retriever   ∈ { dense, hybrid }
 ## Commands (target state after Task 2–3)
 
 ```bash
-# 冒烟（7 条，非 baseline）
-LLM_API_KEY=... go run ./cmd/eval-rag --test-set=script/rag-eval.json
+# 冒烟（≤7 条，非 baseline；仅 filter-mode=none）
+make eval-rag-smoke
+# 或：LLM_API_KEY=... go run ./cmd/eval-rag --test-set=script/rag-eval.json --filter-mode=none --retriever=hybrid
 
-# 正式检索评测（示例，以实现为准）
-make eval-rag FILTER_MODE=llm RETRIEVER=dense
-make eval-rag-compare   # dense vs hybrid，写 rag-evals/baseline/
+# 正式评测（生产口径）
+make eval-rag-prod
+# 隔离 filter：make eval-rag-oracle
+# 诊断 dense（勿写 baseline）：go run ./cmd/eval-rag --retriever=dense --filter-mode=llm
 ```
 
 ## Report metadata（对外数字必带）

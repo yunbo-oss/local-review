@@ -26,9 +26,9 @@
 
 **Purpose**: 评测目录与忽略规则，不改业务行为
 
-- [ ] T001 Create `rag-evals/golden/`, `rag-evals/baseline/.gitkeep`, and `rag-evals/reports/.gitignore` (`*` + `!.gitignore`) per plan.md
-- [ ] T002 [P] Update root `.gitignore` to ignore `rag-evals/reports/*` while keeping `rag-evals/golden/` and `rag-evals/baseline/` trackable
-- [ ] T003 [P] Keep `script/rag-eval.json` as smoke-only; add a one-line comment at top of file or adjacent note in `script/` / Makefile comment that it is NOT a formal baseline
+- [x] T001 Create `rag-evals/golden/`, `rag-evals/baseline/.gitkeep`, and `rag-evals/reports/.gitignore` (`*` + `!.gitignore`) per plan.md
+- [x] T002 [P] Update root `.gitignore` to ignore `rag-evals/reports/*` while keeping `rag-evals/golden/` and `rag-evals/baseline/` trackable
+- [x] T003 [P] Keep `script/rag-eval.json` as smoke-only; add a one-line comment at top of file or adjacent note in `script/` / Makefile comment that it is NOT a formal baseline
 
 ---
 
@@ -38,7 +38,7 @@
 
 **⚠️ CRITICAL**: 完成后再进入用户故事（尤其 US2 契约修复）
 
-- [ ] T004 Verify complete `ShopVectorDoc` write paths in `cmd/seed-vector/main.go` and `internal/mq/shop_update_handler.go` still populate `AvgPrice`/`Score`/`Comments`/`Sold` (document any gap in task notes; fix only if missing)
+- [x] T004 Verify complete `ShopVectorDoc` write paths in `cmd/seed-vector/main.go` and `internal/mq/shop_update_handler.go` still populate `AvgPrice`/`Score`/`Comments`/`Sold` (document any gap in task notes; fix only if missing)
 
 **Checkpoint**: 正式入库路径已知且完整 — 可开始 US2
 
@@ -54,16 +54,16 @@
 
 > Write FIRST; ensure FAIL before implementation
 
-- [ ] T005 [P] [US2] Add failing tests for `dim <= 0` and no silent 1536 fallback in `internal/config/redis/vector_test.go`
-- [ ] T006 [P] [US2] Add failing tests for `validateEmbeddingDimension` / Embed length mismatch in `internal/llm/client_test.go`
+- [x] T005 [P] [US2] Add failing tests for `dim <= 0` and no silent 1536 fallback in `internal/config/redis/vector_test.go`
+- [x] T006 [P] [US2] Add failing tests for `validateEmbeddingDimension` / Embed length mismatch in `internal/llm/client_test.go`
 
 ### Implementation for User Story 2
 
-- [ ] T007 [US2] Remove 1536 silent fallback; fail on illegal dim in `internal/config/redis/vector.go` (depends on T005)
-- [ ] T008 [US2] Enforce embedding length vs `LLM_EMBEDDING_DIM` after Embed/EmbedBatch in `internal/llm/client.go` (depends on T006)
-- [ ] T009 [US2] Delete incomplete `IngestShop` from `internal/logic/rag_logic.go` and any interface mentioning it
-- [ ] T010 [US2] Pin `redis/redis-stack-server` to verified tag or digest in `docker-compose.yml` (prefer `docker image inspect` of working local image; else `7.4.0-v8` per research.md) and record chosen value in `specs/001-evaluable-hybrid-retrieval/quickstart.md` Prerequisites
-- [ ] T011 [US2] Run `go test ./internal/config/redis/... ./internal/llm/... ./internal/logic/... -count=1` and confirm PASS
+- [x] T007 [US2] Remove 1536 silent fallback; fail on illegal dim in `internal/config/redis/vector.go` (depends on T005)
+- [x] T008 [US2] Enforce embedding length vs `LLM_EMBEDDING_DIM` after Embed/EmbedBatch in `internal/llm/client.go` (depends on T006)
+- [x] T009 [US2] Delete incomplete `IngestShop` from `internal/logic/rag_logic.go` and any interface mentioning it
+- [x] T010 [US2] Pin `redis/redis-stack-server` to verified tag or digest in `docker-compose.yml` (prefer `docker image inspect` of working local image; else `7.4.0-v8` per research.md) and record chosen value in `specs/001-evaluable-hybrid-retrieval/quickstart.md` Prerequisites
+- [x] T011 [US2] Run `go test ./internal/config/redis/... ./internal/llm/... ./internal/logic/... -count=1` and confirm PASS
 
 **Checkpoint**: US2 可独立验收（SC-004 / FR-006–008）
 
@@ -77,16 +77,16 @@
 
 ### Tests for User Story 4 ⚠️
 
-- [ ] T012 [P] [US4] Add failing unit tests for ResolveFilter / Search wiring in `internal/logic/shop_search_logic_test.go` per `contracts/shop-search.md`
+- [x] T012 [P] [US4] Add failing unit tests for ResolveFilter / Search wiring in `internal/logic/shop_search_logic_test.go` per `contracts/shop-search.md`
 
 ### Implementation for User Story 4
 
-- [ ] T013 [P] [US4] Extend `ShopSearchResult` with `AvgPrice`/`Score`/`Comments`/`Sold` and update RediSearch `RETURN` in `internal/repository/interface/vector.go` and `internal/repository/vector_repo.go`
-- [ ] T014 [US4] Implement `ShopSearchLogic` + `FilterExtractor` (reuse production LLM extract) in `internal/logic/shop_search_logic.go` — Search supports `dense` first; `hybrid` may return clear ErrNotImplemented until US3 (depends on T012, T013)
-- [ ] T015 [US4] Refactor `RAGLogic` to depend on `ShopSearchLogic` (no inline Embed+Search duplication) in `internal/logic/rag_logic.go`
-- [ ] T016 [US4] Wire `ShopSearchLogic` in `cmd/server/main.go` dependency injection
-- [ ] T017 [US4] Add in-process consistency helper or test asserting ordered IDs for fixed cases in `internal/logic/shop_search_logic_test.go` (SC-003 sampling prep)
-- [ ] T018 [US4] Run `go test ./internal/logic/... ./internal/repository/... -count=1` and confirm PASS
+- [x] T013 [P] [US4] Extend `ShopSearchResult` with `AvgPrice`/`Score`/`Comments`/`Sold` and update RediSearch `RETURN` in `internal/repository/interface/vector.go` and `internal/repository/vector_repo.go`
+- [x] T014 [US4] Implement `ShopSearchLogic` + `FilterExtractor` (reuse production LLM extract) in `internal/logic/shop_search_logic.go` — Search supports `dense` first; `hybrid` may return clear ErrNotImplemented until US3 (depends on T012, T013)
+- [x] T015 [US4] Refactor `RAGLogic` to depend on `ShopSearchLogic` (no inline Embed+Search duplication) in `internal/logic/rag_logic.go`
+- [x] T016 [US4] Wire `ShopSearchLogic` in `cmd/server/main.go` dependency injection
+- [x] T017 [US4] Add in-process consistency helper or test asserting ordered IDs for fixed cases in `internal/logic/shop_search_logic_test.go` (SC-003 sampling prep)
+- [x] T018 [US4] Run `go test ./internal/logic/... ./internal/repository/... -count=1` and confirm PASS
 
 **Checkpoint**: 线上对话检索已走共享入口；eval 可对接同一 Logic（US1）
 
@@ -100,15 +100,15 @@
 
 ### Tests for User Story 1 ⚠️
 
-- [ ] T019 [P] [US1] Add failing table-driven metrics tests (HitRate≠Recall, MRR, empty relevant reject, infra not in quality denominator) in `cmd/eval-rag/metrics_test.go`
+- [x] T019 [P] [US1] Add failing table-driven metrics tests (HitRate≠Recall, MRR, empty relevant reject, infra not in quality denominator) in `cmd/eval-rag/metrics_test.go`
 
 ### Implementation for User Story 1
 
-- [ ] T020 [P] [US1] Author `rag-evals/golden/retrieval.v1.json` (25–35 cases: id/split/question/relevant_shop_ids/oracle_filter/tags/evidence) from `script/seed.sql` + blogs; empty relevant forbidden; test split freeze discipline
-- [ ] T021 [US1] Implement metrics pure functions + report types in `cmd/eval-rag/metrics.go` and `cmd/eval-rag/types.go` (depends on T019)
-- [ ] T022 [US1] Refactor `cmd/eval-rag/main.go`: load golden+smoke schemas, `--filter-mode` none|oracle|llm, `--retriever`, `--split`, `--out`, `--write-baseline`; call `ShopSearchLogic`; compute SHA-256; infra errors → non-zero exit on formal runs; block baseline write for smoke
-- [ ] T023 [US1] Add Makefile targets `eval-rag-smoke`, `eval-rag-oracle`, `eval-rag-prod` in `Makefile` (default retriever hybrid when US3 done; until then document dense-only diagnostic if needed)
-- [ ] T024 [US1] Document smoke vs formal distinction in `.cursor/skills/rag-eval/SKILL.md` (remove outdated dense A/B production baseline wording)
+- [x] T020 [P] [US1] Author `rag-evals/golden/retrieval.v1.json` (25–35 cases: id/split/question/relevant_shop_ids/oracle_filter/tags/evidence) from `script/seed.sql` + blogs; empty relevant forbidden; test split freeze discipline
+- [x] T021 [US1] Implement metrics pure functions + report types in `cmd/eval-rag/metrics.go` and `cmd/eval-rag/types.go` (depends on T019)
+- [x] T022 [US1] Refactor `cmd/eval-rag/main.go`: load golden+smoke schemas, `--filter-mode` none|oracle|llm, `--retriever`, `--split`, `--out`, `--write-baseline`; call `ShopSearchLogic`; compute SHA-256; infra errors → non-zero exit on formal runs; block baseline write for smoke
+- [x] T023 [US1] Add Makefile targets `eval-rag-smoke`, `eval-rag-oracle`, `eval-rag-prod` in `Makefile` (default retriever hybrid when US3 done; until then document dense-only diagnostic if needed)
+- [x] T024 [US1] Document smoke vs formal distinction in `.cursor/skills/rag-eval/SKILL.md` (remove outdated dense A/B production baseline wording)
 - [ ] T025 [US1] Run `go test ./cmd/eval-rag/... -count=1` and a smoke eval against `script/rag-eval.json` with `--filter-mode=none`
 
 **Checkpoint**: 指标与题集可信；正式入口默认指向 golden（完整 `hybrid_prod` 见 US3）
@@ -123,15 +123,15 @@
 
 ### Tests for User Story 3 ⚠️
 
-- [ ] T026 [P] [US3] Add failing `FuseRRF` tests (overlap ranks first, unilateral docs kept, stable tie-break by shop_id, TopK cap) in `internal/rag/rrf_test.go`
-- [ ] T027 [P] [US3] Add failing tests that hybrid must error when text search fails (no silent dense success) in `internal/logic/shop_search_logic_test.go`
+- [x] T026 [P] [US3] Add failing `FuseRRF` tests (overlap ranks first, unilateral docs kept, stable tie-break by shop_id, TopK cap) in `internal/rag/rrf_test.go`
+- [x] T027 [P] [US3] Add failing tests that hybrid must error when text search fails (no silent dense success) in `internal/logic/shop_search_logic_test.go`
 
 ### Implementation for User Story 3
 
-- [ ] T028 [US3] Implement `FuseRRF` in `internal/rag/rrf.go` (depends on T026)
-- [ ] T029 [US3] Add TEXT search (`name` + `text_content`, Top20) on `VectorRepo` in `internal/repository/interface/vector.go` and `internal/repository/vector_repo.go`
-- [ ] T030 [US3] Implement hybrid path in `internal/logic/shop_search_logic.go`: parallel KNN+TEXT via errgroup, RRF k=60, default strategy hybrid; env `RAG_RETRIEVER` default `hybrid` (depends on T027–T029)
-- [ ] T031 [US3] Ensure `/api/rag/chat` and `cmd/eval-rag` default to hybrid; dense remains `--retriever=dense` / diagnostic only
+- [x] T028 [US3] Implement `FuseRRF` in `internal/rag/rrf.go` (depends on T026)
+- [x] T029 [US3] Add TEXT search (`name` + `text_content`, Top20) on `VectorRepo` in `internal/repository/interface/vector.go` and `internal/repository/vector_repo.go`
+- [x] T030 [US3] Implement hybrid path in `internal/logic/shop_search_logic.go`: parallel KNN+TEXT via errgroup, RRF k=60, default strategy hybrid; env `RAG_RETRIEVER` default `hybrid` (depends on T027–T029)
+- [x] T031 [US3] Ensure `/api/rag/chat` and `cmd/eval-rag` default to hybrid; dense remains `--retriever=dense` / diagnostic only
 - [ ] T032 [US3] Record production baseline: `go run ./cmd/eval-rag --filter-mode=llm --retriever=hybrid --split=test --write-baseline` → `rag-evals/baseline/hybrid_prod_v1.json` with `n_infra_error=0` (**no** dense compare report)
 - [ ] T033 [US3] Run `go test ./internal/rag/... ./internal/logic/... ./internal/repository/... ./cmd/eval-rag/... -count=1` and `make eval-rag-prod` per quickstart.md
 
@@ -144,8 +144,8 @@
 **Purpose**: 对齐文档、端到端抽检、进度同步
 
 - [ ] T034 [P] Run quickstart.md scenarios 1–6 (smoke, prod baseline already done, oracle optional, path consistency ≥10 cases, dim fail check, metric divergence spot-check) and note results
-- [ ] T035 [P] Sync any remaining wording in `docs/plans/2026-07-11-recommend-agent-eval.md` §1.1 eval matrix comments if still implying required dense A/B delivery (pointer to spec 2026-07-21)
-- [ ] T036 Update `memory-bank/activeContext.md` to mark 001 implementation status after validation
+- [x] T035 [P] Sync any remaining wording in `docs/plans/2026-07-11-recommend-agent-eval.md` §1.1 eval matrix comments if still implying required dense A/B delivery (pointer to spec 2026-07-21)
+- [x] T036 Update `memory-bank/activeContext.md` to mark 001 implementation status after validation
 - [ ] T037 Confirm SC-002/SC-003/SC-005/SC-007 against generated report artifacts
 
 ---
@@ -156,11 +156,11 @@
 
 **⚠️ CRITICAL**: 宣称 001 完成前必须完成本阶段（或证明 N/A）
 
-- [ ] T038 [P] Add or update `docs/solutions/interview/` entry for 评测与线上路径对齐（`ShopSearchLogic`）using `docs/solutions/TEMPLATE.md`
-- [ ] T039 [P] Add or update `docs/solutions/interview/` entry for HitRate vs Recall vs Precision（含本仓库指标定义）
-- [ ] T040 [P] Confirm existing `docs/solutions/interview/hybrid-default-skip-dense-ab.md` still accurate after Hybrid landing; amend if needed
+- [x] T038 [P] Add or update `docs/solutions/interview/` entry for 评测与线上路径对齐（`ShopSearchLogic`）using `docs/solutions/TEMPLATE.md`
+- [x] T039 [P] Add or update `docs/solutions/interview/` entry for HitRate vs Recall vs Precision（含本仓库指标定义）
+- [x] T040 [P] Confirm existing `docs/solutions/interview/hybrid-default-skip-dense-ab.md` still accurate after Hybrid landing; amend if needed
 - [ ] T041 [P] If blockers occurred (dim mismatch, index rebuild, annotation disputes): add `docs/solutions/blockers/` entries
-- [ ] T042 Update `docs/solutions/README.md` index for new/updated entries; ensure each interview note has 一句话结论 + ≥2 追问
+- [x] T042 Update `docs/solutions/README.md` index for new/updated entries; ensure each interview note has 一句话结论 + ≥2 追问
 
 **Checkpoint**: 知识可检索；可进入 `/speckit-implement`
 

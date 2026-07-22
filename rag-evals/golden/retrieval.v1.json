@@ -1,0 +1,275 @@
+{
+  "version": "retrieval.v1",
+  "cases": [
+    {
+      "id": "r001",
+      "split": "test",
+      "question": "朝阳区有什么适合约会的浪漫餐厅？",
+      "relevant_shop_ids": [5, 7, 15],
+      "oracle_filter": {"area": "朝阳区", "typeName": "美食"},
+      "tags": ["semantic", "area"],
+      "evidence": "blog 标注海底捞/外婆家/绿茶浪漫约会；均为朝阳区美食"
+    },
+    {
+      "id": "r002",
+      "split": "test",
+      "question": "海淀区人均100以内的美食",
+      "relevant_shop_ids": [2, 21],
+      "oracle_filter": {"area": "海淀区", "typeName": "美食", "maxPrice": 100},
+      "tags": ["area", "price"],
+      "evidence": "川味小厨 avg45、云海肴 avg85，均海淀美食且≤100；巴奴110超标"
+    },
+    {
+      "id": "r003",
+      "split": "test",
+      "question": "西城区评分高的咖啡厅",
+      "relevant_shop_ids": [3, 16],
+      "oracle_filter": {"area": "西城区", "typeName": "咖啡", "minScore": 45},
+      "tags": ["area", "type"],
+      "evidence": "星巴克臻选 score50、Costa46；蜜雪冰城45但更偏茶饮且相关度低"
+    },
+    {
+      "id": "r004",
+      "split": "test",
+      "question": "东城区烤鸭店推荐",
+      "relevant_shop_ids": [9, 25],
+      "oracle_filter": {"area": "东城区", "typeName": "美食"},
+      "tags": ["lexical", "area"],
+      "evidence": "全聚德、四季民福均为东城区烤鸭老店"
+    },
+    {
+      "id": "r005",
+      "split": "test",
+      "question": "丰台区便宜的酒店",
+      "relevant_shop_ids": [10],
+      "oracle_filter": {"area": "丰台区", "typeName": "酒店"},
+      "tags": ["area", "type"],
+      "evidence": "汉庭酒店唯一丰台酒店 seed"
+    },
+    {
+      "id": "r006",
+      "split": "test",
+      "question": "朝阳区火锅",
+      "relevant_shop_ids": [5, 23],
+      "oracle_filter": {"area": "朝阳区", "typeName": "美食"},
+      "tags": ["lexical", "area"],
+      "evidence": "海底捞、小龙坎均朝阳火锅"
+    },
+    {
+      "id": "r007",
+      "split": "test",
+      "question": "海淀区咖啡",
+      "relevant_shop_ids": [8, 12],
+      "oracle_filter": {"area": "海淀区", "typeName": "咖啡"},
+      "tags": ["area", "type"],
+      "evidence": "Manner、喜茶在海淀；喜茶 type=咖啡 seed"
+    },
+    {
+      "id": "r008",
+      "split": "test",
+      "question": "望京附近适合朋友聚餐的火锅",
+      "relevant_shop_ids": [5],
+      "oracle_filter": {"area": "朝阳区", "typeName": "美食"},
+      "tags": ["semantic", "lexical"],
+      "evidence": "海底捞地址望京SOHO；blog 写朋友聚餐"
+    },
+    {
+      "id": "r009",
+      "split": "test",
+      "question": "三里屯有什么江浙菜",
+      "relevant_shop_ids": [7],
+      "oracle_filter": {"area": "朝阳区", "typeName": "美食"},
+      "tags": ["semantic", "lexical"],
+      "evidence": "外婆家在三里屯，blog 写江浙菜"
+    },
+    {
+      "id": "r010",
+      "split": "test",
+      "question": "人均50以内的咖啡",
+      "relevant_shop_ids": [4, 8, 12, 18, 22, 24],
+      "oracle_filter": {"typeName": "咖啡", "maxPrice": 50},
+      "tags": ["price", "type"],
+      "evidence": "瑞幸25 Manner30 喜茶28 奈雪35 Tims38 蜜雪12；星巴克55超标"
+    },
+    {
+      "id": "r011",
+      "split": "test",
+      "question": "东城区适合商务宴请的餐厅",
+      "relevant_shop_ids": [9, 25],
+      "oracle_filter": {"area": "东城区", "typeName": "美食"},
+      "tags": ["semantic", "area"],
+      "evidence": "全聚德/四季民福 blog 写商务宴请、招待客户"
+    },
+    {
+      "id": "r012",
+      "split": "test",
+      "question": "海淀区上地火锅",
+      "relevant_shop_ids": [17],
+      "oracle_filter": {"area": "海淀区", "typeName": "美食"},
+      "tags": ["lexical", "area"],
+      "evidence": "巴奴毛肚火锅地址上地"
+    },
+    {
+      "id": "r013",
+      "split": "test",
+      "question": "评分45以上的酒店",
+      "relevant_shop_ids": [6, 20],
+      "oracle_filter": {"typeName": "酒店", "minScore": 45},
+      "tags": ["type", "score"],
+      "evidence": "如家45 亚朵49；汉庭44 七天43 不达标"
+    },
+    {
+      "id": "r014",
+      "split": "test",
+      "question": "蓝色港湾附近有什么餐厅",
+      "relevant_shop_ids": [15],
+      "oracle_filter": {"area": "朝阳区", "typeName": "美食"},
+      "tags": ["lexical", "area"],
+      "evidence": "绿茶餐厅地址蓝色港湾"
+    },
+    {
+      "id": "r015",
+      "split": "test",
+      "question": "簋街川菜或东坡菜",
+      "relevant_shop_ids": [19],
+      "oracle_filter": {"area": "东城区", "typeName": "美食"},
+      "tags": ["lexical", "area"],
+      "evidence": "眉州东坡在东城区簋街"
+    },
+    {
+      "id": "r016",
+      "split": "test",
+      "question": "国贸附近人均100左右的餐厅",
+      "relevant_shop_ids": [11],
+      "oracle_filter": {"area": "朝阳区", "typeName": "美食", "maxPrice": 120},
+      "tags": ["lexical", "price"],
+      "evidence": "西贝国贸 avg90"
+    },
+    {
+      "id": "r017",
+      "split": "test",
+      "question": "西单附近能办公学习的咖啡",
+      "relevant_shop_ids": [3],
+      "oracle_filter": {"area": "西城区", "typeName": "咖啡"},
+      "tags": ["semantic", "area"],
+      "evidence": "星巴克臻选西单；blog 适合办公学习"
+    },
+    {
+      "id": "r018",
+      "split": "test",
+      "question": "北京南站附近便宜住宿",
+      "relevant_shop_ids": [10],
+      "oracle_filter": {"area": "丰台区", "typeName": "酒店"},
+      "tags": ["lexical", "area"],
+      "evidence": "汉庭北京南站"
+    },
+    {
+      "id": "r019",
+      "split": "test",
+      "question": "爱吃辣推荐什么店",
+      "relevant_shop_ids": [2, 5, 17, 23],
+      "oracle_filter": {"typeName": "美食"},
+      "tags": ["semantic"],
+      "evidence": "川味小厨/火锅类 blog 与店名含辣或火锅"
+    },
+    {
+      "id": "r020",
+      "split": "test",
+      "question": "五道口有什么好吃的云南菜",
+      "relevant_shop_ids": [21],
+      "oracle_filter": {"area": "海淀区", "typeName": "美食"},
+      "tags": ["lexical", "area"],
+      "evidence": "云海肴五道口"
+    },
+    {
+      "id": "r021",
+      "split": "test",
+      "question": "金融街咖啡",
+      "relevant_shop_ids": [16],
+      "oracle_filter": {"area": "西城区", "typeName": "咖啡"},
+      "tags": ["lexical", "area"],
+      "evidence": "Costa 金融街；呷哺是美食非咖啡"
+    },
+    {
+      "id": "r022",
+      "split": "test",
+      "question": "望京高端酒店",
+      "relevant_shop_ids": [20],
+      "oracle_filter": {"area": "朝阳区", "typeName": "酒店"},
+      "tags": ["lexical", "area"],
+      "evidence": "亚朵酒店望京 avg350"
+    },
+    {
+      "id": "r023",
+      "split": "dev",
+      "question": "中关村附近便宜午餐",
+      "relevant_shop_ids": [2],
+      "oracle_filter": {"area": "海淀区", "typeName": "美食", "maxPrice": 60},
+      "tags": ["semantic", "price"],
+      "evidence": "川味小厨中关村 avg45；dev 同义改写可扩展"
+    },
+    {
+      "id": "r024",
+      "split": "dev",
+      "question": "王府井平价咖啡",
+      "relevant_shop_ids": [4],
+      "oracle_filter": {"area": "东城区", "typeName": "咖啡"},
+      "tags": ["lexical", "area"],
+      "evidence": "瑞幸王府井"
+    },
+    {
+      "id": "r025",
+      "split": "dev",
+      "question": "家庭聚餐环境安静的店",
+      "relevant_shop_ids": [7],
+      "oracle_filter": {"typeName": "美食"},
+      "tags": ["semantic"],
+      "evidence": "外婆家 blog 家庭聚会环境安静"
+    },
+    {
+      "id": "r026",
+      "split": "dev",
+      "question": "丽泽商务区咖啡",
+      "relevant_shop_ids": [22],
+      "oracle_filter": {"area": "丰台区", "typeName": "咖啡"},
+      "tags": ["lexical", "area"],
+      "evidence": "Tims 丽泽"
+    },
+    {
+      "id": "r027",
+      "split": "test",
+      "question": "大望路火锅推荐",
+      "relevant_shop_ids": [23],
+      "oracle_filter": {"area": "朝阳区", "typeName": "美食"},
+      "tags": ["lexical", "area"],
+      "evidence": "小龙坎大望路"
+    },
+    {
+      "id": "r028",
+      "split": "test",
+      "question": "人均12块的饮料店",
+      "relevant_shop_ids": [24],
+      "oracle_filter": {"typeName": "咖啡", "maxPrice": 15},
+      "tags": ["price", "lexical"],
+      "evidence": "蜜雪冰城 avg12"
+    },
+    {
+      "id": "r029",
+      "split": "test",
+      "question": "故宫附近烤鸭",
+      "relevant_shop_ids": [25],
+      "oracle_filter": {"area": "东城区", "typeName": "美食"},
+      "tags": ["lexical", "area"],
+      "evidence": "四季民福故宫东华门"
+    },
+    {
+      "id": "r030",
+      "split": "test",
+      "question": "出差住五道口附近经济型酒店",
+      "relevant_shop_ids": [6],
+      "oracle_filter": {"area": "海淀区", "typeName": "酒店"},
+      "tags": ["semantic", "area"],
+      "evidence": "如家五道口；blog 出差经济实惠"
+    }
+  ]
+}

@@ -21,10 +21,10 @@ description: "Task list template for feature implementation"
 
 ## Path Conventions
 
-- **This repo (Go)**: `cmd/`, `internal/`, `pkg/`, `script/`, `docs/solutions/`
-- **Single project (generic)**: `src/`, `tests/` at repository root
+- **Single project**: `src/`, `tests/` at repository root
 - **Web app**: `backend/src/`, `frontend/src/`
-- Paths below are samples — adjust to `internal/handler|logic|repository` per plan.md
+- **Mobile**: `api/src/`, `ios/src/` or `android/src/`
+- Paths shown below assume single project - adjust based on plan.md structure
 
 <!--
   ============================================================================
@@ -170,7 +170,6 @@ Examples of foundational tasks (adjust based on your project):
   - User stories can then proceed in parallel (if staffed)
   - Or sequentially in priority order (P1 → P2 → P3)
 - **Polish (Final Phase)**: Depends on all desired user stories being complete
-- **Knowledge Capture (Constitution VI)**: After stories (and any blockers resolved); required before claiming feature done unless N/A justified in tasks.md
 
 ### User Story Dependencies
 
@@ -208,21 +207,6 @@ Task: "Integration test for [user journey] in tests/integration/test_[name].py"
 Task: "Create [Entity1] model in src/models/[entity1].py"
 Task: "Create [Entity2] model in src/models/[entity2].py"
 ```
-
----
-
-## Phase N: Knowledge Capture (Constitution VI) 📚
-
-**Purpose**: 秋招可复习 —— 面试知识点与开发卡点落盘到 `docs/solutions/`
-
-**⚠️ CRITICAL**: 有面试价值的故事或已解决的卡点，在宣称实现完成前 MUST 完成本阶段（或证明 N/A）
-
-- [ ] Txxx [P] 按 `docs/solutions/TEMPLATE.md` 新增或更新 `docs/solutions/interview/YYYY-MM-DD-*.md`
-- [ ] Txxx [P] 若实现期有卡点：新增 `docs/solutions/blockers/YYYY-MM-DD-*.md`
-- [ ] Txxx 更新 `docs/solutions/README.md` 索引表
-- [ ] Txxx 核对条目含「一句话结论」与至少 2 条常见追问（interview）或根因+防再发（blocker）
-
-**Checkpoint**: 知识已可检索；聊天记录不再是唯一载体
 
 ---
 
@@ -266,4 +250,3 @@ With multiple developers:
 - Commit after each task or logical group
 - Stop at any checkpoint to validate story independently
 - Avoid: vague tasks, same file conflicts, cross-story dependencies that break independence
-- **local-review-go**: Always include Knowledge Capture tasks targeting `docs/solutions/` when the story has interview value or resolved blockers

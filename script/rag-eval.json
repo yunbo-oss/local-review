@@ -1,5 +1,6 @@
 [
   {
+    "_comment": "SMOKE ONLY — not a formal baseline; use rag-evals/golden/retrieval.v1.json for prod eval",
     "question": "朝阳区有什么适合约会的浪漫餐厅？",
     "expected_shop_ids": [5, 7, 15]
   },

@@ -2,6 +2,8 @@ package redis
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -14,16 +16,18 @@ const (
 	vecShopIndex     = "idx:shop:vector"
 )
 
-const (
-	// 默认 Embedding 维度（OpenAI text-embedding-3-small / DeepSeek 等）
-	defaultEmbeddingDim = 1536
-)
+// ErrInvalidEmbeddingDim 表示 LLM_EMBEDDING_DIM / 传入 dim 非法（禁止静默 fallback）。
+var ErrInvalidEmbeddingDim = errors.New("invalid embedding dimension: must be > 0")
 
 // InitShopVectorIndex 创建店铺向量索引（RediSearch）。
 // 若索引已存在则跳过。需在 Redis Stack 环境下运行。
+// dim 必须 > 0（通常来自 LLM_EMBEDDING_DIM）；禁止静默回退到固定维度。
 func InitShopVectorIndex(ctx context.Context, client *redis.Client, dim int) error {
 	if dim <= 0 {
-		dim = defaultEmbeddingDim
+		return fmt.Errorf("%w (got %d; set LLM_EMBEDDING_DIM to match the embedding model)", ErrInvalidEmbeddingDim, dim)
+	}
+	if client == nil {
+		return errors.New("redis client is nil")
 	}
 	dimStr := strconv.Itoa(dim)
 
