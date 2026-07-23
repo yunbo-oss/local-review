@@ -1,5 +1,7 @@
 package redisx
 
+import "strconv"
+
 // Redis key 常量集中管理
 const (
 	LOGIN_CODE_KEY       = "login:code:"
@@ -18,9 +20,23 @@ const (
 	UVKeyPrefix           = "uv:"
 
 	// RAG 向量检索
-	VEC_SHOP_KEY_PREFIX = "vec:shop:"   // Hash 前缀，用于 RediSearch 索引
+	VEC_SHOP_KEY_PREFIX = "vec:shop:" // Hash 前缀，用于 RediSearch 索引
 	VEC_SHOP_INDEX      = "idx:shop:vector"
+
+	// Agent 记忆（002）
+	AGENT_SESSION_PREFIX = "agent:sess:"    // List：agent:sess:{userId}:{sessionId}
+	AGENT_PROFILE_PREFIX = "agent:profile:" // Hash：agent:profile:{userId}
 )
+
+// AgentSessionKey 短期会话 List key
+func AgentSessionKey(userID int64, sessionID string) string {
+	return AGENT_SESSION_PREFIX + strconv.FormatInt(userID, 10) + ":" + sessionID
+}
+
+// AgentProfileKey 长期偏好 Hash key
+func AgentProfileKey(userID int64) string {
+	return AGENT_PROFILE_PREFIX + strconv.FormatInt(userID, 10)
+}
 
 const (
 	LOGIN_VERIFY_CODE_TTL       = 2        // 分钟

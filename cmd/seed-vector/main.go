@@ -34,7 +34,7 @@ func main() {
 	}
 
 	// 创建依赖
-	embClient, _ := llm.NewOpenAIClient(cfg)
+	embClient, _, _ := llm.NewOpenAIClient(cfg)
 	if embClient == nil {
 		log.Fatal("Embedding 客户端初始化失败")
 	}

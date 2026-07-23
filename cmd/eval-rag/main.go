@@ -67,7 +67,7 @@ func main() {
 	}
 
 	cfg := llm.LoadConfig()
-	embClient, chatClient := llm.NewOpenAIClient(cfg)
+	embClient, chatClient, _ := llm.NewOpenAIClient(cfg)
 	if embClient == nil {
 		log.Fatal("Embedding 客户端初始化失败")
 	}

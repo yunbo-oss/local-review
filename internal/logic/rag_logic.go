@@ -33,6 +33,8 @@ const (
 type RAGLogic interface {
 	Chat(ctx context.Context, question string, onChunk func(string)) error
 	ChatWithFilter(ctx context.Context, question string, filter *repoInterfaces.VectorSearchFilter, onChunk func(string)) error
+	// ChatForUser 登录用户路径：可用 profile 补空 filter
+	ChatForUser(ctx context.Context, userID int64, question string, filter *repoInterfaces.VectorSearchFilter, onChunk func(string)) error
 }
 
 // RAGLogicDeps 依赖
@@ -41,7 +43,8 @@ type RAGLogicDeps struct {
 	ShopSearch      ShopSearchLogic
 	FilterExtractor FilterExtractor
 	BlogRepo        repoInterfaces.BlogRepo // 可选：用于获取店铺探店笔记
-	Retriever       RetrieverStrategy       // 空则 DefaultRetrieverStrategy()
+	MemoryRepo      repoInterfaces.MemoryRepo // 可选：偏好补空
+	Retriever       RetrieverStrategy         // 空则 DefaultRetrieverStrategy()
 }
 
 type ragLogic struct {
@@ -49,6 +52,7 @@ type ragLogic struct {
 	search    ShopSearchLogic
 	extractor FilterExtractor
 	blog      repoInterfaces.BlogRepo
+	memory    repoInterfaces.MemoryRepo
 	retriever RetrieverStrategy
 }
 
@@ -63,6 +67,7 @@ func NewRAGLogic(deps RAGLogicDeps) RAGLogic {
 		search:    deps.ShopSearch,
 		extractor: deps.FilterExtractor,
 		blog:      deps.BlogRepo,
+		memory:    deps.MemoryRepo,
 		retriever: r,
 	}
 }
@@ -72,9 +77,17 @@ func (l *ragLogic) Chat(ctx context.Context, question string, onChunk func(strin
 	return l.ChatWithFilter(ctx, question, nil, onChunk)
 }
 
-// ChatWithFilter 带预过滤的 RAG 对话
-// 若 filter 为 nil，则通过 FilterExtractor 从用户提问中自动提取过滤条件
+// ChatWithFilter 带预过滤的 RAG 对话（无 profile）
 func (l *ragLogic) ChatWithFilter(ctx context.Context, question string, filter *repoInterfaces.VectorSearchFilter, onChunk func(string)) error {
+	return l.chatWithProfile(ctx, 0, question, filter, onChunk)
+}
+
+// ChatForUser 登录用户：profile 仅补空
+func (l *ragLogic) ChatForUser(ctx context.Context, userID int64, question string, filter *repoInterfaces.VectorSearchFilter, onChunk func(string)) error {
+	return l.chatWithProfile(ctx, userID, question, filter, onChunk)
+}
+
+func (l *ragLogic) chatWithProfile(ctx context.Context, userID int64, question string, filter *repoInterfaces.VectorSearchFilter, onChunk func(string)) error {
 	if l.chat == nil || l.search == nil {
 		return fmt.Errorf("RAG 服务未配置（请设置 LLM_API_KEY）")
 	}
@@ -90,6 +103,16 @@ func (l *ragLogic) ChatWithFilter(ctx context.Context, question string, filter *
 		}
 	}
 	resolved := ResolveFilter(filter, extracted)
+
+	// 0b. profile 仅补空（加载失败 Warn 继续）
+	if userID > 0 && l.memory != nil {
+		prof, err := l.memory.LoadProfile(ctx, userID)
+		if err != nil {
+			logrus.Warnf("LoadProfile failed user=%d: %v", userID, err)
+		} else {
+			resolved = MergeFilterWithProfile(resolved, prof)
+		}
+	}
 
 	// 1. 共享检索入口（默认 hybrid）
 	shops, err := l.search.Search(ctx, question, resolved, l.retriever, ragTopK)

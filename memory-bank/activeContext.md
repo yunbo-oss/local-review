@@ -7,6 +7,19 @@
 - **Spec Kit（specify CLI）**：已安装；本仓库 `cursor-agent` 集成（`.specify/` + `.cursor/skills/speckit-*`）
 - **Constitution v1.1.1**：秋招面试导向；原则 VI 知识落盘；`memory-bank/` **仅保留** `activeContext.md`
 
+## 002 Recommend Agent + Memory（进行中）
+
+**状态**：核心代码已落地（Memory / ToolChatClient / bounded loop / SSE `/api/agent/recommend` / graders + `agent.v1.json`）；`eval-agent` harness 仍为 stub（可加载 golden）；待本地联调 demo 与完整 trial 报告。
+
+已完成要点：
+- `internal/memory` merge/extract；`MemoryRepo` Redis session+profile CAS
+- RAG `ChatForUser` profile 仅补空；记忆**不**暴露为模型工具
+- `internal/agent` 三工具 + bounded loop + groundedness；`RecommendAgentLogic` + SSE + 用户限流
+- `cmd/eval-agent` graders 单测 + `rag-evals/golden/agent.v1.json`（12 题）
+- 面试落盘：`docs/solutions/interview/2026-07-23-memory-not-as-tools.md`、`2026-07-23-bounded-agent-groundedness.md`
+
+下一步：完整 `eval-agent` harness（多 trial）→ `script/agent-demo.sh` → `doc/AGENT_AND_EVAL.md` → 对照 `hybrid_prod`。
+
 ## 001 Evaluable Hybrid Retrieval（进行中）
 
 **状态**：代码已落地（US2/US4/US1/US3）；待本地 `docker compose` + `seed-vector` 后跑 `make eval-rag-smoke` / `eval-rag-prod` 录 `hybrid_prod` 基线。

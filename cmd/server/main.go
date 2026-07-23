@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"local-review-go/internal/agent"
 	"local-review-go/internal/config"
 	"local-review-go/internal/config/mysql"
 	"local-review-go/internal/config/redis"
@@ -77,8 +78,9 @@ func main() {
 
 	// RAG 智能点评（可选，需 LLM_API_KEY + Redis Stack）
 	llmCfg := llm.LoadConfig()
-	embClient, chatClient := llm.NewOpenAIClient(llmCfg)
+	embClient, chatClient, toolChat := llm.NewOpenAIClient(llmCfg)
 	vecRepo := repository.NewVectorRepo(redis.GetRedisClient())
+	memoryRepo := repository.NewMemoryRepo(redis.GetRedisClient())
 	shopSearch := logic.NewShopSearchLogic(logic.ShopSearchLogicDeps{
 		EmbeddingClient: embClient,
 		VectorRepo:      vecRepo,
@@ -88,8 +90,23 @@ func main() {
 		ShopSearch:      shopSearch,
 		FilterExtractor: logic.NewLLMFilterExtractor(chatClient),
 		BlogRepo:        blogRepo,
+		MemoryRepo:      memoryRepo,
 	})
 	ragHandler := handler.NewRAGHandler(ragLogic)
+
+	var agentHandler *handler.AgentHandler
+	if toolChat != nil {
+		agentLogic := logic.NewRecommendAgentLogic(logic.RecommendAgentLogicDeps{
+			ToolChat:   toolChat,
+			ChatClient: chatClient,
+			Memory:     memoryRepo,
+			Search:     shopSearch,
+			ShopRepo:   shopRepo,
+			BlogRepo:   blogRepo,
+			Config:     agent.DefaultRunConfig(),
+		})
+		agentHandler = handler.NewAgentHandler(agentLogic)
+	}
 	if err := redis.InitShopVectorIndex(context.Background(), redis.GetRedisClient(), llmCfg.EmbeddingDim); err != nil {
 		logrus.Warnf("RAG 向量索引初始化失败（需 Redis Stack）: %v", err)
 	}
@@ -119,6 +136,7 @@ func main() {
 		Upload:       uploadHandler,
 		Statistics:   statisticsHandler,
 		RAG:          ragHandler,
+		Agent:        agentHandler,
 	})
 	voucherOrderLogic.StartConsumers()
 

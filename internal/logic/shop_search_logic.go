@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"local-review-go/internal/llm"
+	"local-review-go/internal/memory"
 	"local-review-go/internal/rag"
 	repoInterfaces "local-review-go/internal/repository/interface"
 
@@ -129,6 +130,29 @@ func ResolveFilter(explicit, extracted *repoInterfaces.VectorSearchFilter) *repo
 		if explicit.MaxDistance != 0 {
 			base.MaxDistance = explicit.MaxDistance
 		}
+	}
+	if base.Area == "" && base.TypeName == "" && base.MaxPrice == 0 && base.MinPrice == 0 &&
+		base.MinScore == 0 && base.MinComments == 0 && base.MaxDistance == 0 {
+		return nil
+	}
+	return base
+}
+
+// MergeFilterWithProfile 在已 Resolve 的 filter 上，用 profile 仅补空字段。
+// 优先级：显式/抽取（已在 filter 中）> profile 默认 > 无。
+func MergeFilterWithProfile(filter *repoInterfaces.VectorSearchFilter, profile memory.Profile) *repoInterfaces.VectorSearchFilter {
+	base := &repoInterfaces.VectorSearchFilter{}
+	if filter != nil {
+		*base = *filter
+	}
+	if base.Area == "" && len(profile.PreferredAreas) > 0 {
+		base.Area = profile.PreferredAreas[0]
+	}
+	if base.TypeName == "" && len(profile.PreferredTypes) > 0 {
+		base.TypeName = profile.PreferredTypes[0]
+	}
+	if base.MaxPrice == 0 && profile.BudgetMax != nil && *profile.BudgetMax > 0 {
+		base.MaxPrice = *profile.BudgetMax
 	}
 	if base.Area == "" && base.TypeName == "" && base.MaxPrice == 0 && base.MinPrice == 0 &&
 		base.MinScore == 0 && base.MinComments == 0 && base.MaxDistance == 0 {

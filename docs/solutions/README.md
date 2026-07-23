@@ -33,6 +33,8 @@
 
 | 日期 | 类型 | 标题 | 文件 |
 |------|------|------|------|
+| 2026-07-23 | interview | 记忆为何不暴露为模型工具 | [2026-07-23-memory-not-as-tools.md](./interview/2026-07-23-memory-not-as-tools.md) |
+| 2026-07-23 | interview | 有界 Agent：预算与 Groundedness | [2026-07-23-bounded-agent-groundedness.md](./interview/2026-07-23-bounded-agent-groundedness.md) |
 | 2026-07-22 | interview | RAG 检索链路拆解：ShopSearch/RAG、Hybrid/RRF、指标与 Golden | [2026-07-22-rag-retrieval-eval-walkthrough.md](./interview/2026-07-22-rag-retrieval-eval-walkthrough.md) |
 | 2026-07-21 | interview | 评测与线上路径对齐（ShopSearchLogic） | [2026-07-21-shop-search-path-alignment.md](./interview/2026-07-21-shop-search-path-alignment.md) |
 | 2026-07-21 | interview | HitRate vs Recall vs Precision | [2026-07-21-hitrate-vs-recall-precision.md](./interview/2026-07-21-hitrate-vs-recall-precision.md) |

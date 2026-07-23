@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"testing"
+
+	"github.com/sashabaranov/go-openai"
 )
 
 type stubEmbedClient struct {
@@ -80,5 +82,42 @@ func TestOpenAIClient_EmbedBatch_RejectsDimMismatch(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected dimension mismatch error")
+	}
+}
+
+func TestToOpenAIToolsAndMessages(t *testing.T) {
+	t.Parallel()
+	tools := []ToolDefinition{{
+		Name:        "search_shops",
+		Description: "search",
+		Parameters:  []byte(`{"type":"object","properties":{"query":{"type":"string"}},"required":["query"]}`),
+	}}
+	ot := toOpenAITools(tools)
+	if len(ot) != 1 || ot[0].Function == nil || ot[0].Function.Name != "search_shops" {
+		t.Fatalf("unexpected tools: %+v", ot)
+	}
+
+	msgs := []ChatMessage{
+		{Role: "user", Content: "hi"},
+		{Role: "assistant", Content: "", ToolCalls: []ToolCall{{ID: "1", Name: "search_shops", Args: `{"query":"咖啡"}`}}},
+		{Role: "tool", Content: "[]", ToolCallID: "1", Name: "search_shops"},
+	}
+	om := toOpenAIMessages(msgs)
+	if len(om) != 3 {
+		t.Fatalf("want 3 messages, got %d", len(om))
+	}
+	if len(om[1].ToolCalls) != 1 || om[1].ToolCalls[0].Function.Name != "search_shops" {
+		t.Fatalf("tool calls not mapped: %+v", om[1])
+	}
+	if om[2].ToolCallID != "1" {
+		t.Fatalf("tool call id: %q", om[2].ToolCallID)
+	}
+}
+
+func TestAssistantTurnFromEmptyResponse(t *testing.T) {
+	t.Parallel()
+	_, err := assistantTurnFromResponse(openai.ChatCompletionResponse{})
+	if err == nil {
+		t.Fatal("expected empty response error")
 	}
 }

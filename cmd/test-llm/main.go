@@ -45,7 +45,7 @@ func main() {
 	if cfg.APIKey == "" {
 		log.Fatal("请设置 LLM_API_KEY 环境变量")
 	}
-	embClient, chatClient := llm.NewOpenAIClient(cfg)
+	embClient, chatClient, _ := llm.NewOpenAIClient(cfg)
 	if embClient == nil {
 		log.Fatal("Embedding 客户端初始化失败")
 	}

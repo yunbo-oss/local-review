@@ -1,0 +1,330 @@
+{
+  "version": "agent.v1",
+  "cases": [
+    {
+      "id": "a001",
+      "split": "test",
+      "setup_profile": {
+        "preferred_areas": ["海淀区"],
+        "preferred_types": [],
+        "budget_max": 100,
+        "dislikes": [],
+        "summary": "常在海淀活动，人均预算约100"
+      },
+      "turns": [
+        {"user": "推荐两家安静的咖啡店"}
+      ],
+      "expected": {
+        "filter_contains": {"area": "海淀区", "maxPrice": 100},
+        "allowed_shop_ids": [8, 12],
+        "forbidden_shop_ids": [3, 4, 18],
+        "profile_after": {
+          "preferred_areas": ["海淀区"],
+          "budget_max": 100
+        },
+        "max_steps": 3,
+        "max_tool_calls": 5,
+        "expect_groundedness": true
+      },
+      "tags": ["memory", "search"],
+      "trials": 3,
+      "evidence": "初始偏好海淀区+预算100；本轮未提区域/预算，应补全 filter；seed 中 Manner(8)、喜茶(12) 为海淀咖啡且均价≤100"
+    },
+    {
+      "id": "a002",
+      "split": "test",
+      "setup_profile": {
+        "preferred_areas": ["海淀区"],
+        "preferred_types": ["咖啡"],
+        "budget_max": 80,
+        "dislikes": [],
+        "summary": "偏好海淀咖啡"
+      },
+      "turns": [
+        {"user": "我想吃朝阳区的火锅，人均150以内"}
+      ],
+      "expected": {
+        "filter_contains": {"area": "朝阳区", "typeName": "美食", "maxPrice": 150},
+        "allowed_shop_ids": [5, 23],
+        "forbidden_shop_ids": [8, 12, 17],
+        "profile_after": {
+          "preferred_areas": ["海淀区", "朝阳区"],
+          "budget_max": 150
+        },
+        "max_steps": 3,
+        "max_tool_calls": 5,
+        "expect_groundedness": true
+      },
+      "tags": ["memory", "search"],
+      "trials": 3,
+      "evidence": "本轮明确朝阳+火锅+150，必须覆盖 profile 的海淀/咖啡/80；海底捞(5)、小龙坎(23) 为朝阳火锅；不得仍按海淀咖啡检索"
+    },
+    {
+      "id": "a003",
+      "split": "test",
+      "setup_profile": {
+        "preferred_areas": ["朝阳区"],
+        "preferred_types": ["美食"],
+        "budget_max": 100,
+        "dislikes": [],
+        "summary": "朝阳美食，预算100"
+      },
+      "turns": [
+        {"user": "忘掉预算，帮我推荐几家适合聚餐的餐厅"}
+      ],
+      "expected": {
+        "filter_contains": {"area": "朝阳区", "typeName": "美食"},
+        "allowed_shop_ids": [5, 7, 11, 15, 23],
+        "forbidden_shop_ids": [],
+        "profile_after": {
+          "preferred_areas": ["朝阳区"],
+          "preferred_types": ["美食"],
+          "budget_max": null
+        },
+        "max_steps": 3,
+        "max_tool_calls": 5,
+        "expect_groundedness": true
+      },
+      "tags": ["memory"],
+      "trials": 3,
+      "evidence": "用户说忘掉预算后 budget_max 应清空；后续检索不得再套用 maxPrice=100；朝阳美食候选含外婆家/西贝/绿茶/火锅等"
+    },
+    {
+      "id": "a004",
+      "split": "test",
+      "setup_profile": {
+        "preferred_areas": ["海淀区"],
+        "preferred_types": ["美食"],
+        "budget_max": 120,
+        "dislikes": ["太辣", "香菜"],
+        "summary": "海淀美食，忌口太辣和香菜"
+      },
+      "turns": [
+        {"user": "我现在也吃辣了，推荐一家火锅"}
+      ],
+      "expected": {
+        "filter_contains": {"area": "海淀区", "typeName": "美食", "maxPrice": 120},
+        "allowed_shop_ids": [17],
+        "forbidden_shop_ids": [],
+        "profile_after": {
+          "preferred_areas": ["海淀区"],
+          "dislikes": ["香菜"],
+          "budget_max": 120
+        },
+        "max_steps": 3,
+        "max_tool_calls": 5,
+        "expect_groundedness": true
+      },
+      "tags": ["memory", "search"],
+      "trials": 3,
+      "evidence": "「也吃辣」应从 dislikes 移除太辣，保留香菜；海淀火锅 seed 为巴奴(17) 均价110≤120"
+    },
+    {
+      "id": "a005",
+      "split": "test",
+      "setup_profile": {
+        "preferred_areas": ["朝阳区"],
+        "preferred_types": [],
+        "budget_max": null,
+        "dislikes": [],
+        "summary": "常在朝阳"
+      },
+      "turns": [
+        {"user": "望京附近有火锅吗？先搜一下，再告诉我营业时间和人均，方便我对比"}
+      ],
+      "expected": {
+        "filter_contains": {"area": "朝阳区", "typeName": "美食"},
+        "allowed_shop_ids": [5],
+        "forbidden_shop_ids": [17, 23],
+        "max_steps": 3,
+        "max_tool_calls": 5,
+        "expect_groundedness": true
+      },
+      "tags": ["multi_step", "search", "memory"],
+      "trials": 3,
+      "evidence": "需 search 后再 get_shop 读详情（营业时间/人均）；望京SOHO 对应海底捞(5)；小龙坎在大望路不宜当作望京首选"
+    },
+    {
+      "id": "a006",
+      "split": "dev",
+      "setup_profile": {
+        "preferred_areas": [],
+        "preferred_types": [],
+        "budget_max": null,
+        "dislikes": [],
+        "summary": ""
+      },
+      "turns": [
+        {"user": "三里屯外婆家口碑怎么样？帮我看看真实评价再决定要不要去"}
+      ],
+      "expected": {
+        "filter_contains": {"area": "朝阳区"},
+        "allowed_shop_ids": [7],
+        "forbidden_shop_ids": [15, 11],
+        "max_steps": 3,
+        "max_tool_calls": 5,
+        "expect_groundedness": true
+      },
+      "tags": ["multi_step", "search"],
+      "trials": 1,
+      "evidence": "需 list_shop_blogs 读取外婆家(7) 评价；不得仅凭店名编造评价内容；引用须 grounded"
+    },
+    {
+      "id": "a007",
+      "split": "test",
+      "setup_profile": {
+        "preferred_areas": ["丰台区"],
+        "preferred_types": ["酒店"],
+        "budget_max": 50,
+        "dislikes": [],
+        "summary": "丰台找极低价酒店"
+      },
+      "turns": [
+        {"user": "丰台区人均50以内的五星酒店，再安静一点"}
+      ],
+      "expected": {
+        "filter_contains": {"area": "丰台区", "typeName": "酒店", "maxPrice": 50},
+        "allowed_shop_ids": [],
+        "forbidden_shop_ids": [6, 10, 14, 20],
+        "max_steps": 3,
+        "max_tool_calls": 5,
+        "expect_no_results": true,
+        "expect_groundedness": true
+      },
+      "tags": ["no_result", "memory", "search"],
+      "trials": 3,
+      "evidence": "丰台酒店仅汉庭(10) 均价180，远超50；约束不可能满足，必须明确无合适结果，不得放宽约束硬推其他区酒店"
+    },
+    {
+      "id": "a008",
+      "split": "dev",
+      "setup_profile": {
+        "preferred_areas": ["西城区"],
+        "preferred_types": ["咖啡"],
+        "budget_max": 60,
+        "dislikes": [],
+        "summary": "西城咖啡"
+      },
+      "turns": [
+        {"user": "西城区评分高的咖啡，多搜几遍确认一下，别漏店"}
+      ],
+      "expected": {
+        "filter_contains": {"area": "西城区", "typeName": "咖啡", "maxPrice": 60},
+        "allowed_shop_ids": [3, 16, 24],
+        "forbidden_shop_ids": [],
+        "max_steps": 3,
+        "max_tool_calls": 5,
+        "expect_groundedness": true
+      },
+      "tags": ["anti_loop", "search", "memory"],
+      "trials": 1,
+      "evidence": "相同 search 参数不得重复执行；须在 max_steps=3、max_tool_calls=5 内结束；西城咖啡含星巴克臻选(3)、Costa(16)、蜜雪(24)"
+    },
+    {
+      "id": "a009",
+      "split": "dev",
+      "setup_profile": {
+        "preferred_areas": ["东城区"],
+        "preferred_types": ["美食"],
+        "budget_max": 200,
+        "dislikes": [],
+        "summary": "东城美食"
+      },
+      "turns": [
+        {"user": "东城区烤鸭店推荐一下，营业时间和最新评价也看看"}
+      ],
+      "expected": {
+        "filter_contains": {"area": "东城区", "typeName": "美食", "maxPrice": 200},
+        "allowed_shop_ids": [9, 25],
+        "forbidden_shop_ids": [],
+        "max_steps": 3,
+        "max_tool_calls": 5,
+        "expect_groundedness": true
+      },
+      "tags": ["tool_error", "multi_step", "search"],
+      "trials": 1,
+      "evidence": "评测可注入 get_shop 或 list_shop_blogs 失败；助手须说明无法完成部分信息，不得编造全聚德(9)/四季民福(25) 的虚假营业时间或评价；引用须仍 grounded"
+    },
+    {
+      "id": "a010",
+      "split": "test",
+      "setup_profile": {
+        "preferred_areas": [],
+        "preferred_types": [],
+        "budget_max": null,
+        "dislikes": [],
+        "summary": ""
+      },
+      "turns": [
+        {"user": "朝阳区有什么适合约会的餐厅？"}
+      ],
+      "expected": {
+        "filter_contains": {"area": "朝阳区", "typeName": "美食"},
+        "allowed_shop_ids": [5, 7, 15],
+        "forbidden_shop_ids": [1, 2],
+        "max_steps": 3,
+        "max_tool_calls": 5,
+        "expect_groundedness": true
+      },
+      "tags": ["search"],
+      "trials": 1,
+      "evidence": "无 profile 时仅凭本轮条件；朝阳约会向美食与 retrieval r001 一致：海底捞/外婆家/绿茶"
+    },
+    {
+      "id": "a011",
+      "split": "test",
+      "setup_profile": {
+        "preferred_areas": ["海淀区"],
+        "preferred_types": ["美食"],
+        "budget_max": 100,
+        "dislikes": ["火锅"],
+        "summary": "海淀美食预算100，不吃火锅"
+      },
+      "turns": [
+        {"user": "有没有人均一百内、不太吵的馆子？"}
+      ],
+      "expected": {
+        "filter_contains": {"area": "海淀区", "typeName": "美食", "maxPrice": 100},
+        "allowed_shop_ids": [2, 21],
+        "forbidden_shop_ids": [17, 5, 23],
+        "profile_after": {
+          "preferred_areas": ["海淀区"],
+          "preferred_types": ["美食"],
+          "budget_max": 100,
+          "dislikes": ["火锅"]
+        },
+        "max_steps": 3,
+        "max_tool_calls": 5,
+        "expect_groundedness": true
+      },
+      "tags": ["memory", "search"],
+      "trials": 1,
+      "evidence": "记忆补全海淀+美食+100；忌口火锅故不得推巴奴(17)；川味小厨(2)、云海肴(21) 符合"
+    },
+    {
+      "id": "a012",
+      "split": "dev",
+      "setup_profile": {
+        "preferred_areas": ["朝阳区"],
+        "preferred_types": ["咖啡"],
+        "budget_max": 40,
+        "dislikes": [],
+        "summary": "朝阳轻饮，预算40"
+      },
+      "turns": [
+        {"user": "先帮我找朝阳人均40以内的茶饮或咖啡，挑一两家看看详情和评价，再给我结论"}
+      ],
+      "expected": {
+        "filter_contains": {"area": "朝阳区", "maxPrice": 40},
+        "allowed_shop_ids": [18],
+        "forbidden_shop_ids": [5, 20],
+        "max_steps": 3,
+        "max_tool_calls": 5,
+        "expect_groundedness": true
+      },
+      "tags": ["multi_step", "memory", "search"],
+      "trials": 1,
+      "evidence": "需 search → get_shop/list_shop_blogs 多步；朝阳≤40 茶饮/咖啡主要为奈雪(18)；不得推荐超预算火锅或酒店"
+    }
+  ]
+}

@@ -5,6 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"local-review-go/internal/logic"
+	"local-review-go/internal/middleware"
 	repoInterfaces "local-review-go/internal/repository/interface"
 	"local-review-go/pkg/httpx"
 )
@@ -64,10 +65,18 @@ func (h *RAGHandler) Chat(c *gin.Context) {
 
 	ctx := c.Request.Context()
 	filter := chatFilterToVectorFilter(req.Filter)
-	err := h.ragLogic.ChatWithFilter(ctx, req.Question, filter, func(chunk string) {
-		c.SSEvent("message", chunk)
-		c.Writer.Flush()
-	})
+	var err error
+	if user, uerr := middleware.GetUserInfo(c); uerr == nil && user.Id > 0 {
+		err = h.ragLogic.ChatForUser(ctx, user.Id, req.Question, filter, func(chunk string) {
+			c.SSEvent("message", chunk)
+			c.Writer.Flush()
+		})
+	} else {
+		err = h.ragLogic.ChatWithFilter(ctx, req.Question, filter, func(chunk string) {
+			c.SSEvent("message", chunk)
+			c.Writer.Flush()
+		})
+	}
 	if err != nil {
 		c.SSEvent("error", err.Error())
 		c.Writer.Flush()

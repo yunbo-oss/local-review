@@ -72,6 +72,10 @@ eval-rag-oracle:
 eval-rag-prod:
 	go run ./cmd/eval-rag --filter-mode=llm --retriever=hybrid --split=test
 
+# Agent 评测（002；当前可校验 golden；完整 harness 持续完善）
+eval-agent:
+	go run ./cmd/eval-agent --test-set=rag-evals/golden/agent.v1.json --out=rag-evals/reports/agent_latest.json
+
 # RAG 索引 schema 变更后：删除旧索引，再 make seed-vector 重新导入
 drop-vector-index:
 	chmod +x script/rag.sh && ./script/rag.sh --drop-index
