@@ -1,5 +1,7 @@
 # Tasks: Recommend Agent with Correctable Memory
 
+> **迁移说明（2026-07-26）**：未完成的 US5 / Polish（T041–T053 等）及勾选超前但缺失的单测，已并入 **`specs/003-agent-hardening`**。后续实现与验收以 003 为准（Phase A 代码 → Phase B 评测）。下列未勾选项保留作追溯，不必在 002 内继续勾选推进。
+
 **Input**: Design documents from `/specs/002-recommend-agent-memory/`
 
 **Prerequisites**: plan.md ✅, spec.md ✅, research.md ✅, data-model.md ✅, contracts/ ✅, quickstart.md ✅

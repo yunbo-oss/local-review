@@ -33,6 +33,9 @@
 
 | 日期 | 类型 | 标题 | 文件 |
 |------|------|------|------|
+| 2026-07-26 | interview | Agent vs Hybrid：评测叙事怎么讲 | [2026-07-26-agent-vs-hybrid-eval.md](./interview/2026-07-26-agent-vs-hybrid-eval.md) |
+| 2026-07-26 | interview | RecommendRouter：简单→RAG / 复杂→Agent | [2026-07-26-recommend-router.md](./interview/2026-07-26-recommend-router.md) |
+| 2026-07-26 | interview | EvidenceLedger：为何不能只靠 observed ID | [2026-07-26-evidence-ledger.md](./interview/2026-07-26-evidence-ledger.md) |
 | 2026-07-23 | interview | 记忆为何不暴露为模型工具 | [2026-07-23-memory-not-as-tools.md](./interview/2026-07-23-memory-not-as-tools.md) |
 | 2026-07-23 | interview | 有界 Agent：预算与 Groundedness | [2026-07-23-bounded-agent-groundedness.md](./interview/2026-07-23-bounded-agent-groundedness.md) |
 | 2026-07-22 | interview | RAG 检索链路拆解：ShopSearch/RAG、Hybrid/RRF、指标与 Golden | [2026-07-22-rag-retrieval-eval-walkthrough.md](./interview/2026-07-22-rag-retrieval-eval-walkthrough.md) |

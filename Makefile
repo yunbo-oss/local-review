@@ -1,4 +1,4 @@
-.PHONY: run build test tidy clean air test-api seed seed-redis seed-load-test seed-reset-load-test seed-vector load-test-seckill eval-rag eval-rag-smoke eval-rag-oracle eval-rag-prod
+.PHONY: run build test tidy clean air test-api seed seed-redis seed-load-test seed-reset-load-test seed-vector load-test-seckill eval-rag eval-rag-smoke eval-rag-oracle eval-rag-prod eval-agent eval-agent-fake demo-agent
 
 run:
 	go run ./cmd/server
@@ -72,9 +72,30 @@ eval-rag-oracle:
 eval-rag-prod:
 	go run ./cmd/eval-rag --filter-mode=llm --retriever=hybrid --split=test
 
-# Agent 评测（002；当前可校验 golden；完整 harness 持续完善）
+# 正式 Hybrid 基线写入（覆盖 rag-evals/baseline/hybrid_prod_v1.json）
+eval-rag-prod-baseline:
+	go run ./cmd/eval-rag --filter-mode=llm --retriever=hybrid --split=test --write-baseline \
+		--baseline=rag-evals/baseline/hybrid_prod_v1.json
+
+# Agent 正式评测（需 LLM_API_KEY + Redis Stack + MySQL + seed-vector）
 eval-agent:
-	go run ./cmd/eval-agent --test-set=rag-evals/golden/agent.v1.json --out=rag-evals/reports/agent_latest.json
+	go run ./cmd/eval-agent --mode=inprocess --split=test \
+		--test-set=rag-evals/golden/agent.v1.json \
+		--out=rag-evals/reports/agent_latest.json \
+		--compare-baseline=rag-evals/baseline/hybrid_prod_v1.json \
+		--force-route=agent_multistep
+
+# Agent harness 冒烟（不调 LLM；验证报告非 stub / trial 隔离）
+eval-agent-fake:
+	go run ./cmd/eval-agent --mode=fake --split=test --trials=3 \
+		--test-set=rag-evals/golden/agent.v1.json \
+		--out=rag-evals/reports/agent_latest.json \
+		--compare-baseline=rag-evals/baseline/hybrid_prod_v1.json \
+		--force-route=agent_multistep
+
+# 三轮记忆演示（需服务已启动 + seed-redis 验证码）
+demo-agent:
+	chmod +x script/agent-demo.sh && ./script/agent-demo.sh
 
 # RAG 索引 schema 变更后：删除旧索引，再 make seed-vector 重新导入
 drop-vector-index:

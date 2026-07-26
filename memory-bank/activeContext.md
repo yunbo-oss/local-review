@@ -7,18 +7,17 @@
 - **Spec Kit（specify CLI）**：已安装；本仓库 `cursor-agent` 集成（`.specify/` + `.cursor/skills/speckit-*`）
 - **Constitution v1.1.1**：秋招面试导向；原则 VI 知识落盘；`memory-bank/` **仅保留** `activeContext.md`
 
-## 002 Recommend Agent + Memory（进行中）
+## 002 Recommend Agent + Memory
 
-**状态**：核心代码已落地（Memory / ToolChatClient / bounded loop / SSE `/api/agent/recommend` / graders + `agent.v1.json`）；`eval-agent` harness 仍为 stub（可加载 golden）；待本地联调 demo 与完整 trial 报告。
+**状态**：已并入 **003**；核心能力 + 评测/演示文档见 003。遗留本地联调：`make eval-agent` / `demo-agent` / 正式 Hybrid 基线。
 
-已完成要点：
-- `internal/memory` merge/extract；`MemoryRepo` Redis session+profile CAS
-- RAG `ChatForUser` profile 仅补空；记忆**不**暴露为模型工具
-- `internal/agent` 三工具 + bounded loop + groundedness；`RecommendAgentLogic` + SSE + 用户限流
-- `cmd/eval-agent` graders 单测 + `rag-evals/golden/agent.v1.json`（12 题）
-- 面试落盘：`docs/solutions/interview/2026-07-23-memory-not-as-tools.md`、`2026-07-23-bounded-agent-groundedness.md`
+**003 Agent Hardening**：**Phase A+B 实现完成**（2026-07-26）；本地联调门禁未全部跑通。
 
-下一步：完整 `eval-agent` harness（多 trial）→ `script/agent-demo.sh` → `doc/AGENT_AND_EVAL.md` → 对照 `hybrid_prod`。
+- Phase A：EvidenceLedger、MySQL persist、Router、Harness、ContextBuilder、Redis 限流、degraded 元数据
+- Phase B：`cmd/eval-agent` 真实 harness（`--mode=inprocess|fake`）、`--compare-baseline` / `--force-route`、`make eval-agent-fake` 已产出非 stub `agent_latest.json`；`script/agent-demo.sh` + `doc/AGENT_AND_EVAL.md`；基线文件占位 `hybrid_prod_v1.json`（须 `make eval-rag-prod-baseline` 覆盖）
+- 落盘：`2026-07-26-evidence-ledger.md`、`recommend-router.md`、`agent-vs-hybrid-eval.md`
+- **待本地栈**：`make eval-agent`（真 LLM）、`make eval-rag-prod-baseline`、`make demo-agent`（T063/T065）
+- **SC-B08**：未替换 placeholder 基线、未跑 inprocess 前，**不得**对外宣称「Agent 评测闭环已完成 / 简历可用正式 Δ」
 
 ## 001 Evaluable Hybrid Retrieval（进行中）
 

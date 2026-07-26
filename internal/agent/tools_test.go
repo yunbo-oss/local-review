@@ -58,3 +58,20 @@ func TestCanonicalArgs(t *testing.T) {
 		t.Fatalf("%s vs %s", a, b)
 	}
 }
+
+func TestStrictDecode_TrailingJSON(t *testing.T) {
+	t.Parallel()
+	var a searchArgs
+	err := strictDecode(`{"query":"a"}{"query":"b"}`, &a)
+	if err == nil {
+		t.Fatal("expected trailing JSON reject")
+	}
+}
+
+func TestTruncateUTF8(t *testing.T) {
+	t.Parallel()
+	s := truncateUTF8("你好世界测试", 2)
+	if s != "你好…[truncated]" {
+		t.Fatalf("got %q", s)
+	}
+}

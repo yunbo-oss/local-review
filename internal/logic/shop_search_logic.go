@@ -31,9 +31,27 @@ const (
 	RetrieverDense  RetrieverStrategy = "dense"  // 仅诊断
 )
 
+// SearchMode 混合检索失败策略
+type SearchMode string
+
+const (
+	SearchModeStrict   SearchMode = "strict"   // 任一路失败 → 整次失败（默认/评测）
+	SearchModeDegraded SearchMode = "degraded" // 允许单路回退，必须显式标记 Degraded
+)
+
+// SearchOutcome 带降级元数据的检索结果（禁止静默改口径）
+type SearchOutcome struct {
+	Results        []repoInterfaces.ShopSearchResult
+	Strategy       RetrieverStrategy
+	Mode           SearchMode
+	Degraded       bool
+	DegradedReason string
+}
+
 // ShopSearchLogic 共享检索入口（线上 RAG / eval / 后续 Agent 共用）
 type ShopSearchLogic interface {
 	Search(ctx context.Context, query string, filter *repoInterfaces.VectorSearchFilter, strategy RetrieverStrategy, topK int) ([]repoInterfaces.ShopSearchResult, error)
+	SearchWithMeta(ctx context.Context, query string, filter *repoInterfaces.VectorSearchFilter, strategy RetrieverStrategy, topK int, mode SearchMode) (SearchOutcome, error)
 }
 
 // FilterExtractor 从自然语言抽取过滤条件
@@ -161,10 +179,29 @@ func MergeFilterWithProfile(filter *repoInterfaces.VectorSearchFilter, profile m
 	return base
 }
 
-// Search 在已解析 filter 上检索
+// DefaultSearchMode 从 RAG_SEARCH_MODE 读取；默认 strict
+func DefaultSearchMode() SearchMode {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("RAG_SEARCH_MODE"))) {
+	case "degraded":
+		return SearchModeDegraded
+	default:
+		return SearchModeStrict
+	}
+}
+
+// Search 在已解析 filter 上检索（strict：与评测口径一致）
 func (l *shopSearchLogic) Search(ctx context.Context, query string, filter *repoInterfaces.VectorSearchFilter, strategy RetrieverStrategy, topK int) ([]repoInterfaces.ShopSearchResult, error) {
+	out, err := l.SearchWithMeta(ctx, query, filter, strategy, topK, SearchModeStrict)
+	if err != nil {
+		return nil, err
+	}
+	return out.Results, nil
+}
+
+// SearchWithMeta 带 strict/degraded 元数据
+func (l *shopSearchLogic) SearchWithMeta(ctx context.Context, query string, filter *repoInterfaces.VectorSearchFilter, strategy RetrieverStrategy, topK int, mode SearchMode) (SearchOutcome, error) {
 	if l.embedding == nil || l.vector == nil {
-		return nil, fmt.Errorf("ShopSearchLogic 未配置 EmbeddingClient/VectorRepo")
+		return SearchOutcome{}, fmt.Errorf("ShopSearchLogic 未配置 EmbeddingClient/VectorRepo")
 	}
 	if topK <= 0 {
 		topK = 5
@@ -172,14 +209,17 @@ func (l *shopSearchLogic) Search(ctx context.Context, query string, filter *repo
 	if strategy == "" {
 		strategy = DefaultRetrieverStrategy()
 	}
-
+	if mode == "" {
+		mode = DefaultSearchMode()
+	}
 	switch strategy {
 	case RetrieverDense:
-		return l.searchDense(ctx, query, filter, topK)
+		res, err := l.searchDense(ctx, query, filter, topK)
+		return SearchOutcome{Results: res, Strategy: RetrieverDense, Mode: mode}, err
 	case RetrieverHybrid:
-		return l.searchHybrid(ctx, query, filter, topK)
+		return l.searchHybridMeta(ctx, query, filter, topK, mode)
 	default:
-		return nil, fmt.Errorf("unsupported strategy: %s", strategy)
+		return SearchOutcome{}, fmt.Errorf("unsupported strategy: %s", strategy)
 	}
 }
 
@@ -191,46 +231,70 @@ func (l *shopSearchLogic) searchDense(ctx context.Context, query string, filter 
 	return l.vector.SearchShops(ctx, queryVec, filter, topK)
 }
 
-func (l *shopSearchLogic) searchHybrid(ctx context.Context, query string, filter *repoInterfaces.VectorSearchFilter, topK int) ([]repoInterfaces.ShopSearchResult, error) {
+func (l *shopSearchLogic) searchHybridMeta(ctx context.Context, query string, filter *repoInterfaces.VectorSearchFilter, topK int, mode SearchMode) (SearchOutcome, error) {
 	queryVec, err := l.embedding.Embed(ctx, query)
 	if err != nil {
-		return nil, fmt.Errorf("embedding: %w", err)
+		return SearchOutcome{}, fmt.Errorf("embedding: %w", err)
 	}
 
-	var denseRes, textRes []repoInterfaces.ShopSearchResult
+	type arm struct {
+		res []repoInterfaces.ShopSearchResult
+		err error
+	}
+	var denseArm, textArm arm
 	g, gctx := errgroup.WithContext(ctx)
 	g.Go(func() error {
-		var e error
-		denseRes, e = l.vector.SearchShops(gctx, queryVec, filter, l.candidateK)
-		if e != nil {
-			return fmt.Errorf("dense KNN: %w", e)
-		}
-		return nil
+		denseArm.res, denseArm.err = l.vector.SearchShops(gctx, queryVec, filter, l.candidateK)
+		return nil // 错误在 Wait 后按 mode 处理，避免一端失败取消另一端
 	})
 	g.Go(func() error {
-		var e error
-		textRes, e = l.vector.SearchText(gctx, query, filter, l.candidateK)
-		if e != nil {
-			// 文本子检索失败 → 整次 hybrid 失败（禁止静默 dense 成功）
-			return fmt.Errorf("text search: %w", e)
-		}
+		textArm.res, textArm.err = l.vector.SearchText(gctx, query, filter, l.candidateK)
 		return nil
 	})
-	if err := g.Wait(); err != nil {
-		return nil, err
+	_ = g.Wait()
+
+	out := SearchOutcome{Strategy: RetrieverHybrid, Mode: mode}
+	if denseArm.err != nil && textArm.err != nil {
+		return out, fmt.Errorf("hybrid both failed: dense=%v text=%v", denseArm.err, textArm.err)
+	}
+	if denseArm.err != nil || textArm.err != nil {
+		if mode == SearchModeStrict {
+			if denseArm.err != nil {
+				return out, fmt.Errorf("dense KNN: %w", denseArm.err)
+			}
+			return out, fmt.Errorf("text search: %w", textArm.err)
+		}
+		// degraded：单路回退 + 显式标记
+		out.Degraded = true
+		if denseArm.err != nil {
+			out.DegradedReason = "dense_failed:" + denseArm.err.Error()
+			out.Results = truncateShopResults(textArm.res, topK)
+			return out, nil
+		}
+		out.DegradedReason = "text_failed:" + textArm.err.Error()
+		out.Results = truncateShopResults(denseArm.res, topK)
+		return out, nil
 	}
 
-	denseIDs := shopIDs(denseRes)
-	textIDs := shopIDs(textRes)
+	denseIDs := shopIDs(denseArm.res)
+	textIDs := shopIDs(textArm.res)
 	fused := rag.FuseRRF([][]int64{denseIDs, textIDs}, l.rrfK, topK)
-	byID := mergeShopMeta(denseRes, textRes)
-	out := make([]repoInterfaces.ShopSearchResult, 0, len(fused))
+	byID := mergeShopMeta(denseArm.res, textArm.res)
+	res := make([]repoInterfaces.ShopSearchResult, 0, len(fused))
 	for _, id := range fused {
 		if s, ok := byID[id]; ok {
-			out = append(out, s)
+			res = append(res, s)
 		}
 	}
+	out.Results = res
 	return out, nil
+}
+
+func truncateShopResults(in []repoInterfaces.ShopSearchResult, topK int) []repoInterfaces.ShopSearchResult {
+	if topK <= 0 || len(in) <= topK {
+		return in
+	}
+	return in[:topK]
 }
 
 func shopIDs(res []repoInterfaces.ShopSearchResult) []int64 {

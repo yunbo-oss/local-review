@@ -21,6 +21,7 @@ type Handlers struct {
 	Statistics   *StatisticsHandler
 	RAG          *RAGHandler
 	Agent        *AgentHandler
+	Recommend    *RecommendHandler
 }
 
 func ConfigRouter(r *gin.Engine, handlers Handlers) {
@@ -146,6 +147,10 @@ func configAuthRoutes(apiGroup *gin.RouterGroup, handlers Handlers) {
 			{
 				agentController.POST("/recommend", middleware.AgentRateLimit(), handlers.Agent.Recommend)
 			}
+		}
+		// 统一推荐入口：Router → RAG / Agent
+		if handlers.Recommend != nil {
+			authGroup.POST("/recommend", middleware.AgentRateLimit(), handlers.Recommend.Recommend)
 		}
 	}
 }

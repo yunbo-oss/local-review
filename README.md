@@ -148,9 +148,25 @@ k6 压测，1 Nginx + 3 Go 实例，151 用户 × 25 秒杀券：总 QPS ~1160�
 
 ---
 
-## 四、AI 语义检索引擎 (RAG)
+## 四、AI 语义检索引擎 (RAG) 与推荐 Agent
 
-> 暂未实现前端，效果展示使用 `make demo-rag`。
+> 暂未实现前端。RAG 演示：`make demo-rag`；Agent 记忆演示：`make demo-agent`。说明见 [doc/AGENT_AND_EVAL.md](doc/AGENT_AND_EVAL.md)。
+
+### 4.0 推荐入口（003）
+
+| 接口 | 说明 |
+|------|------|
+| `POST /api/rag/chat` | Hybrid RAG oneshot（SSE） |
+| `POST /api/agent/recommend` | 有界多步 Agent（需登录；`force_route` 可选） |
+| `POST /api/recommend` | 统一入口：`RecommendRouter` → RAG / Agent |
+
+评测：
+
+```bash
+make eval-agent-fake   # harness 冒烟（非 stub 报告形状）
+make eval-agent        # 正式（需 LLM + 向量索引）
+make eval-rag-prod-baseline  # 录 Hybrid 基线后做 Agent vs Hybrid 对照
+```
 
 ### 4.1 背景
 

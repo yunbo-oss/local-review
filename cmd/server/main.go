@@ -80,7 +80,10 @@ func main() {
 	llmCfg := llm.LoadConfig()
 	embClient, chatClient, toolChat := llm.NewOpenAIClient(llmCfg)
 	vecRepo := repository.NewVectorRepo(redis.GetRedisClient())
-	memoryRepo := repository.NewMemoryRepo(redis.GetRedisClient())
+	agentProfileRepo := repository.NewAgentProfileRepo(mysql.GetMysqlDB(), redis.GetRedisClient())
+	agentRunRepo := repository.NewAgentRunRepo(mysql.GetMysqlDB())
+	// 偏好：MySQL 事实源 + Redis Cache Aside；会话仍 Redis
+	memoryRepo := repository.NewHybridMemoryRepo(redis.GetRedisClient(), agentProfileRepo)
 	shopSearch := logic.NewShopSearchLogic(logic.ShopSearchLogicDeps{
 		EmbeddingClient: embClient,
 		VectorRepo:      vecRepo,
@@ -95,6 +98,8 @@ func main() {
 	ragHandler := handler.NewRAGHandler(ragLogic)
 
 	var agentHandler *handler.AgentHandler
+	var recommendHandler *handler.RecommendHandler
+	recommendRouter := logic.NewRecommendRouter()
 	if toolChat != nil {
 		agentLogic := logic.NewRecommendAgentLogic(logic.RecommendAgentLogicDeps{
 			ToolChat:   toolChat,
@@ -103,9 +108,16 @@ func main() {
 			Search:     shopSearch,
 			ShopRepo:   shopRepo,
 			BlogRepo:   blogRepo,
+			RunRepo:    agentRunRepo,
+			Router:     recommendRouter,
 			Config:     agent.DefaultRunConfig(),
 		})
 		agentHandler = handler.NewAgentHandler(agentLogic)
+	} else if llmCfg.APIKey != "" {
+		logrus.Warn("LLM_API_KEY 已配置但 ToolChatClient 不可用：当前模型/网关可能不支持 function calling；/api/agent/recommend 将不注册。详见 doc/AGENT_AND_EVAL.md")
+	}
+	if agentHandler != nil || ragHandler != nil {
+		recommendHandler = handler.NewRecommendHandler(recommendRouter, agentHandler, ragHandler)
 	}
 	if err := redis.InitShopVectorIndex(context.Background(), redis.GetRedisClient(), llmCfg.EmbeddingDim); err != nil {
 		logrus.Warnf("RAG 向量索引初始化失败（需 Redis Stack）: %v", err)
@@ -123,6 +135,10 @@ func main() {
 		&model.SecKillVoucher{},
 		&model.VoucherOrder{},
 		&model.Follow{},
+		&model.UserAgentProfile{},
+		&model.UserAgentProfileEvent{},
+		&model.AgentRun{},
+		&model.AgentToolCall{},
 	)
 
 	handler.ConfigRouter(r, handler.Handlers{
@@ -137,6 +153,7 @@ func main() {
 		Statistics:   statisticsHandler,
 		RAG:          ragHandler,
 		Agent:        agentHandler,
+		Recommend:    recommendHandler,
 	})
 	voucherOrderLogic.StartConsumers()
 

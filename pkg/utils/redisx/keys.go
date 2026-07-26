@@ -25,7 +25,11 @@ const (
 
 	// Agent 记忆（002）
 	AGENT_SESSION_PREFIX = "agent:sess:"    // List：agent:sess:{userId}:{sessionId}
-	AGENT_PROFILE_PREFIX = "agent:profile:" // Hash：agent:profile:{userId}
+	AGENT_PROFILE_PREFIX = "agent:profile:" // Hash：agent:profile:{userId}（遗留事实源，迁移后改为缓存）
+
+	// Agent 003：缓存与限流
+	AGENT_PROFILE_CACHE_PREFIX = "agent:profile:cache:" // profile Cache Aside
+	AGENT_RATE_LIMIT_PREFIX    = "agent:rl:"            // 用户级滑动窗口限流
 )
 
 // AgentSessionKey 短期会话 List key
@@ -33,9 +37,19 @@ func AgentSessionKey(userID int64, sessionID string) string {
 	return AGENT_SESSION_PREFIX + strconv.FormatInt(userID, 10) + ":" + sessionID
 }
 
-// AgentProfileKey 长期偏好 Hash key
+// AgentProfileKey 长期偏好 Hash key（遗留 / 兼容）
 func AgentProfileKey(userID int64) string {
 	return AGENT_PROFILE_PREFIX + strconv.FormatInt(userID, 10)
+}
+
+// AgentProfileCacheKey MySQL profile 的 Redis 缓存 key
+func AgentProfileCacheKey(userID int64) string {
+	return AGENT_PROFILE_CACHE_PREFIX + strconv.FormatInt(userID, 10)
+}
+
+// AgentRateLimitKey 用户推荐限流 key
+func AgentRateLimitKey(userID int64) string {
+	return AGENT_RATE_LIMIT_PREFIX + strconv.FormatInt(userID, 10)
 }
 
 const (

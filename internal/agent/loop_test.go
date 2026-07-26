@@ -56,16 +56,20 @@ func TestRunLoop_DuplicateRejected(t *testing.T) {
 		{Message: llm.ChatMessage{Role: "assistant", Content: "推荐 [shop:1]"}},
 	}}
 	exec := &ToolExecutor{
+		Ledger:   NewEvidenceLedger(),
 		Observed: map[int64]struct{}{},
 		// Search nil → first call returns error JSON; duplicate still counted
 	}
-	// Pre-seed observed so grounding passes
-	exec.Observed[1] = struct{}{}
+	// Pre-seed evidence so final answer grounding passes
+	exec.Ledger.DiscoverFromSearch(1, "测试店", nil)
 	res := RunLoop(context.Background(), client, exec, RunConfig{
 		MaxSteps: 3, MaxToolCalls: 5, RunTimeout: DefaultRunTimeout, ToolTimeout: DefaultToolTimeout, MaxToolResultChars: 1000,
 	}, []llm.ChatMessage{{Role: "user", Content: "咖啡"}}, nil)
 	if res.DuplicateRejected < 1 {
 		t.Fatalf("want duplicate reject, got %+v", res)
+	}
+	if !res.GroundingOK {
+		t.Fatalf("want grounding ok after seed, err=%v", res.Err)
 	}
 }
 
@@ -102,5 +106,55 @@ func TestRunLoop_GroundingFail(t *testing.T) {
 	res := RunLoop(context.Background(), client, exec, DefaultRunConfig(), []llm.ChatMessage{{Role: "user", Content: "x"}}, nil)
 	if res.GroundingOK || res.Err == nil {
 		t.Fatalf("want grounding error, got %+v", res)
+	}
+}
+
+func TestRunLoop_PerTurnCapAndAttempts(t *testing.T) {
+	t.Parallel()
+	client := &scriptedClient{turns: []llm.AssistantTurn{
+		{Message: llm.ChatMessage{Role: "assistant", ToolCalls: []llm.ToolCall{
+			{ID: "1", Name: ToolSearchShops, Args: `{"query":"a"}`},
+			{ID: "2", Name: ToolSearchShops, Args: `{"query":"b"}`},
+			{ID: "3", Name: ToolSearchShops, Args: `{"query":"c"}`},
+			{ID: "4", Name: ToolSearchShops, Args: `{"query":"d"}`},
+		}}, ToolCalls: []llm.ToolCall{
+			{ID: "1", Name: ToolSearchShops, Args: `{"query":"a"}`},
+			{ID: "2", Name: ToolSearchShops, Args: `{"query":"b"}`},
+			{ID: "3", Name: ToolSearchShops, Args: `{"query":"c"}`},
+			{ID: "4", Name: ToolSearchShops, Args: `{"query":"d"}`},
+		}},
+		{Message: llm.ChatMessage{Role: "assistant", Content: "暂无合适店铺"}},
+	}}
+	exec := &ToolExecutor{Ledger: NewEvidenceLedger(), Observed: map[int64]struct{}{}}
+	res := RunLoop(context.Background(), client, exec, RunConfig{
+		MaxSteps: 2, MaxToolCalls: 10, MaxToolAttempts: 20, MaxToolsPerTurn: 2,
+		RunTimeout: DefaultRunTimeout, ToolTimeout: DefaultToolTimeout, MaxToolResultChars: 500,
+	}, []llm.ChatMessage{{Role: "user", Content: "x"}}, nil)
+	if res.ToolCalls > 2 {
+		t.Fatalf("per-turn cap: tool_calls=%d", res.ToolCalls)
+	}
+	if res.ToolAttempts < 4 {
+		t.Fatalf("skipped calls should count as attempts, attempts=%d", res.ToolAttempts)
+	}
+}
+
+func TestRunLoop_DuplicateConsumesAttempt(t *testing.T) {
+	t.Parallel()
+	client := &scriptedClient{turns: []llm.AssistantTurn{
+		{Message: llm.ChatMessage{Role: "assistant", ToolCalls: []llm.ToolCall{
+			{ID: "1", Name: ToolSearchShops, Args: `{"query":"咖啡"}`},
+		}}, ToolCalls: []llm.ToolCall{{ID: "1", Name: ToolSearchShops, Args: `{"query":"咖啡"}`}}},
+		{Message: llm.ChatMessage{Role: "assistant", ToolCalls: []llm.ToolCall{
+			{ID: "2", Name: ToolSearchShops, Args: `{"query":"咖啡"}`},
+		}}, ToolCalls: []llm.ToolCall{{ID: "2", Name: ToolSearchShops, Args: `{"query":"咖啡"}`}}},
+		{Message: llm.ChatMessage{Role: "assistant", Content: "暂无合适店铺"}},
+	}}
+	exec := &ToolExecutor{Ledger: NewEvidenceLedger()}
+	res := RunLoop(context.Background(), client, exec, RunConfig{
+		MaxSteps: 3, MaxToolCalls: 5, MaxToolAttempts: 8, MaxToolsPerTurn: 3,
+		RunTimeout: DefaultRunTimeout, ToolTimeout: DefaultToolTimeout, MaxToolResultChars: 500,
+	}, []llm.ChatMessage{{Role: "user", Content: "x"}}, nil)
+	if res.DuplicateRejected < 1 || res.ToolAttempts < 2 {
+		t.Fatalf("dup should consume attempts: %+v", res)
 	}
 }

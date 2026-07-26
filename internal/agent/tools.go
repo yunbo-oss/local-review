@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 
 	"local-review-go/internal/llm"
@@ -47,6 +48,8 @@ type ToolExecutor struct {
 	BlogRepo repoInterfaces.BlogRepo
 	MaxChars int
 	OnStatus func(ToolStatus)
+	Ledger   *EvidenceLedger
+	// Observed 与 Ledger 可引用集同步（兼容旧 groundedness / graders）
 	Observed map[int64]struct{}
 }
 
@@ -71,8 +74,13 @@ func ToolDefinitions() []llm.ToolDefinition {
 	}
 }
 
-// Execute 校验并执行工具；结果截断；更新 Observed
+// Execute 校验并执行工具；结果截断；更新 Ledger/Observed
 func (e *ToolExecutor) Execute(ctx context.Context, name, argsJSON string) (string, error) {
+	ctx, span := StartToolSpan(ctx, name)
+	defer span.End()
+	if e.Ledger == nil {
+		e.Ledger = NewEvidenceLedger()
+	}
 	if e.Observed == nil {
 		e.Observed = map[int64]struct{}{}
 	}
@@ -105,10 +113,33 @@ func (e *ToolExecutor) Execute(ctx context.Context, name, argsJSON string) (stri
 	if err != nil {
 		return fmt.Sprintf(`{"error":%q}`, err.Error()), nil
 	}
-	if len(out) > maxChars {
-		out = out[:maxChars] + "…[truncated]"
-	}
+	e.syncObservedFromLedger()
+	out = truncateUTF8(out, maxChars)
 	return out, nil
+}
+
+// truncateUTF8 按 rune 截断，避免切断多字节字符
+func truncateUTF8(s string, maxRunes int) string {
+	if maxRunes <= 0 {
+		return s
+	}
+	runes := []rune(s)
+	if len(runes) <= maxRunes {
+		return s
+	}
+	return string(runes[:maxRunes]) + "…[truncated]"
+}
+
+func (e *ToolExecutor) syncObservedFromLedger() {
+	if e.Ledger == nil {
+		return
+	}
+	if e.Observed == nil {
+		e.Observed = map[int64]struct{}{}
+	}
+	for _, id := range e.Ledger.CiteableIDs() {
+		e.Observed[id] = struct{}{}
+	}
 }
 
 type searchArgs struct {
@@ -146,7 +177,9 @@ func (e *ToolExecutor) execSearch(ctx context.Context, argsJSON string) (string,
 	}
 	items := make([]item, 0, len(results))
 	for _, r := range results {
-		e.Observed[r.ShopID] = struct{}{}
+		e.Ledger.DiscoverFromSearch(r.ShopID, r.Name, map[string]any{
+			"avg_price": r.AvgPrice, "score": r.Score, "area": r.Area, "type_name": r.TypeName,
+		})
 		items = append(items, item{
 			ShopID: r.ShopID, Name: r.Name, Area: r.Area,
 			TypeName: r.TypeName, AvgPrice: r.AvgPrice, Score: r.Score,
@@ -169,6 +202,9 @@ func (e *ToolExecutor) execGetShop(ctx context.Context, argsJSON string) (string
 	if a.ShopID <= 0 {
 		return "", fmt.Errorf("shop_id must be > 0")
 	}
+	if !e.Ledger.IsDiscovered(a.ShopID) {
+		return "", NewPublicError(ErrToolNotAllowed, "shop_id not in this turn candidates")
+	}
 	if e.ShopRepo == nil {
 		return "", fmt.Errorf("shop repo not configured")
 	}
@@ -176,7 +212,10 @@ func (e *ToolExecutor) execGetShop(ctx context.Context, argsJSON string) (string
 	if err != nil || shop == nil {
 		return `{"error":"not_found"}`, nil
 	}
-	e.Observed[a.ShopID] = struct{}{}
+	_ = e.Ledger.VerifyFromGetShop(a.ShopID, shop.Name, map[string]any{
+		"avg_price": shop.AvgPrice, "score": shop.Score,
+		"address": shop.Address, "open_hours": shop.OpenHours, "area": shop.Area,
+	})
 	b, _ := json.Marshal(map[string]any{
 		"shop_id": shop.Id, "name": shop.Name, "area": shop.Area,
 		"avg_price": shop.AvgPrice, "score": shop.Score, "address": shop.Address,
@@ -203,11 +242,15 @@ func (e *ToolExecutor) execListBlogs(ctx context.Context, argsJSON string) (stri
 	if e.BlogRepo == nil {
 		return "", fmt.Errorf("blog repo not configured")
 	}
+	if !e.Ledger.IsDiscovered(a.ShopID) {
+		// 防空 blogs 洗白：未发现店铺不得通过 list_blogs 获得 citeable
+		return "", NewPublicError(ErrToolNotAllowed, "shop_id not in this turn candidates")
+	}
 	blogs, err := e.BlogRepo.ListByShopID(ctx, a.ShopID, limit)
 	if err != nil {
 		return "", err
 	}
-	e.Observed[a.ShopID] = struct{}{}
+	ids := make([]int64, 0, len(blogs))
 	type bi struct {
 		BlogID  int64  `json:"blog_id"`
 		Title   string `json:"title"`
@@ -216,13 +259,21 @@ func (e *ToolExecutor) execListBlogs(ctx context.Context, argsJSON string) (stri
 	}
 	items := make([]bi, 0, len(blogs))
 	for _, b := range blogs {
+		ids = append(ids, b.Id)
 		snip := strings.TrimSpace(b.Content)
 		if len([]rune(snip)) > 120 {
 			snip = string([]rune(snip)[:120]) + "…"
 		}
 		items = append(items, bi{BlogID: b.Id, Title: b.Title, Snippet: snip, Score: b.Liked})
 	}
-	raw, _ := json.Marshal(items)
+	_ = e.Ledger.RecordBlogs(a.ShopID, ids)
+	// content_snippet 为用户生成内容：标注 untrusted，配合 system policy 防注入
+	payload := map[string]any{
+		"shop_id":        a.ShopID,
+		"untrusted_data": true,
+		"blogs":          items,
+	}
+	raw, _ := json.Marshal(payload)
 	return string(raw), nil
 }
 
@@ -231,6 +282,16 @@ func strictDecode(raw string, dst any) error {
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(dst); err != nil {
 		return fmt.Errorf("invalid args: %w", err)
+	}
+	// 拒绝尾随第二个 JSON 值
+	if err := dec.Decode(&struct{}{}); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("invalid args: trailing JSON after first value")
+		}
+		// 非 EOF 的残留 token 也视为非法
+		if err != io.EOF {
+			return fmt.Errorf("invalid args: trailing content after JSON object")
+		}
 	}
 	return nil
 }

@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"local-review-go/internal/agent"
@@ -23,8 +24,9 @@ func NewAgentHandler(l logic.RecommendAgentLogic) *AgentHandler {
 
 // RecommendReq 请求体
 type RecommendReq struct {
-	Question  string `json:"question" binding:"required"`
-	SessionID string `json:"session_id" binding:"required"`
+	Question   string `json:"question" binding:"required"`
+	SessionID  string `json:"session_id" binding:"required"`
+	ForceRoute string `json:"force_route"` // 可选：rag_oneshot|agent_multistep|agent_memory|clarify
 }
 
 // Recommend POST /api/agent/recommend
@@ -42,11 +44,19 @@ func (h *AgentHandler) Recommend(c *gin.Context) {
 	if err := httpx.BindJSON(c, &req); err != nil {
 		return
 	}
-	if req.Question == "" || req.SessionID == "" {
-		c.JSON(http.StatusBadRequest, httpx.Fail[string]("question 与 session_id 不能为空"))
+	if errMsg := validateRecommendReq(req); errMsg != "" {
+		c.JSON(http.StatusBadRequest, httpx.Fail[string](errMsg))
 		return
 	}
+	h.streamRecommend(c, user.Id, req)
+}
 
+// streamRecommend 已解析请求后的 SSE 执行（供统一入口复用，避免二次 BindJSON）
+func (h *AgentHandler) streamRecommend(c *gin.Context, userID int64, req RecommendReq) {
+	if h.logic == nil {
+		c.JSON(http.StatusServiceUnavailable, httpx.Fail[string]("Agent 服务未配置"))
+		return
+	}
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")
@@ -55,22 +65,45 @@ func (h *AgentHandler) Recommend(c *gin.Context) {
 	c.Writer.Flush()
 
 	ctx := c.Request.Context()
-	res, err := h.logic.Recommend(ctx, user.Id, req.SessionID, req.Question, func(st agent.ToolStatus) {
+	res, err := h.logic.Recommend(ctx, userID, req.SessionID, req.Question, req.ForceRoute, func(st agent.ToolStatus) {
 		c.SSEvent("status", string(st))
 		c.Writer.Flush()
 	})
 	if err != nil {
-		c.SSEvent("error", err.Error())
+		c.SSEvent("error", agent.PublicMessage(err))
 		c.Writer.Flush()
 		return
 	}
 	c.SSEvent("message", res.Answer)
 	c.Writer.Flush()
-	done, _ := json.Marshal(map[string]any{
-		"steps":      res.Steps,
-		"tool_calls": res.ToolCalls,
-		"tokens":     res.Usage.TotalTokens,
-	})
+	donePayload := map[string]any{
+		"steps":        res.Steps,
+		"tool_calls":   res.ToolCalls,
+		"tokens":       res.Usage.TotalTokens,
+		"trace_id":     res.TraceID,
+		"route":        res.Route,
+		"route_reason": res.RouteReason,
+	}
+	if res.Degraded {
+		donePayload["degraded"] = true
+		donePayload["degraded_reason"] = res.DegradedReason
+	}
+	done, _ := json.Marshal(donePayload)
 	c.SSEvent("done", string(done))
 	c.Writer.Flush()
+}
+
+func validateRecommendReq(req RecommendReq) string {
+	if req.Question == "" || req.SessionID == "" {
+		return "question 与 session_id 不能为空"
+	}
+	if fr := strings.TrimSpace(req.ForceRoute); fr != "" {
+		switch fr {
+		case string(logic.RouteRAGOneshot), string(logic.RouteAgentMultistep),
+			string(logic.RouteAgentMemory), string(logic.RouteClarify):
+		default:
+			return "force_route 非法"
+		}
+	}
+	return ""
 }

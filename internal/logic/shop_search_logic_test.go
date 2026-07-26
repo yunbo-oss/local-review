@@ -123,6 +123,24 @@ func TestShopSearchLogic_HybridTextFailureNoSilentDense(t *testing.T) {
 	}
 }
 
+func TestShopSearchLogic_HybridDegradedExplicit(t *testing.T) {
+	t.Parallel()
+	l := NewShopSearchLogic(ShopSearchLogicDeps{
+		EmbeddingClient: &stubEmbed{vec: []float32{0.1}},
+		VectorRepo: &stubVector{
+			dense: []repoInterfaces.ShopSearchResult{{ShopID: 1, Name: "A"}},
+			tErr:  errors.New("redis text down"),
+		},
+	})
+	out, err := l.SearchWithMeta(context.Background(), "火锅", nil, RetrieverHybrid, 5, SearchModeDegraded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !out.Degraded || out.DegradedReason == "" || len(out.Results) != 1 {
+		t.Fatalf("%+v", out)
+	}
+}
+
 func TestShopSearchLogic_OrderedIDsConsistency(t *testing.T) {
 	t.Parallel()
 	// SC-003 prep: same inputs → identical ordered IDs

@@ -16,13 +16,16 @@ var shopCiteRe = regexp.MustCompile(`\[shop:(\d+)\]`)
 type LoopResult struct {
 	Answer             string
 	Steps              int
-	ToolCalls          int
+	ToolCalls          int // 实际执行（非 duplicate 跳过）的次数
+	ToolAttempts       int // 含失败/重复/未知的尝试次数
 	DuplicateRejected  int
 	ObservedShopIDs    []int64
 	Usage              llm.TokenUsage
 	Messages           []llm.ChatMessage
 	Err                error
 	GroundingOK        bool
+	GroundingCode      string
+	AllowNoResult      bool
 }
 
 // StatusCallback SSE status
@@ -33,10 +36,19 @@ func RunLoop(ctx context.Context, client llm.ToolChatClient, exec *ToolExecutor,
 	if cfg.MaxSteps <= 0 {
 		cfg = DefaultRunConfig()
 	}
+	if cfg.MaxToolAttempts <= 0 {
+		cfg.MaxToolAttempts = DefaultMaxToolAttempts
+	}
+	if cfg.MaxToolsPerTurn <= 0 {
+		cfg.MaxToolsPerTurn = DefaultMaxToolsPerTurn
+	}
 	if exec != nil {
 		exec.OnStatus = onStatus
 		if exec.MaxChars <= 0 {
 			exec.MaxChars = cfg.MaxToolResultChars
+		}
+		if exec.Ledger == nil {
+			exec.Ledger = NewEvidenceLedger()
 		}
 		if exec.Observed == nil {
 			exec.Observed = map[int64]struct{}{}
@@ -45,6 +57,8 @@ func RunLoop(ctx context.Context, client llm.ToolChatClient, exec *ToolExecutor,
 
 	runCtx, cancel := context.WithTimeout(ctx, cfg.RunTimeout)
 	defer cancel()
+	runCtx, span := StartRunSpan(runCtx, cfg.MaxSteps, cfg.MaxToolCalls)
+	defer span.End()
 
 	res := LoopResult{Messages: append([]llm.ChatMessage{}, messages...)}
 	seen := map[string]struct{}{}
@@ -70,20 +84,35 @@ func RunLoop(ctx context.Context, client llm.ToolChatClient, exec *ToolExecutor,
 
 		if len(turn.ToolCalls) == 0 {
 			res.Answer = turn.Message.Content
-			res.ObservedShopIDs = observedList(exec)
-			res.GroundingOK = ValidateGroundedness(res.Answer, res.ObservedShopIDs)
-			if !res.GroundingOK {
-				res.Err = fmt.Errorf("groundedness: answer cites shops outside observed set")
-			}
+			finalizeGrounding(&res, exec)
 			return res
 		}
 
-		for _, tc := range turn.ToolCalls {
-			if res.ToolCalls >= cfg.MaxToolCalls {
-				res.Err = fmt.Errorf("max tool calls %d reached", cfg.MaxToolCalls)
+		// 单 turn 工具调用上限
+		calls := turn.ToolCalls
+		if len(calls) > cfg.MaxToolsPerTurn {
+			for _, tc := range calls[cfg.MaxToolsPerTurn:] {
+				res.ToolAttempts++
+				res.Messages = append(res.Messages, llm.ChatMessage{
+					Role: "tool", Name: tc.Name, ToolCallID: tc.ID,
+					Content: `{"error":"max_tools_per_turn","message":"tool calls beyond per-turn cap skipped"}`,
+				})
+			}
+			calls = calls[:cfg.MaxToolsPerTurn]
+		}
+
+		for _, tc := range calls {
+			if res.ToolAttempts >= cfg.MaxToolAttempts {
+				res.Err = NewPublicError(ErrMaxToolCalls, fmt.Sprintf("max tool attempts %d reached", cfg.MaxToolAttempts))
 				res.ObservedShopIDs = observedList(exec)
 				return res
 			}
+			if res.ToolCalls >= cfg.MaxToolCalls {
+				res.Err = NewPublicError(ErrMaxToolCalls, fmt.Sprintf("max tool calls %d reached", cfg.MaxToolCalls))
+				res.ObservedShopIDs = observedList(exec)
+				return res
+			}
+			res.ToolAttempts++
 			key := tc.Name + "|" + CanonicalArgs(tc.Args)
 			if _, ok := seen[key]; ok {
 				res.DuplicateRejected++
@@ -117,16 +146,47 @@ func RunLoop(ctx context.Context, client llm.ToolChatClient, exec *ToolExecutor,
 	}
 	res.Answer = turn.Message.Content
 	res.Messages = append(res.Messages, turn.Message)
-	res.ObservedShopIDs = observedList(exec)
-	res.GroundingOK = ValidateGroundedness(res.Answer, res.ObservedShopIDs)
-	if !res.GroundingOK {
-		res.Err = fmt.Errorf("groundedness: answer cites shops outside observed set")
-	}
+	finalizeGrounding(&res, exec)
 	return res
 }
 
+func finalizeGrounding(res *LoopResult, exec *ToolExecutor) {
+	res.ObservedShopIDs = observedList(exec)
+	var ledger *EvidenceLedger
+	if exec != nil {
+		ledger = exec.Ledger
+		exec.syncObservedFromLedger()
+		res.ObservedShopIDs = observedList(exec)
+	}
+	allowNo := InferAllowNoResult(res.Answer, ledger)
+	res.AllowNoResult = allowNo
+	err := VerifyAnswer(res.Answer, ledger, VerifyOptions{AllowNoResult: allowNo})
+	if err != nil {
+		res.GroundingOK = false
+		res.Err = err
+		if pe, ok := err.(*PublicError); ok {
+			res.GroundingCode = pe.Code
+		}
+		return
+	}
+	// 兼容旧校验：引用 ⊆ observed
+	if !ValidateGroundedness(res.Answer, res.ObservedShopIDs) {
+		res.GroundingOK = false
+		res.Err = NewPublicError(ErrGroundingUnknownShop, "answer cites shops outside observed set")
+		res.GroundingCode = ErrGroundingUnknownShop
+		return
+	}
+	res.GroundingOK = true
+}
+
 func observedList(exec *ToolExecutor) []int64 {
-	if exec == nil || exec.Observed == nil {
+	if exec == nil {
+		return nil
+	}
+	if exec.Ledger != nil {
+		return exec.Ledger.CiteableIDs()
+	}
+	if exec.Observed == nil {
 		return nil
 	}
 	out := make([]int64, 0, len(exec.Observed))
