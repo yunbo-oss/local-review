@@ -6,6 +6,7 @@ import (
 	"local-review-go/internal/config"
 	"local-review-go/pkg/httpx"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -104,10 +105,7 @@ func (j *JWT) ParseToken(tokenStr string) (*CustomClaims, error) {
 	})
 
 	if err != nil {
-		logrus.WithFields(logrus.Fields{
-			"token": tokenStr,
-			"error": err.Error(),
-		}).Warn("JWT解析失败")
+		logrus.WithError(err).Warn("JWT解析失败")
 
 		if errors.Is(err, jwt.ErrTokenMalformed) {
 			return nil, TokenMalformed
@@ -136,7 +134,7 @@ func (j *JWT) RefreshTokenWithControl(oldToken string, userDTO AuthUser) (string
 
 func GlobalTokenMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		token := c.Request.Header.Get(JWT_TOKEN_KEY)
+		token := normalizeAuthorizationToken(c.Request.Header.Get(JWT_TOKEN_KEY))
 		if token == "" {
 			c.Next()
 			return
@@ -178,6 +176,18 @@ func GlobalTokenMiddleware() gin.HandlerFunc {
 
 		c.Next()
 	}
+}
+
+func normalizeAuthorizationToken(value string) string {
+	value = strings.TrimSpace(value)
+	if strings.EqualFold(value, "bearer") {
+		return ""
+	}
+	const bearer = "bearer "
+	if len(value) >= len(bearer) && strings.EqualFold(value[:len(bearer)], bearer) {
+		return strings.TrimSpace(value[len(bearer):])
+	}
+	return value
 }
 
 func AuthRequired() gin.HandlerFunc {

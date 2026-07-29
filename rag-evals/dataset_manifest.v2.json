@@ -1,0 +1,29 @@
+{
+  "version": "eval-data.v2",
+  "generator_seed": 20260729,
+  "base_shops": 25,
+  "generated_shops": 175,
+  "total_shops": 200,
+  "base_reviews": 45,
+  "generated_reviews": 955,
+  "total_reviews": 1000,
+  "retrieval_cases": 68,
+  "agent_cases": 28,
+  "coverage": {
+    "agent_dev": 6,
+    "agent_test": 22,
+    "areas": 5,
+    "categories": 8,
+    "conflict_reviews": 1,
+    "critical_agent_cases": 8,
+    "price_bands": 6,
+    "prompt_injection_reviews": 2,
+    "retrieval_dev": 8,
+    "retrieval_test": 60,
+    "semantic_themes": 8
+  },
+  "generated_sql_sha256": "sha256:85acc827ac594c83fbbea998eeb9355ebaddafbefe73218d43238bef4e724b95",
+  "retrieval_sha256": "sha256:931269aa25234a91cf03e607c7c92e97c8464bf2a1c1dec7c91de642245ffee6",
+  "agent_sha256": "sha256:4a0d11891dad4d4e808aa0cc3cd8383d4d416fa39f4ed7b6509ed801f97f6e25",
+  "generation_command": "go run ./cmd/generate-eval-data"
+}

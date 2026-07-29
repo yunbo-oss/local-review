@@ -37,7 +37,7 @@ func loadEnvFromFile() {
 
 func Init() {
 	loadEnvFromFile()
-	log.Init() // 最先初始化日志，后续组件日志可被正确格式化
+	log.Init()  // 最先初始化日志，后续组件日志可被正确格式化
 	otel.Init() // OpenTelemetry Trace，未配置 endpoint 时自动降级为 noop
 	mysql.Init()
 	redis.Init()

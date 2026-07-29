@@ -169,3 +169,27 @@ func TestShopSearchLogic_OrderedIDsConsistency(t *testing.T) {
 		}
 	}
 }
+
+func TestParseFilterFromJSON_RecoversObjectAfterExplanation(t *testing.T) {
+	t.Parallel()
+	got := ParseFilterFromJSON("说明文字\\n{\"area\":\"朝阳区\",\"typeName\":\"咖啡\",\"maxPrice\":50}")
+	if got == nil || got.Area != "朝阳区" || got.TypeName != "咖啡" || got.MaxPrice != 50 {
+		t.Fatalf("unexpected filter: %+v", got)
+	}
+}
+
+func TestSanitizeExtractedFilter_DropsUnspokenHardCategory(t *testing.T) {
+	t.Parallel()
+	got := SanitizeExtractedFilter("想在朝阳区找家庭聚餐的地方", &repoInterfaces.VectorSearchFilter{
+		Area: "朝阳区", TypeName: "美食",
+	})
+	if got == nil || got.Area != "朝阳区" || got.TypeName != "" {
+		t.Fatalf("unexpected sanitized filter: %+v", got)
+	}
+	got = SanitizeExtractedFilter("朝阳区找咖啡，人均50以内", &repoInterfaces.VectorSearchFilter{
+		Area: "朝阳", TypeName: "咖啡厅", MaxPrice: 60,
+	})
+	if got == nil || got.Area != "朝阳区" || got.TypeName != "咖啡" || got.MaxPrice != 50 {
+		t.Fatalf("explicit constraints not canonicalized: %+v", got)
+	}
+}

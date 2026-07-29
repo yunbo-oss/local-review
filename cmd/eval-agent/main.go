@@ -20,14 +20,16 @@ import (
 )
 
 func main() {
-	testSet := flag.String("test-set", "rag-evals/golden/agent.v1.json", "agent golden set")
+	testSet := flag.String("test-set", "rag-evals/golden/agent.v2.json", "agent golden set")
 	out := flag.String("out", "rag-evals/reports/agent_latest.json", "report output path")
+	system := flag.String("system", "agent", "agent|hybrid_rag")
 	split := flag.String("split", "test", "test|dev|all")
 	trialsFlag := flag.Int("trials", 0, "override case trials (0=use case.trials, min 1)")
-	compareBaseline := flag.String("compare-baseline", "", "hybrid_prod baseline path for Agent vs Hybrid RAG")
+	compareBaseline := flag.String("compare-baseline", "", "same-task Hybrid RAG task report path")
 	forceRoute := flag.String("force-route", "", "force route for all cases")
 	mode := flag.String("mode", "inprocess", "inprocess|fake")
 	limit := flag.Int("limit", 0, "max cases (0=all); smoke helper")
+	caseID := flag.String("case-id", "", "run one exact case id; empty runs the selected split")
 	userID := flag.Int64("user-id", 900001, "eval user id for memory isolation")
 	flag.Parse()
 
@@ -41,6 +43,15 @@ func main() {
 		log.Fatalf("parse: %v", err)
 	}
 	cases := filterCases(file.Cases, *split)
+	if *caseID != "" {
+		filtered := cases[:0]
+		for _, c := range cases {
+			if c.ID == *caseID {
+				filtered = append(filtered, c)
+			}
+		}
+		cases = filtered
+	}
 	if *limit > 0 && len(cases) > *limit {
 		cases = cases[:*limit]
 	}
@@ -50,6 +61,7 @@ func main() {
 
 	var runner TrialRunner
 	exp := ExperimentMeta{
+		System:        *system,
 		AgentMaxSteps: agent.DefaultMaxSteps,
 		AgentMaxTools: agent.DefaultMaxToolCalls,
 		ForceRoute:    *forceRoute,
@@ -59,6 +71,9 @@ func main() {
 
 	switch strings.ToLower(*mode) {
 	case "fake":
+		if *system != "agent" {
+			log.Fatal("fake mode only supports --system=agent")
+		}
 		runner = &FakeRunner{}
 		exp.ChatModel = "fake"
 	case "inprocess":
@@ -68,28 +83,39 @@ func main() {
 		}
 		cfg := llm.LoadConfig()
 		emb, chat, toolChat := llm.NewOpenAIClient(cfg)
-		if toolChat == nil {
-			log.Fatal("ToolChatClient 不可用：当前模型/网关可能不支持 function calling")
-		}
 		exp.ChatModel = cfg.ChatModel
-		capSearch := &capturingSearch{
-			inner: logic.NewShopSearchLogic(logic.ShopSearchLogicDeps{
-				EmbeddingClient: emb,
-				VectorRepo:      repository.NewVectorRepo(redis.GetRedisClient()),
-			}),
-		}
-		mem := repository.NewHybridMemoryRepo(redis.GetRedisClient(),
-			repository.NewAgentProfileRepo(mysql.GetMysqlDB(), redis.GetRedisClient()))
-		shopRepo := repository.NewShopRepo(mysql.GetMysqlDB())
-		blogRepo := repository.NewBlogRepo(mysql.GetMysqlDB())
-		agentLogic := logic.NewRecommendAgentLogic(logic.RecommendAgentLogicDeps{
-			ToolChat: toolChat, ChatClient: chat, Memory: mem,
-			Search: capSearch, ShopRepo: shopRepo, BlogRepo: blogRepo,
-			RunRepo: repository.NewAgentRunRepo(mysql.GetMysqlDB()),
-			Router:  logic.NewRecommendRouter(),
-			Config:  agent.DefaultRunConfig(),
+		baseSearch := logic.NewShopSearchLogic(logic.ShopSearchLogicDeps{
+			EmbeddingClient: emb,
+			VectorRepo:      repository.NewVectorRepo(redis.GetRedisClient()),
 		})
-		runner = &InProcessRunner{Logic: agentLogic, Memory: mem, Search: capSearch, UserID: *userID}
+		switch *system {
+		case "hybrid_rag":
+			if chat == nil {
+				log.Fatal("Hybrid RAG ChatClient 不可用")
+			}
+			runner = &HybridRAGRunner{Search: baseSearch, Chat: chat}
+			exp.AgentMaxSteps, exp.AgentMaxTools = 0, 0
+			exp.PolicyVersion = "hybrid-rag-v2"
+		case "agent":
+			if toolChat == nil {
+				log.Fatal("ToolChatClient 不可用：当前模型/网关可能不支持 function calling")
+			}
+			capSearch := &capturingSearch{inner: baseSearch}
+			mem := repository.NewHybridMemoryRepo(redis.GetRedisClient(),
+				repository.NewAgentProfileRepo(mysql.GetMysqlDB(), redis.GetRedisClient()))
+			shopRepo := repository.NewShopRepo(mysql.GetMysqlDB())
+			blogRepo := repository.NewBlogRepo(mysql.GetMysqlDB())
+			agentLogic := logic.NewRecommendAgentLogic(logic.RecommendAgentLogicDeps{
+				ToolChat: toolChat, ChatClient: chat, Memory: mem,
+				Search: capSearch, ShopRepo: shopRepo, BlogRepo: blogRepo,
+				RunRepo: repository.NewAgentRunRepo(mysql.GetMysqlDB()),
+				Router:  logic.NewRecommendRouter(),
+				Config:  agent.DefaultRunConfig(),
+			})
+			runner = &InProcessRunner{Logic: agentLogic, Memory: mem, Search: capSearch, UserID: *userID}
+		default:
+			log.Fatalf("unknown system %q", *system)
+		}
 	default:
 		log.Fatalf("unknown mode %q", *mode)
 	}
@@ -167,9 +193,9 @@ func main() {
 	if err := writeReport(*out, rep); err != nil {
 		log.Fatal(err)
 	}
-	fmt.Printf("wrote %s version=%s cases=%d evaluated=%d infra=%d outcome_rate=%.3f pass^k=%.3f\n",
+	fmt.Printf("wrote %s version=%s cases=%d evaluated=%d infra=%d outcome_rate=%.3f all_trials_pass_rate=%.3f\n",
 		*out, rep.Version, rep.NTotal, rep.NEvaluated, rep.NInfraError,
-		rep.Summary.OutcomeRate, rep.Summary.PassAtKRate)
+		rep.Summary.OutcomeRate, rep.Summary.AllTrialsPassRate)
 	if nInfra > 0 {
 		os.Exit(2)
 	}

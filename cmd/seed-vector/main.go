@@ -4,9 +4,10 @@ package main
 
 import (
 	"context"
+	"flag"
+	"fmt"
 	"log"
-	"os"
-	"time"
+	"strings"
 
 	"local-review-go/internal/config"
 	"local-review-go/internal/config/mysql"
@@ -15,20 +16,26 @@ import (
 	"local-review-go/internal/rag"
 	"local-review-go/internal/repository"
 	repoInterfaces "local-review-go/internal/repository/interface"
+
+	goredis "github.com/redis/go-redis/v9"
 )
 
 func main() {
+	reset := flag.Bool("reset", false, "drop and rebuild only the shop vector index")
+	expectedCount := flag.Int("expected-count", 0, "fail unless exactly this many shop vectors exist")
+	flag.Parse()
+
 	config.Init()
 	ctx := context.Background()
-
-	apiKey := os.Getenv("LLM_API_KEY")
-	if apiKey == "" {
-		log.Fatal("请设置 LLM_API_KEY 环境变量")
-	}
 
 	// 初始化索引
 	client := redis.GetRedisClient()
 	cfg := llm.LoadConfig()
+	if *reset {
+		if err := resetVectorIndex(ctx, client); err != nil {
+			log.Fatalf("重置向量索引失败: %v", err)
+		}
+	}
 	if err := redis.InitShopVectorIndex(ctx, client, cfg.EmbeddingDim); err != nil {
 		log.Fatalf("创建向量索引失败: %v", err)
 	}
@@ -63,8 +70,9 @@ func main() {
 		return
 	}
 
-	// 分批获取店铺并向量化
-	batchSize := 10
+	// 分批获取店铺并向量化。本地 embedding 与远程 embedding 都走批量
+	// 接口；避免逐店固定 sleep，也减少可选远程 provider 的请求数。
+	batchSize := 25
 	success := 0
 	for i := 0; i < len(ids); i += batchSize {
 		end := i + batchSize
@@ -78,37 +86,41 @@ func main() {
 			continue
 		}
 
-		for i, shop := range shops {
-			// 间隔 1.5 秒避免 API 限流（RPM），首条不延迟
-			if i > 0 {
-				time.Sleep(1500 * time.Millisecond)
-			}
+		texts := make([]string, len(shops))
+		for j, shop := range shops {
 			typeName := typeMap[shop.TypeId]
 			if typeName == "" {
 				typeName = "其他"
 			}
 			// 获取该店铺用户点评摘要，用于 embedding（承载 filter 无法表达的语义）
 			blogs, _ := blogRepo.ListByShopID(ctx, shop.Id, rag.MaxBlogsForEmbedding)
-			textContent := rag.BuildShopTextForEmbedding(&shop, blogs)
-			vecs, err := embClient.EmbedBatch(ctx, []string{textContent})
-			if err != nil {
-				log.Printf("店铺 %d Embedding 失败: %v", shop.Id, err)
-				continue
-			}
-			if len(vecs) == 0 {
-				continue
+			texts[j] = rag.BuildShopTextForEmbedding(&shop, blogs)
+		}
+		vecs, err := embClient.EmbedBatch(ctx, texts)
+		if err != nil {
+			log.Printf("店铺批次 %v Embedding 失败: %v", batchIDs, err)
+			continue
+		}
+		if len(vecs) != len(shops) {
+			log.Printf("店铺批次 %v Embedding 数量不匹配: got=%d want=%d", batchIDs, len(vecs), len(shops))
+			continue
+		}
+		for j, shop := range shops {
+			typeName := typeMap[shop.TypeId]
+			if typeName == "" {
+				typeName = "其他"
 			}
 			doc := &repoInterfaces.ShopVectorDoc{
 				ShopID:      shop.Id,
 				Name:        shop.Name,
 				TypeName:    typeName,
 				Area:        shop.Area,
-				TextContent: textContent,
+				TextContent: texts[j],
 				AvgPrice:    shop.AvgPrice,
 				Score:       shop.Score,
 				Comments:    shop.Comments,
 				Sold:        shop.Sold,
-				Embedding:   vecs[0],
+				Embedding:   vecs[j],
 			}
 			if err := vecRepo.StoreShop(ctx, doc); err != nil {
 				log.Printf("存储店铺 %d 向量失败: %v", shop.Id, err)
@@ -120,4 +132,36 @@ func main() {
 	}
 
 	log.Printf("向量导入完成: %d/%d", success, len(ids))
+	count, err := countVectorKeys(ctx, client)
+	if err != nil {
+		log.Fatalf("统计向量数量失败: %v", err)
+	}
+	log.Printf("向量索引文档数量: %d", count)
+	if *expectedCount > 0 && count != *expectedCount {
+		log.Fatalf("向量数量不符合预期: got=%d want=%d", count, *expectedCount)
+	}
+}
+
+func resetVectorIndex(ctx context.Context, client *goredis.Client) error {
+	err := client.Do(ctx, "FT.DROPINDEX", "idx:shop:vector", "DD").Err()
+	if err != nil && !strings.Contains(strings.ToLower(err.Error()), "unknown index") {
+		return err
+	}
+	return nil
+}
+
+func countVectorKeys(ctx context.Context, client *goredis.Client) (int, error) {
+	var cursor uint64
+	total := 0
+	for {
+		keys, next, err := client.Scan(ctx, cursor, "vec:shop:*", 500).Result()
+		if err != nil {
+			return 0, fmt.Errorf("scan vec keys: %w", err)
+		}
+		total += len(keys)
+		cursor = next
+		if cursor == 0 {
+			return total, nil
+		}
+	}
 }

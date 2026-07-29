@@ -34,7 +34,7 @@ func (f *fakeRecommendLogic) Recommend(ctx context.Context, userID int64, sessio
 	return logic.RecommendResult{
 		Answer: f.answer,
 		Steps:  1, ToolCalls: 1,
-		Usage: llm.TokenUsage{TotalTokens: 10},
+		Usage:        llm.TokenUsage{TotalTokens: 10},
 		ProfileAfter: memory.Profile{},
 	}, nil
 }

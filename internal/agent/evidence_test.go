@@ -68,3 +68,42 @@ func TestEvidenceLedger_NonEmptyBlogsOnDiscovered(t *testing.T) {
 		t.Fatal("still discovered")
 	}
 }
+
+func TestSemanticEvidenceIDs(t *testing.T) {
+	t.Parallel()
+	l := NewEvidenceLedger()
+	l.DiscoverFromSearch(70, "无障碍店", nil)
+	if err := l.RecordBlogEvidence(70, []int64{1}, []string{"入口有坡道，轮椅通行方便"}); err != nil {
+		t.Fatal(err)
+	}
+	got := l.SemanticEvidenceIDs(RequiredSemanticConcepts("找无障碍的店"))
+	if len(got) != 1 || got[0] != 70 {
+		t.Fatalf("semantic ids=%v", got)
+	}
+	if got := l.SemanticEvidenceIDs(RequiredSemanticConcepts("找安静办公的店")); len(got) != 0 {
+		t.Fatalf("unexpected work evidence=%v", got)
+	}
+}
+
+func TestSemanticEvidenceIDs_FromSearchReviewSummary(t *testing.T) {
+	t.Parallel()
+	l := NewEvidenceLedger()
+	l.DiscoverFromSearch(70, "无障碍店", map[string]any{
+		"review_evidence": "评价摘要：入口有坡道，轮椅通行方便",
+	})
+	got := l.SemanticEvidenceIDs(RequiredSemanticConcepts("找无障碍的店"))
+	if len(got) != 1 || got[0] != 70 {
+		t.Fatalf("semantic ids from search summary=%v", got)
+	}
+}
+
+func TestReviewTextSupportsSemantics(t *testing.T) {
+	t.Parallel()
+	required := RequiredSemanticConcepts("适合家庭聚餐，也要照顾孩子")
+	if !ReviewTextSupportsSemantics("有儿童椅，老人孩子一起家庭聚餐很方便", required) {
+		t.Fatal("expected family review evidence to pass")
+	}
+	if ReviewTextSupportsSemantics("环境整洁，服务正常，未描述特定人群", required) {
+		t.Fatal("review without family evidence must not pass")
+	}
+}

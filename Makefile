@@ -1,4 +1,6 @@
-.PHONY: run build test tidy clean air test-api seed seed-redis seed-load-test seed-reset-load-test seed-vector load-test-seckill eval-rag eval-rag-smoke eval-rag-oracle eval-rag-prod eval-agent eval-agent-fake demo-agent
+.PHONY: run build test tidy clean air test-api seed seed-redis seed-load-test seed-reset-load-test seed-vector load-test-seckill \
+	generate-eval-data eval-rag eval-rag-smoke eval-rag-oracle eval-rag-prod eval-rag-prod-baseline \
+	eval-hybrid-task eval-agent eval-agent-fake demo-agent docker-reset docker-up docker-verify docker-eval docker-demo
 
 run:
 	go run ./cmd/server
@@ -10,7 +12,7 @@ build:
 	go build -o bin/local-review-go ./cmd/server
 
 test:
-	go test ./...
+	go test ./... -count=1
 
 tidy:
 	go mod tidy
@@ -51,9 +53,14 @@ seed-reset-load-test:
 seed-redis:
 	chmod +x script/seed-redis.sh && ./script/seed-redis.sh
 
-# RAG 智能点评：店铺向量化导入（需 Redis Stack + LLM_API_KEY + make seed）
+# RAG 智能点评：确定性本地向量导入（需 Redis Stack + MySQL seed）
 seed-vector:
-	go run ./cmd/seed-vector
+	go run ./cmd/seed-vector --reset --expected-count=200
+
+# 固定种子生成 175 家新增店、955 条新增评论和 v2 goldens
+generate-eval-data:
+	go run ./cmd/generate-eval-data
+	go run ./cmd/generate-eval-data --check
 
 # RAG 检索评估（需 seed + seed-vector + LLM_API_KEY）
 # script/rag-eval.json = SMOKE ONLY，非正式 baseline；正式集见 rag-evals/golden/
@@ -72,25 +79,31 @@ eval-rag-oracle:
 eval-rag-prod:
 	go run ./cmd/eval-rag --filter-mode=llm --retriever=hybrid --split=test
 
-# 正式 Hybrid 基线写入（覆盖 rag-evals/baseline/hybrid_prod_v1.json）
+# 正式 Hybrid Retrieval 基线写入
 eval-rag-prod-baseline:
 	go run ./cmd/eval-rag --filter-mode=llm --retriever=hybrid --split=test --write-baseline \
-		--baseline=rag-evals/baseline/hybrid_prod_v1.json
+		--baseline=rag-evals/baseline/hybrid_prod_v2.json \
+		--out=rag-evals/reports/retrieval_prod_v2.json
+
+# 在 Agent 的同一批任务/相同 trial 数上运行 Hybrid RAG
+eval-hybrid-task:
+	go run ./cmd/eval-agent --mode=inprocess --system=hybrid_rag --split=test \
+		--test-set=rag-evals/golden/agent.v2.json \
+		--out=rag-evals/baseline/hybrid_task_v2.json
 
 # Agent 正式评测（需 LLM_API_KEY + Redis Stack + MySQL + seed-vector）
 eval-agent:
-	go run ./cmd/eval-agent --mode=inprocess --split=test \
-		--test-set=rag-evals/golden/agent.v1.json \
-		--out=rag-evals/reports/agent_latest.json \
-		--compare-baseline=rag-evals/baseline/hybrid_prod_v1.json \
+	go run ./cmd/eval-agent --mode=inprocess --system=agent --split=test \
+		--test-set=rag-evals/golden/agent.v2.json \
+		--out=rag-evals/baseline/agent_prod_v2.json \
+		--compare-baseline=rag-evals/baseline/hybrid_task_v2.json \
 		--force-route=agent_multistep
 
 # Agent harness 冒烟（不调 LLM；验证报告非 stub / trial 隔离）
 eval-agent-fake:
 	go run ./cmd/eval-agent --mode=fake --split=test --trials=3 \
-		--test-set=rag-evals/golden/agent.v1.json \
+		--test-set=rag-evals/golden/agent.v2.json \
 		--out=rag-evals/reports/agent_latest.json \
-		--compare-baseline=rag-evals/baseline/hybrid_prod_v1.json \
 		--force-route=agent_multistep
 
 # 三轮记忆演示（需服务已启动 + seed-redis 验证码）
@@ -104,6 +117,28 @@ drop-vector-index:
 # 测试 LLM API 是否可用（Embedding + Chat，仅需 LLM_API_KEY）
 test-llm:
 	go run ./cmd/test-llm
+
+# --- Docker 可复现评测闭环 ---
+# LLM_API_KEY 只从当前 shell 注入；不要写进 .env 或仓库。
+docker-reset:
+	docker compose down -v --remove-orphans
+
+docker-up:
+	docker compose up -d --build
+
+docker-verify:
+	docker compose --profile verify run --rm data-check
+	docker compose --profile verify run --rm api-smoke
+
+docker-eval:
+	@test -n "$$LLM_API_KEY" || (echo "LLM_API_KEY is required" >&2; exit 1)
+	docker compose --profile eval run --rm rag-eval
+	docker compose --profile eval run --rm hybrid-task-eval
+	docker compose --profile eval run --rm --no-deps agent-eval
+
+docker-demo:
+	@test -n "$$LLM_API_KEY" || (echo "LLM_API_KEY is required" >&2; exit 1)
+	docker compose --profile demo run --rm memory-demo
 
 # 秒杀压测（多用户+多券，8G 内存推荐限流 50 QPS/实例）
 load-test-seckill:

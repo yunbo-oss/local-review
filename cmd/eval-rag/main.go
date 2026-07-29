@@ -22,21 +22,21 @@ import (
 )
 
 func main() {
-	testSetPath := flag.String("test-set", "rag-evals/golden/retrieval.v1.json", "测试集 JSON 路径")
+	testSetPath := flag.String("test-set", "rag-evals/golden/retrieval.v2.json", "测试集 JSON 路径")
 	split := flag.String("split", "test", "test|dev|all（smoke 忽略）")
 	filterMode := flag.String("filter-mode", "llm", "none|oracle|llm")
 	retriever := flag.String("retriever", "hybrid", "hybrid|dense")
 	topK := flag.Int("top-k", 5, "TopK")
 	outPath := flag.String("out", "rag-evals/reports/retrieval_latest.json", "报告输出路径")
 	writeBaseline := flag.Bool("write-baseline", false, "写入正式 baseline（禁止 smoke）")
-	baselinePath := flag.String("baseline", "rag-evals/baseline/hybrid_prod_v1.json", "baseline 路径")
+	baselinePath := flag.String("baseline", "rag-evals/baseline/hybrid_prod_v2.json", "baseline 路径")
 	flag.Parse()
 
 	config.Init()
 	ctx := context.Background()
 
-	if os.Getenv("LLM_API_KEY") == "" {
-		log.Fatal("请设置 LLM_API_KEY 环境变量")
+	if *filterMode == "llm" && os.Getenv("LLM_API_KEY") == "" {
+		log.Fatal("--filter-mode=llm requires LLM_API_KEY")
 	}
 
 	raw, err := os.ReadFile(*testSetPath)
@@ -106,7 +106,11 @@ func main() {
 		if i > 0 {
 			time.Sleep(300 * time.Millisecond)
 		}
-		cr := CaseResult{ID: c.ID, Question: c.Question}
+		cr := CaseResult{
+			ID: c.ID, Split: c.Split, Tags: c.Tags, Question: c.Question,
+			ExpectNoResults: c.ExpectNoResults,
+		}
+		caseStart := time.Now()
 		relevant := c.RelevantShopIDs
 		if len(relevant) == 0 {
 			relevant = c.ExpectedShopIDs
@@ -123,6 +127,7 @@ func main() {
 
 		shops, serr := shopSearch.Search(ctx, c.Question, filter, strategy, *topK)
 		if serr != nil {
+			cr.LatencyMs = time.Since(caseStart).Milliseconds()
 			cr.InfraError = serr.Error()
 			report.NInfraError++
 			report.PerCase = append(report.PerCase, cr)
@@ -140,11 +145,17 @@ func main() {
 			}
 		}
 		cr.RetrievedIDs = ids
-		cr.HitRate = HitRateAtK(ids, relevant, *topK)
-		cr.Recall = RecallAtK(ids, relevant, *topK)
-		cr.Precision = PrecisionAtK(ids, relevant, *topK)
-		cr.MRR = MRR(ids, relevant)
-		cr.NDCG = NDCGAtK(ids, relevant, *topK)
+		if c.ExpectNoResults {
+			cr.NoResultPass = len(ids) == 0
+			cr.TaskSuccess = cr.NoResultPass
+		} else {
+			cr.HitRate = HitRateAtK(ids, relevant, *topK)
+			cr.Recall = RecallAtK(ids, relevant, *topK)
+			cr.Precision = PrecisionAtK(ids, relevant, *topK)
+			cr.MRR = MRR(ids, relevant)
+			cr.NDCG = NDCGAtK(ids, relevant, *topK)
+			cr.TaskSuccess = cr.HitRate > 0
+		}
 
 		if *filterMode == "llm" && c.OracleFilter != nil {
 			pred := filterToJSON(filter)
@@ -153,15 +164,23 @@ func main() {
 			filterAccN++
 		}
 		if c.OracleFilter != nil {
-			cr.FilterCompliance = FilterComplianceAtK(hits, c.OracleFilter, *topK)
+			if c.ExpectNoResults && len(hits) == 0 {
+				cr.FilterCompliance = 1
+			} else {
+				cr.FilterCompliance = FilterComplianceAtK(hits, c.OracleFilter, *topK)
+			}
+			if !c.ExpectNoResults && cr.FilterCompliance < 1 {
+				cr.TaskSuccess = false
+			}
 			filterCompSum += cr.FilterCompliance
 			filterCompN++
 		}
 
+		cr.LatencyMs = time.Since(caseStart).Milliseconds()
 		report.NEvaluated++
 		report.PerCase = append(report.PerCase, cr)
 		mark := "✗"
-		if cr.HitRate > 0 {
+		if cr.TaskSuccess {
 			mark = "✓"
 		}
 		log.Printf("[%s] %s %s hit=%.0f recall=%.2f", c.ID, mark, truncate(c.Question, 40), cr.HitRate, cr.Recall)
@@ -173,6 +192,8 @@ func main() {
 	report.PrecisionAtK = pr
 	report.MRR = mrr
 	report.NDCGAtK = ndcg
+	report.TaskSuccessRate, report.NoResultAccuracy = AggregateTaskSuccess(report.PerCase)
+	report.P50LatencyMs, report.P95LatencyMs = AggregateLatency(report.PerCase)
 	if filterAccN > 0 {
 		report.FilterFieldAccuracy = filterAccSum / float64(filterAccN)
 	}
@@ -189,6 +210,9 @@ func main() {
 	log.Printf("Precision@%d:  %.1f%%", *topK, 100*report.PrecisionAtK)
 	log.Printf("MRR:           %.4f", report.MRR)
 	log.Printf("nDCG@%d:       %.4f", *topK, report.NDCGAtK)
+	log.Printf("TaskSuccess:   %.1f%%", 100*report.TaskSuccessRate)
+	log.Printf("NoResultAcc:   %.1f%%", 100*report.NoResultAccuracy)
+	log.Printf("Latency P50/P95: %d/%d ms", report.P50LatencyMs, report.P95LatencyMs)
 	log.Printf("n_total=%d n_evaluated=%d n_infra_error=%d is_smoke=%v",
 		report.NTotal, report.NEvaluated, report.NInfraError, report.IsSmoke)
 	log.Printf("filter_mode=%s retriever=%s", report.FilterMode, report.Retriever)
@@ -294,7 +318,7 @@ func loadCases(raw []byte, path string) ([]RetrievalCase, string, bool, error) {
 	}
 	for i := range gf.Cases {
 		c := &gf.Cases[i]
-		if err := ValidateRelevantNonEmpty(c.ID, c.RelevantShopIDs); err != nil {
+		if err := ValidateRetrievalCase(*c); err != nil {
 			return nil, "", false, err
 		}
 		if strings.TrimSpace(c.Evidence) == "" {

@@ -1,78 +1,320 @@
-# 单机本地：MySQL + Redis + RocketMQ（依赖）
-# 启动：docker compose up -d
-# 服务：make run 或 go run ./cmd/server，访问 http://localhost:8088
+name: local-review
+
+x-app-environment: &app-environment
+  MYSQL_USER: root
+  MYSQL_PASSWORD: ${MYSQL_PASSWORD:-8888.216}
+  MYSQL_ADDR: mysql
+  MYSQL_PORT: "3306"
+  MYSQL_DATABASE: local_review_go
+  REDIS_ADDR: redis
+  REDIS_PORT: "6379"
+  REDIS_PASSWORD: ${REDIS_PASSWORD:-8888.216}
+  JWT_SECRET_KEY: ${JWT_SECRET_KEY:-local-review-docker-eval-only}
+  ROCKETMQ_NAMESRV_ADDR: rocketmq-namesrv:9876
+  LLM_API_KEY: ${LLM_API_KEY:-}
+  LLM_BASE_URL: ${LLM_BASE_URL:-https://api.deepseek.com}
+  LLM_CHAT_MODEL: ${LLM_CHAT_MODEL:-deepseek-v4-flash}
+  LLM_THINKING_MODE: disabled
+  LLM_EMBEDDING_PROVIDER: ${LLM_EMBEDDING_PROVIDER:-local}
+  LLM_EMBEDDING_MODEL: ${LLM_EMBEDDING_MODEL:-local-feature-hash-zh-v2}
+  LLM_EMBEDDING_DIM: ${LLM_EMBEDDING_DIM:-384}
+  RAG_RETRIEVER: hybrid
+  RAG_SEARCH_MODE: strict
+
+x-app-image: &app-image
+  image: local-review-eval:latest
 
 services:
   mysql:
-    image: mysql:8.0
-    container_name: local-review-mysql
+    image: mysql:8.0.43
     environment:
-      MYSQL_ROOT_PASSWORD: "8888.216"
+      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD:-8888.216}
       MYSQL_DATABASE: local_review_go
     ports:
-      - "3306:3306"
+      - "${MYSQL_PORT_HOST:-3306}:3306"
     volumes:
       - mysql_data:/var/lib/mysql
-    networks:
-      - app-net
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
-      interval: 5s
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 3s
       timeout: 5s
-      retries: 10
+      retries: 40
+      start_period: 15s
 
-  # Redis Stack：支持向量检索（RAG 智能点评）
-  # 用 REDIS_ARGS 设置密码，避免 command 覆盖导致 RediSearch 模块未加载
   redis:
-    # Pin tag for reproducible RAG eval (research.md / T010); not :latest
     image: redis/redis-stack-server:7.4.0-v8
-    container_name: local-review-redis
     environment:
-      REDIS_ARGS: "--requirepass 8888.216"
+      REDIS_ARGS: "--requirepass ${REDIS_PASSWORD:-8888.216}"
     ports:
-      - "6379:6379"
-      - "8001:8001"   # RedisInsight Web UI
+      - "${REDIS_PORT_HOST:-6379}:6379"
     volumes:
       - redis_data:/data
-    networks:
-      - app-net
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "8888.216", "ping"]
-      interval: 5s
+      test: ["CMD-SHELL", "redis-cli -a '${REDIS_PASSWORD:-8888.216}' ping | grep -q PONG"]
+      interval: 3s
       timeout: 5s
-      retries: 5
+      retries: 30
 
-  # RocketMQ（秒杀异步消费）
   rocketmq-namesrv:
     image: apache/rocketmq:5.3.2
-    container_name: local-review-rocketmq-namesrv
-    ports:
-      - "9876:9876"
-    networks:
-      - app-net
     command: sh mqnamesrv
+    environment:
+      JAVA_OPT_EXT: "-Xms256m -Xmx256m -Xmn128m"
+    ports:
+      - "${ROCKETMQ_NAMESRV_PORT_HOST:-9876}:9876"
+    healthcheck:
+      test: ["CMD-SHELL", "ps -ef | grep -q '[N]amesrvStartup'"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
 
   rocketmq-broker:
     image: apache/rocketmq:5.3.2
-    container_name: local-review-rocketmq-broker
-    ports:
-      - "10909:10909"
-      - "10911:10911"
-      - "10912:10912"
-    environment:
-      NAMESRV_ADDR: "rocketmq-namesrv:9876"
-    depends_on:
-      - rocketmq-namesrv
-    networks:
-      - app-net
     command: sh mqbroker
+    environment:
+      NAMESRV_ADDR: rocketmq-namesrv:9876
+      JAVA_OPT_EXT: "-Xms512m -Xmx512m -Xmn256m"
+    ports:
+      - "${ROCKETMQ_BROKER_FAST_PORT_HOST:-10909}:10909"
+      - "${ROCKETMQ_BROKER_PORT_HOST:-10911}:10911"
+      - "${ROCKETMQ_BROKER_HA_PORT_HOST:-10912}:10912"
+    depends_on:
+      rocketmq-namesrv:
+        condition: service_healthy
+    healthcheck:
+      # 不在健康检查中反复启动 Java mqadmin；4 GB Docker Desktop 下容易
+      # 超时并形成自激重试。topic 初始化任务仍会用真实 mqadmin 验证功能。
+      test: ["CMD-SHELL", "bash -ec 'exec 3<>/dev/tcp/127.0.0.1/10911'"]
+      interval: 5s
+      timeout: 3s
+      retries: 36
+      start_period: 20s
 
+  migrate:
+    <<: *app-image
+    command: ["./server", "--migrate-only"]
+    environment: *app-environment
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: "no"
+
+  mysql-seed:
+    image: mysql:8.0.43
+    environment:
+      MYSQL_PWD: ${MYSQL_PASSWORD:-8888.216}
+    volumes:
+      - ./script:/seed:ro
+    command:
+      - sh
+      - -ec
+      - |
+        mysql -hmysql -uroot local_review_go < /seed/seed.sql
+        mysql -hmysql -uroot local_review_go < /seed/seed-eval.sql
+        shops="$$(mysql -N -hmysql -uroot local_review_go -e 'SELECT COUNT(*) FROM tb_shop')"
+        reviews="$$(mysql -N -hmysql -uroot local_review_go -e 'SELECT COUNT(*) FROM tb_blog')"
+        test "$$shops" = "200" && test "$$reviews" = "1000"
+        echo "seed verified: shops=$$shops reviews=$$reviews"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: "no"
+
+  redis-seed:
+    image: redis:7.4-alpine
+    environment:
+      REDISCLI_AUTH: ${REDIS_PASSWORD:-8888.216}
+    command:
+      - sh
+      - -ec
+      - |
+        redis-cli -h redis SETEX login:code:13800138000 86400 123456
+        redis-cli -h redis SET seckill:stock:6 500
+        redis-cli -h redis SET seckill:stock:7 300
+        redis-cli -h redis SET seckill:stock:8 200
+        test "$$(redis-cli -h redis GET login:code:13800138000)" = "123456"
+        echo "redis seed verified"
+    depends_on:
+      redis:
+        condition: service_healthy
+      mysql-seed:
+        condition: service_completed_successfully
+    restart: "no"
+
+  vector-init:
+    <<: *app-image
+    command: ["./seed-vector", "--reset", "--expected-count=200"]
+    environment: *app-environment
+    depends_on:
+      mysql-seed:
+        condition: service_completed_successfully
+      redis-seed:
+        condition: service_completed_successfully
+    restart: "no"
+
+  rocketmq-init:
+    image: apache/rocketmq:5.3.2
+    environment:
+      NAMESRV_ADDR: rocketmq-namesrv:9876
+    command:
+      - sh
+      - -ec
+      - |
+        for topic in seckill-orders order-timeout shop-update; do
+          sh mqadmin updateTopic -n rocketmq-namesrv:9876 -t "$$topic" -c DefaultCluster
+        done
+        echo "RocketMQ topics ready"
+    depends_on:
+      rocketmq-broker:
+        condition: service_healthy
+    restart: "no"
+
+  app:
+    <<: *app-image
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment: *app-environment
+    ports:
+      - "${APP_PORT_HOST:-8088}:8088"
+    depends_on:
+      vector-init:
+        condition: service_completed_successfully
+      rocketmq-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8088/health >/dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 15s
+    restart: unless-stopped
+
+  data-check:
+    <<: *app-image
+    profiles: ["verify"]
+    command: ["./generate-eval-data", "--check"]
+    restart: "no"
+
+  api-smoke:
+    <<: *app-image
+    profiles: ["verify"]
+    command: ["bash", "./script/api-test.sh", "http://app:8088"]
+    environment:
+      <<: *app-environment
+      BASE_URL: http://app:8088
+    volumes:
+      - ./script/api-test.sh:/app/script/api-test.sh:ro
+    depends_on:
+      app:
+        condition: service_healthy
+    restart: "no"
+
+  rag-eval:
+    <<: *app-image
+    profiles: ["eval"]
+    command:
+      - ./eval-rag
+      - --test-set=rag-evals/golden/retrieval.v2.json
+      - --filter-mode=llm
+      - --retriever=hybrid
+      - --split=test
+      - --out=rag-evals/reports/retrieval_latest.json
+      - --write-baseline
+      - --baseline=rag-evals/baseline/hybrid_prod_v2.json
+    environment: *app-environment
+    volumes:
+      - ./rag-evals:/app/rag-evals
+    depends_on:
+      vector-init:
+        condition: service_completed_successfully
+    restart: "no"
+
+  hybrid-task-eval:
+    <<: *app-image
+    profiles: ["eval"]
+    command:
+      - ./eval-agent
+      - --mode=inprocess
+      - --system=hybrid_rag
+      - --split=test
+      - --test-set=rag-evals/golden/agent.v2.json
+      - --out=rag-evals/baseline/hybrid_task_v2.json
+    environment: *app-environment
+    volumes:
+      - ./rag-evals:/app/rag-evals
+    depends_on:
+      vector-init:
+        condition: service_completed_successfully
+    restart: "no"
+
+  agent-eval:
+    <<: *app-image
+    profiles: ["eval"]
+    command:
+      - ./eval-agent
+      - --mode=inprocess
+      - --system=agent
+      - --split=test
+      - --force-route=agent_multistep
+      - --test-set=rag-evals/golden/agent.v2.json
+      - --out=rag-evals/baseline/agent_prod_v2.json
+      - --compare-baseline=rag-evals/baseline/hybrid_task_v2.json
+    environment: *app-environment
+    volumes:
+      - ./rag-evals:/app/rag-evals
+    depends_on:
+      hybrid-task-eval:
+        condition: service_completed_successfully
+    restart: "no"
+
+  memory-demo-reset:
+    image: mysql:8.0.43
+    profiles: ["demo"]
+    environment:
+      MYSQL_PWD: ${MYSQL_PASSWORD:-8888.216}
+    command:
+      - sh
+      - -ec
+      - |
+        mysql -hmysql -uroot local_review_go -e "
+          DELETE e FROM user_agent_profile_events e
+          JOIN tb_user u ON u.id = e.user_id
+          WHERE u.phone = '${DEMO_PHONE:-13800138000}';
+          DELETE p FROM user_agent_profiles p
+          JOIN tb_user u ON u.id = p.user_id
+          WHERE u.phone = '${DEMO_PHONE:-13800138000}';
+        "
+        echo "memory demo MySQL profile reset"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: "no"
+
+  memory-demo:
+    <<: *app-image
+    profiles: ["demo"]
+    command: ["bash", "./script/agent-demo.sh"]
+    environment:
+      <<: *app-environment
+      BASE_URL: http://app:8088
+      DEMO_SESSION_ID: docker-memory-demo
+      DEMO_REPORT_PATH: rag-evals/reports/memory_demo_latest.json
+    volumes:
+      - ./rag-evals:/app/rag-evals
+      - ./script/agent-demo.sh:/app/script/agent-demo.sh:ro
+    depends_on:
+      app:
+        condition: service_healthy
+      memory-demo-reset:
+        condition: service_completed_successfully
+    restart: "no"
 
 volumes:
   mysql_data:
   redis_data:
-
-
-networks:
-  app-net:
-    driver: bridge

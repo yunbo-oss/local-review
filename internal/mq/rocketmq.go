@@ -19,9 +19,9 @@ import (
 
 // SeckillOrderMsg 秒杀订单消息体（与 Lua 脚本约定一致）
 type SeckillOrderMsg struct {
-	UserId     int64 `json:"userId"`
-	VoucherId  int64 `json:"voucherId"`
-	OrderId    int64 `json:"id"`
+	UserId    int64 `json:"userId"`
+	VoucherId int64 `json:"voucherId"`
+	OrderId   int64 `json:"id"`
 }
 
 // ToVoucherOrder 转为 model.VoucherOrder（仅填充必要字段，其余用默认值）

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"math"
+	"sort"
 )
 
 // HitRateAtK：TopK 是否至少命中 1 个 relevant（Success@K）。禁止命名为 Recall。
@@ -187,7 +188,7 @@ func toSet(ids []int64) map[int64]bool {
 func AggregateQuality(cases []CaseResult, topK int) (hit, recall, prec, mrr, ndcg float64) {
 	n := 0
 	for _, c := range cases {
-		if c.InfraError != "" {
+		if c.InfraError != "" || c.ExpectNoResults {
 			continue
 		}
 		n++
@@ -204,7 +205,68 @@ func AggregateQuality(cases []CaseResult, topK int) (hit, recall, prec, mrr, ndc
 	return hit / fn, recall / fn, prec / fn, mrr / fn, ndcg / fn
 }
 
-// ValidateRelevantNonEmpty 空 relevant 拒绝加载
+func AggregateTaskSuccess(cases []CaseResult) (taskSuccess, noResultAccuracy float64) {
+	var taskN, noResultN, taskOK, noResultOK int
+	for _, c := range cases {
+		if c.InfraError != "" {
+			continue
+		}
+		taskN++
+		if c.TaskSuccess {
+			taskOK++
+		}
+		if c.ExpectNoResults {
+			noResultN++
+			if c.NoResultPass {
+				noResultOK++
+			}
+		}
+	}
+	if taskN > 0 {
+		taskSuccess = float64(taskOK) / float64(taskN)
+	}
+	if noResultN > 0 {
+		noResultAccuracy = float64(noResultOK) / float64(noResultN)
+	}
+	return taskSuccess, noResultAccuracy
+}
+
+func AggregateLatency(cases []CaseResult) (p50, p95 int64) {
+	var values []int64
+	for _, c := range cases {
+		if c.InfraError == "" && c.LatencyMs >= 0 {
+			values = append(values, c.LatencyMs)
+		}
+	}
+	sort.Slice(values, func(i, j int) bool { return values[i] < values[j] })
+	return percentileInt64(values, 0.50), percentileInt64(values, 0.95)
+}
+
+func percentileInt64(sorted []int64, p float64) int64 {
+	if len(sorted) == 0 {
+		return 0
+	}
+	idx := int(math.Ceil(p*float64(len(sorted)))) - 1
+	if idx < 0 {
+		idx = 0
+	}
+	if idx >= len(sorted) {
+		idx = len(sorted) - 1
+	}
+	return sorted[idx]
+}
+
+func ValidateRetrievalCase(c RetrievalCase) error {
+	if c.ExpectNoResults {
+		if len(c.RelevantShopIDs) != 0 {
+			return fmt.Errorf("case %q: expect_no_results requires empty relevant_shop_ids", c.ID)
+		}
+		return nil
+	}
+	return ValidateRelevantNonEmpty(c.ID, c.RelevantShopIDs)
+}
+
+// ValidateRelevantNonEmpty 空 relevant 拒绝加载，除非 case 明确标记 expect_no_results。
 func ValidateRelevantNonEmpty(id string, relevant []int64) error {
 	if len(relevant) == 0 {
 		return fmt.Errorf("case %q: relevant_shop_ids must be non-empty", id)

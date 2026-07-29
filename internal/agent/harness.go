@@ -11,9 +11,9 @@ import (
 
 // RecommendAgentHarness 编排：校验 → Context → Loop → Verify（persist 由 logic 层负责）
 type RecommendAgentHarness struct {
-	Tools  llm.ToolChatClient
-	Exec   *ToolExecutor
-	Config RunConfig
+	Tools   llm.ToolChatClient
+	Exec    *ToolExecutor
+	Config  RunConfig
 	Builder *ContextBuilder
 }
 
@@ -28,22 +28,22 @@ type HarnessInput struct {
 
 // RecommendRunOutcome Harness 返回
 type RecommendRunOutcome struct {
-	Answer             string
-	Steps              int
-	ToolCalls          int
-	ToolAttempts       int
-	DuplicateRejected  int
-	ObservedShopIDs    []int64
-	Usage              llm.TokenUsage
-	GroundingOK        bool
-	GroundingCode      string
-	TraceID            string
-	Route              string
-	StopReason         string
-	LatencyMs          int64
-	DegradedMode       bool
-	Err                error
-	Loop               LoopResult
+	Answer            string
+	Steps             int
+	ToolCalls         int
+	ToolAttempts      int
+	DuplicateRejected int
+	ObservedShopIDs   []int64
+	Usage             llm.TokenUsage
+	GroundingOK       bool
+	GroundingCode     string
+	TraceID           string
+	Route             string
+	StopReason        string
+	LatencyMs         int64
+	DegradedMode      bool
+	Err               error
+	Loop              LoopResult
 }
 
 // Run 执行有界推荐循环（不写 MySQL/Redis；由 RecommendAgentLogic 负责持久化）

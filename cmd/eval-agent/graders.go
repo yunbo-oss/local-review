@@ -18,11 +18,22 @@ func GradeOutcome(actual OutcomeActual, expected Expected) GradeResult {
 		}
 	}
 	if len(expected.AllowedShopIDs) > 0 {
+		if len(actual.CitedShopIDs) == 0 && !expected.ExpectNoResults {
+			fails = append(fails, "expected at least one cited shop")
+		}
 		allowed := toSet(expected.AllowedShopIDs)
+		hit := false
 		for _, id := range actual.CitedShopIDs {
-			if !allowed[id] {
-				fails = append(fails, fmt.Sprintf("cited shop %d not in allowed", id))
+			if allowed[id] {
+				hit = true
 			}
+		}
+		// allowed_shop_ids is a positive relevance set, not an exhaustive
+		// deny-list. A grounded comparison may cite a neutral alternative;
+		// cases that must reject a specific hard negative use
+		// forbidden_shop_ids below.
+		if len(actual.CitedShopIDs) > 0 && !hit {
+			fails = append(fails, "no cited shop matched allowed set")
 		}
 	}
 	for _, id := range expected.ForbiddenShopIDs {
@@ -60,6 +71,9 @@ func GradeGroundedness(actual OutcomeActual, expected Expected) GradeResult {
 	}
 	obs := toSet(actual.ObservedShopIDs)
 	var fails []string
+	if len(expected.AllowedShopIDs) > 0 && !expected.ExpectNoResults && len(actual.CitedShopIDs) == 0 {
+		fails = append(fails, "successful shop answer requires at least one [shop:id] citation")
+	}
 	for _, id := range actual.CitedShopIDs {
 		if !obs[id] {
 			fails = append(fails, fmt.Sprintf("cited shop %d not in observed", id))

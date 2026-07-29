@@ -4,16 +4,17 @@ import "fmt"
 
 // 稳定错误类别（SSE/日志用公共文案；内部可包装 detail）
 const (
-	ErrGroundingNoCitation     = "grounding_no_citation"
-	ErrGroundingUnknownShop    = "grounding_unknown_shop"
-	ErrGroundingFactConflict   = "grounding_fact_conflict"
-	ErrGroundingEmptyBlogsWash = "grounding_empty_blogs_wash"
-	ErrToolInvalidArgs         = "tool_invalid_args"
-	ErrToolNotAllowed          = "tool_not_allowed"
-	ErrToolDuplicate           = "duplicate_tool_call"
-	ErrRateLimit               = "rate_limit"
-	ErrMaxToolCalls            = "max_tool_calls"
-	ErrMaxSteps                = "max_steps"
+	ErrGroundingNoCitation          = "grounding_no_citation"
+	ErrGroundingUnknownShop         = "grounding_unknown_shop"
+	ErrGroundingFactConflict        = "grounding_fact_conflict"
+	ErrGroundingEmptyBlogsWash      = "grounding_empty_blogs_wash"
+	ErrGroundingSemanticUnsupported = "grounding_semantic_unsupported"
+	ErrToolInvalidArgs              = "tool_invalid_args"
+	ErrToolNotAllowed               = "tool_not_allowed"
+	ErrToolDuplicate                = "duplicate_tool_call"
+	ErrRateLimit                    = "rate_limit"
+	ErrMaxToolCalls                 = "max_tool_calls"
+	ErrMaxSteps                     = "max_steps"
 )
 
 // PublicError 对用户可见的错误
@@ -47,7 +48,7 @@ func PublicMessage(err error) string {
 	}
 	if pe, ok := err.(*PublicError); ok {
 		switch pe.Code {
-		case ErrGroundingNoCitation, ErrGroundingUnknownShop, ErrGroundingFactConflict, ErrGroundingEmptyBlogsWash:
+		case ErrGroundingNoCitation, ErrGroundingUnknownShop, ErrGroundingFactConflict, ErrGroundingEmptyBlogsWash, ErrGroundingSemanticUnsupported:
 			return "回答未通过有据可查校验，请重试"
 		case ErrRateLimit:
 			return "请求过于频繁，请稍后再试"

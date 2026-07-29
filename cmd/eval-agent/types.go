@@ -2,28 +2,31 @@ package main
 
 // Expected 场景期望（来自 agent.v1.json）
 type Expected struct {
-	FilterContains      map[string]any `json:"filter_contains"`
-	AllowedShopIDs      []int64        `json:"allowed_shop_ids"`
-	ForbiddenShopIDs    []int64        `json:"forbidden_shop_ids"`
-	ProfileAfter        map[string]any `json:"profile_after"`
-	MaxSteps            int            `json:"max_steps"`
-	MaxToolCalls        int            `json:"max_tool_calls"`
-	ExpectNoResults     bool           `json:"expect_no_results"`
-	ExpectGroundedness  *bool          `json:"expect_groundedness"`
+	FilterContains     map[string]any `json:"filter_contains"`
+	AllowedShopIDs     []int64        `json:"allowed_shop_ids"`
+	ForbiddenShopIDs   []int64        `json:"forbidden_shop_ids"`
+	ProfileAfter       map[string]any `json:"profile_after"`
+	MaxSteps           int            `json:"max_steps"`
+	MaxToolCalls       int            `json:"max_tool_calls"`
+	ExpectNoResults    bool           `json:"expect_no_results"`
+	ExpectGroundedness *bool          `json:"expect_groundedness"`
 }
 
 // OutcomeActual 一次运行的可观测结果
 type OutcomeActual struct {
-	Filter              map[string]any
-	CitedShopIDs        []int64
-	ObservedShopIDs     []int64
-	ProfileAfter        map[string]any
-	Steps               int
-	ToolCalls           int
-	DuplicateToolCalls  int
-	Answer              string
-	LatencyMs           int64
-	Tokens              int
+	Filter             map[string]any
+	CitedShopIDs       []int64
+	ObservedShopIDs    []int64
+	ProfileAfter       map[string]any
+	Steps              int
+	ModelCalls         int
+	ToolCalls          int
+	DuplicateToolCalls int
+	Answer             string
+	LatencyMs          int64
+	PromptTokens       int
+	CompletionTokens   int
+	Tokens             int
 }
 
 // GradeResult 单项评分

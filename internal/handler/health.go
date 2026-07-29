@@ -42,6 +42,6 @@ func Health(c *gin.Context) {
 	c.JSON(status, gin.H{
 		"status":  status,
 		"checks":  checks,
-		"service":  "local-review-go",
+		"service": "local-review-go",
 	})
 }

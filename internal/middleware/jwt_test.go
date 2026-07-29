@@ -43,3 +43,25 @@ func TestParseToken(t *testing.T) {
 		t.Fatalf("expected id %d, got %d", claims.AuthUser.Id, parsed.AuthUser.Id)
 	}
 }
+
+func TestNormalizeAuthorizationToken(t *testing.T) {
+	tests := map[string]string{
+		"raw token remains compatible": "abc.def.ghi",
+		"bearer token":                 "abc.def.ghi",
+		"case insensitive bearer":      "abc.def.ghi",
+		"empty bearer":                 "",
+	}
+	inputs := map[string]string{
+		"raw token remains compatible": "abc.def.ghi",
+		"bearer token":                 "Bearer abc.def.ghi",
+		"case insensitive bearer":      "bEaReR   abc.def.ghi ",
+		"empty bearer":                 "Bearer ",
+	}
+	for name, want := range tests {
+		t.Run(name, func(t *testing.T) {
+			if got := normalizeAuthorizationToken(inputs[name]); got != want {
+				t.Fatalf("normalizeAuthorizationToken() = %q, want %q", got, want)
+			}
+		})
+	}
+}

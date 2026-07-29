@@ -6,8 +6,11 @@ import (
 	"local-review-go/internal/llm"
 	repoInterfaces "local-review-go/internal/repository/interface"
 	"local-review-go/pkg/utils/redisx"
+	"sort"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -95,7 +98,32 @@ func (r *vectorRepo) SearchText(ctx context.Context, query string, filter *repoI
 	preFilter := buildPreFilter(filter)
 	// 文本查询：转义后在 name|text_content 上检索，并与预过滤 AND；显式 BM25（避免依赖模块默认 TFIDF）
 	escaped := escapeTextQuery(q)
-	textClause := fmt.Sprintf("(@name|@text_content:(%s))", escaped)
+	// RediSearch requires each field in an OR expression to have its own
+	// parenthesized query. "@name|@text_content:(...)" is parsed as an
+	// invalid field name and makes every hybrid retrieval fail.
+	textClause := fmt.Sprintf("(@name:(%s) | @text_content:(%s))", escaped, escaped)
+	// 「...」 is an explicit exact-name intent in the evaluation and API.
+	// RediSearch phrase matching also handles punctuation inside Chinese shop
+	// names (for example "静巷咖啡·国贸店"), unlike an unquoted token query.
+	if phrase := extractCornerQuoted(q); phrase != "" {
+		textClause = fmt.Sprintf("(@name:\"%s\" | @text_content:(%s))",
+			escapeRediSearchPhrase(phrase), escaped)
+	} else if hint := extractNameHint(q); hint != "" {
+		runes := []rune(hint)
+		prefixLen := 2
+		if len(runes) < prefixLen {
+			prefixLen = len(runes)
+		}
+		prefix := escapeRediSearchToken(string(runes[:prefixLen]))
+		textClause = fmt.Sprintf("(@name:(%s*) | @name:(%s) | @text_content:(%s))",
+			prefix, escaped, escaped)
+	}
+	if semanticPrefixes := extractSemanticPrefixes(q); len(semanticPrefixes) > 0 {
+		// Redis's default Chinese tokenizer does not reliably match a complete
+		// compound such as "无障碍". Prefix terms ("无障*") provide a stable
+		// lexical arm for the finite semantic dimensions used by the catalog.
+		textClause = fmt.Sprintf("(@text_content:(%s))", strings.Join(semanticPrefixes, " | "))
+	}
 	var fullQuery string
 	if preFilter == "*" {
 		fullQuery = textClause
@@ -115,7 +143,98 @@ func (r *vectorRepo) SearchText(ctx context.Context, query string, filter *repoI
 	if err != nil {
 		return nil, fmt.Errorf("FT.SEARCH TEXT: %w", err)
 	}
-	return parseSearchResult(res, k)
+	results, err := parseSearchResult(res, k)
+	if err != nil {
+		return nil, err
+	}
+	// Exact normalized shop names outrank broad prefix candidates. This makes
+	// punctuation-tolerant natural queries such as "静巷咖啡望京店" resolve the
+	// corresponding "静巷咖啡·望京店" instead of a lexical neighbour.
+	qNorm := normalizeNameForMatch(q)
+	sort.SliceStable(results, func(i, j int) bool {
+		iExact := strings.Contains(qNorm, normalizeNameForMatch(results[i].Name))
+		jExact := strings.Contains(qNorm, normalizeNameForMatch(results[j].Name))
+		return iExact && !jExact
+	})
+	return results, nil
+}
+
+func extractCornerQuoted(s string) string {
+	start := strings.Index(s, "「")
+	if start < 0 {
+		return ""
+	}
+	rest := s[start+utf8.RuneLen('「'):]
+	end := strings.Index(rest, "」")
+	if end < 0 {
+		return ""
+	}
+	return strings.TrimSpace(rest[:end])
+}
+
+func escapeRediSearchPhrase(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	return strings.ReplaceAll(s, `"`, `\"`)
+}
+
+func extractNameHint(s string) string {
+	s = strings.TrimSpace(s)
+	for _, marker := range []string{"精确找", "看看", "查", "找"} {
+		if idx := strings.Index(s, marker); idx >= 0 {
+			s = s[idx+len(marker):]
+			break
+		}
+	}
+	s = strings.TrimLeft(s, "「『\"' ")
+	for _, sep := range []string{"的评价", "的无障碍", "，", ",", "。", "？", "?", "不要", "不能"} {
+		if idx := strings.Index(s, sep); idx > 0 {
+			s = s[:idx]
+		}
+	}
+	s = strings.Trim(s, "」』\"' ")
+	if len([]rune(s)) < 3 {
+		return ""
+	}
+	return s
+}
+
+func normalizeNameForMatch(s string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(s) {
+		if unicode.IsLetter(r) || unicode.IsNumber(r) {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+func extractSemanticPrefixes(s string) []string {
+	groups := [][]string{
+		{"安静", "办公", "学习", "自习"},
+		{"浪漫", "约会", "情侣"},
+		{"家庭", "聚餐", "孩子", "亲子"},
+		{"深夜", "凌晨", "夜宵"},
+		{"宠物", "带狗"},
+		{"无障碍", "轮椅", "坡道"},
+		{"商务", "宴请", "接待"},
+		{"学生", "平价", "性价比"},
+	}
+	var out []string
+	for _, aliases := range groups {
+		for _, alias := range aliases {
+			if !strings.Contains(s, alias) {
+				continue
+			}
+			runes := []rune(alias)
+			n := 2
+			if len(runes) < n {
+				n = len(runes)
+			}
+			out = append(out, escapeRediSearchToken(string(runes[:n]))+"*")
+			break
+		}
+	}
+	return out
 }
 
 // escapeTextQuery 转义 RediSearch 文本查询特殊字符，并按空白拆成 OR 词

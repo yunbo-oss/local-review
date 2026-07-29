@@ -48,10 +48,10 @@ type OrderTimeoutProducer interface {
 
 // VoucherOrderLogicDeps 用于实例化 voucherOrderLogic 的依赖
 type VoucherOrderLogicDeps struct {
-	VoucherOrderRepo       repoInterfaces.VoucherOrderRepo
-	SeckillVoucherRepo     repoInterfaces.SeckillVoucherRepo
-	Producer               RocketMQProducer
-	OrderTimeoutProducer   OrderTimeoutProducer
+	VoucherOrderRepo     repoInterfaces.VoucherOrderRepo
+	SeckillVoucherRepo   repoInterfaces.SeckillVoucherRepo
+	Producer             RocketMQProducer
+	OrderTimeoutProducer OrderTimeoutProducer
 }
 
 func NewVoucherOrderLogic(deps VoucherOrderLogicDeps) VoucherOrderLogic {
@@ -64,11 +64,11 @@ func NewVoucherOrderLogic(deps VoucherOrderLogicDeps) VoucherOrderLogic {
 		seckillVoucherRepo = repository.NewSeckillVoucherRepo(mysql.GetMysqlDB())
 	}
 	return &voucherOrderLogic{
-		redis:                    redisClient.GetRedisClient(),
-		voucherOrderRepo:         voucherOrderRepo,
-		seckillVoucherRepo:       seckillVoucherRepo,
-		producer:                 deps.Producer,
-		orderTimeoutProducer:     deps.OrderTimeoutProducer,
+		redis:                     redisClient.GetRedisClient(),
+		voucherOrderRepo:          voucherOrderRepo,
+		seckillVoucherRepo:        seckillVoucherRepo,
+		producer:                  deps.Producer,
+		orderTimeoutProducer:      deps.OrderTimeoutProducer,
 		seckillVoucherBloomFilter: nil,
 	}
 }

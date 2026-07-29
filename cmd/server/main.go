@@ -2,14 +2,15 @@ package main
 
 import (
 	"context"
+	"flag"
 	"local-review-go/internal/agent"
+	"local-review-go/internal/bootstrap"
 	"local-review-go/internal/config"
 	"local-review-go/internal/config/mysql"
 	"local-review-go/internal/config/redis"
 	"local-review-go/internal/handler"
 	"local-review-go/internal/llm"
 	"local-review-go/internal/logic"
-	"local-review-go/internal/model"
 	"local-review-go/internal/mq"
 	"local-review-go/internal/repository"
 	repoInterfaces "local-review-go/internal/repository/interface"
@@ -20,7 +21,16 @@ import (
 )
 
 func main() {
+	migrateOnly := flag.Bool("migrate-only", false, "run schema migration and exit")
+	flag.Parse()
 	config.Init() // 含 log.Init()，需在 gin.Default() 之前
+	if err := bootstrap.Migrate(mysql.GetMysqlDB()); err != nil {
+		logrus.Fatalf("数据库迁移失败: %v", err)
+	}
+	if *migrateOnly {
+		logrus.Info("数据库迁移完成")
+		return
+	}
 	r := gin.Default()
 
 	shopRepo := repository.NewShopRepo(mysql.GetMysqlDB())
@@ -122,24 +132,6 @@ func main() {
 	if err := redis.InitShopVectorIndex(context.Background(), redis.GetRedisClient(), llmCfg.EmbeddingDim); err != nil {
 		logrus.Warnf("RAG 向量索引初始化失败（需 Redis Stack）: %v", err)
 	}
-
-	// Auto Migrate
-	mysql.GetMysqlDB().AutoMigrate(
-		&model.User{},
-		&model.UserInfo{},
-		&model.Shop{},
-		&model.ShopType{},
-		&model.Blog{},
-		&model.BlogComments{},
-		&model.Voucher{},
-		&model.SecKillVoucher{},
-		&model.VoucherOrder{},
-		&model.Follow{},
-		&model.UserAgentProfile{},
-		&model.UserAgentProfileEvent{},
-		&model.AgentRun{},
-		&model.AgentToolCall{},
-	)
 
 	handler.ConfigRouter(r, handler.Handlers{
 		Shop:         shopHandler,

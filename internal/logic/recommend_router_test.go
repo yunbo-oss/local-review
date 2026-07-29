@@ -5,10 +5,10 @@ import "testing"
 func TestRecommendRouter_Table(t *testing.T) {
 	r := NewRecommendRouter()
 	cases := []struct {
-		name     string
-		in       RouteInput
-		want     RecommendRoute
-		forced   bool
+		name   string
+		in     RouteInput
+		want   RecommendRoute
+		forced bool
 	}{
 		{"force", RouteInput{Question: "随便", ForceRoute: "agent_multistep"}, RouteAgentMultistep, true},
 		{"memory_forget", RouteInput{Question: "忘掉预算"}, RouteAgentMemory, false},

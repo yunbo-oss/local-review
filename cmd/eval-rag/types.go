@@ -20,15 +20,16 @@ func (f *FilterJSON) HasHardConstraints() bool {
 
 // RetrievalCase 正式 / smoke 统一内部表示
 type RetrievalCase struct {
-	ID               string      `json:"id"`
-	Split            string      `json:"split"`
-	Question         string      `json:"question"`
-	RelevantShopIDs  []int64     `json:"relevant_shop_ids"`
-	OracleFilter     *FilterJSON `json:"oracle_filter,omitempty"`
-	Tags             []string    `json:"tags,omitempty"`
-	Evidence         string      `json:"evidence,omitempty"`
-	ExpectedShopIDs  []int64     `json:"expected_shop_ids,omitempty"` // smoke 旧字段
-	IsSmoke          bool        `json:"-"`
+	ID              string      `json:"id"`
+	Split           string      `json:"split"`
+	Question        string      `json:"question"`
+	RelevantShopIDs []int64     `json:"relevant_shop_ids"`
+	ExpectNoResults bool        `json:"expect_no_results,omitempty"`
+	OracleFilter    *FilterJSON `json:"oracle_filter,omitempty"`
+	Tags            []string    `json:"tags,omitempty"`
+	Evidence        string      `json:"evidence,omitempty"`
+	ExpectedShopIDs []int64     `json:"expected_shop_ids,omitempty"` // smoke 旧字段
+	IsSmoke         bool        `json:"-"`
 }
 
 // GoldenFile 正式集文件 schema
@@ -49,17 +50,23 @@ type ShopHit struct {
 
 // CaseResult 单题结果
 type CaseResult struct {
-	ID                  string  `json:"id"`
-	Question            string  `json:"question"`
-	RetrievedIDs        []int64 `json:"retrieved_ids"`
-	HitRate             float64 `json:"hit_rate"`
-	Recall              float64 `json:"recall"`
-	Precision           float64 `json:"precision"`
-	MRR                 float64 `json:"mrr"`
-	NDCG                float64 `json:"ndcg"`
-	FilterFieldAccuracy float64 `json:"filter_field_accuracy,omitempty"`
-	FilterCompliance    float64 `json:"filter_compliance_at_k,omitempty"`
-	InfraError          string  `json:"infra_error,omitempty"`
+	ID                  string   `json:"id"`
+	Split               string   `json:"split,omitempty"`
+	Tags                []string `json:"tags,omitempty"`
+	Question            string   `json:"question"`
+	RetrievedIDs        []int64  `json:"retrieved_ids"`
+	ExpectNoResults     bool     `json:"expect_no_results,omitempty"`
+	NoResultPass        bool     `json:"no_result_pass,omitempty"`
+	TaskSuccess         bool     `json:"task_success"`
+	LatencyMs           int64    `json:"latency_ms"`
+	HitRate             float64  `json:"hit_rate"`
+	Recall              float64  `json:"recall"`
+	Precision           float64  `json:"precision"`
+	MRR                 float64  `json:"mrr"`
+	NDCG                float64  `json:"ndcg"`
+	FilterFieldAccuracy float64  `json:"filter_field_accuracy,omitempty"`
+	FilterCompliance    float64  `json:"filter_compliance_at_k,omitempty"`
+	InfraError          string   `json:"infra_error,omitempty"`
 }
 
 // EvalReport 可复现评测报告
@@ -86,6 +93,10 @@ type EvalReport struct {
 	PrecisionAtK        float64      `json:"precision_at_k"`
 	MRR                 float64      `json:"mrr"`
 	NDCGAtK             float64      `json:"ndcg_at_k"`
+	TaskSuccessRate     float64      `json:"task_success_rate"`
+	NoResultAccuracy    float64      `json:"no_result_accuracy,omitempty"`
+	P50LatencyMs        int64        `json:"p50_latency_ms"`
+	P95LatencyMs        int64        `json:"p95_latency_ms"`
 	FilterFieldAccuracy float64      `json:"filter_field_accuracy,omitempty"`
 	FilterComplianceAtK float64      `json:"filter_compliance_at_k,omitempty"`
 	InfraErrorRate      float64      `json:"infra_error_rate"`

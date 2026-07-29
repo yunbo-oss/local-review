@@ -359,21 +359,31 @@ func (e *llmFilterExtractor) Extract(ctx context.Context, question string) (*rep
 	if e.chat == nil {
 		return nil, fmt.Errorf("ChatClient 未配置")
 	}
-	messages := []openai.ChatCompletionMessage{
-		{Role: openai.ChatMessageRoleSystem, Content: ragFilterExtractPrompt},
-		{Role: openai.ChatMessageRoleUser, Content: "用户问题：" + question},
-	}
+	messages := FilterExtractionMessages(question)
 	resp, err := e.chat.ChatComplete(ctx, messages)
 	if err != nil {
 		return nil, err
 	}
-	return parseFilterFromJSON(resp), nil
+	return SanitizeExtractedFilter(question, ParseFilterFromJSON(resp)), nil
 }
 
-func parseFilterFromJSON(s string) *repoInterfaces.VectorSearchFilter {
+func FilterExtractionMessages(question string) []openai.ChatCompletionMessage {
+	return []openai.ChatCompletionMessage{
+		{Role: openai.ChatMessageRoleSystem, Content: ragFilterExtractPrompt},
+		{Role: openai.ChatMessageRoleUser, Content: "用户问题：" + question},
+	}
+}
+
+func ParseFilterFromJSON(s string) *repoInterfaces.VectorSearchFilter {
 	s = strings.TrimSpace(s)
 	if m := regexp.MustCompile("(?s)```(?:json)?\\s*([^`]+)```").FindStringSubmatch(s); len(m) > 1 {
 		s = strings.TrimSpace(m[1])
+	}
+	// Some OpenAI-compatible models occasionally prepend a short explanation
+	// even when asked for JSON-only output. Recover the single outer object
+	// instead of silently dropping all hard filters.
+	if start, end := strings.Index(s, "{"), strings.LastIndex(s, "}"); start >= 0 && end > start {
+		s = strings.TrimSpace(s[start : end+1])
 	}
 	var v struct {
 		Area        string `json:"area"`
@@ -399,4 +409,36 @@ func parseFilterFromJSON(s string) *repoInterfaces.VectorSearchFilter {
 		return nil
 	}
 	return f
+}
+
+// SanitizeExtractedFilter prevents semantic preferences from becoming
+// unintended hard filters. For the finite catalog vocabulary, area, category,
+// and budget are accepted only when explicitly present in the user's text.
+// Ranking semantics remain in the retrieval query itself.
+func SanitizeExtractedFilter(question string, extracted *repoInterfaces.VectorSearchFilter) *repoInterfaces.VectorSearchFilter {
+	if extracted == nil {
+		return nil
+	}
+	out := *extracted
+	explicit := inferExplicitFilter(question)
+	if explicit == nil || explicit.Area == "" {
+		out.Area = ""
+	} else {
+		out.Area = explicit.Area
+	}
+	if explicit == nil || explicit.TypeName == "" {
+		out.TypeName = ""
+	} else {
+		out.TypeName = explicit.TypeName
+	}
+	if explicit == nil || explicit.MaxPrice == 0 {
+		out.MaxPrice = 0
+	} else {
+		out.MaxPrice = explicit.MaxPrice
+	}
+	if out.Area == "" && out.TypeName == "" && out.MaxPrice == 0 &&
+		out.MinPrice == 0 && out.MinScore == 0 && out.MinComments == 0 {
+		return nil
+	}
+	return &out
 }

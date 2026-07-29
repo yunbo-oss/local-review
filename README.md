@@ -7,6 +7,33 @@
 
 ---
 
+## 秋招演示：可复现 Agent / RAG 评测闭环
+
+本仓库已用固定种子扩充到 **200 家店、1000 条评论**，并提供 68 题 Retrieval golden（test 60）和 28 场景 Agent golden（test 22，其中 8 个关键场景各跑 3 次）。正式报告来自真实 DeepSeek API 调用，不含 placeholder、fake 或 stub 数据。
+
+```bash
+# API key 只临时注入 shell，不写入仓库
+make docker-reset
+LLM_API_KEY='你的密钥' make docker-up
+LLM_API_KEY='你的密钥' make docker-verify
+LLM_API_KEY='你的密钥' make docker-eval
+LLM_API_KEY='你的密钥' make docker-demo
+```
+
+正式 test 指标（2026-07-29）：
+
+- Retrieval：HitRate@5 100%、Recall@5 81.63%、Precision@5 83.21%、MRR/NDCG@5 1.000、过滤字段/结果合规 100%、infra error 0%。
+- Agent：38/38 trial task success、groundedness、trajectory、composite 全部通过，8 个关键场景全部 trial 通过率 100%，P50/P95 7.61s/12.43s。
+- 同任务 Hybrid RAG：task success 81.58%，P50/P95 3.06s/7.08s；Agent 提升 18.42 个百分点，但平均 Token 从 1074 增至 5099。
+
+完整口径、实验条件、失败分析和诚实限制：
+
+- [Agent 与评测说明](doc/AGENT_AND_EVAL.md)
+- [实践问题与修复日志](doc/EVAL_PRACTICE_LOG.md)
+- [面试演示说明](doc/INTERVIEW_DEMO.md)
+
+---
+
 ## 一、分布式部署与基础设施
 
 ### 1.1 Nginx 负载均衡
@@ -163,9 +190,9 @@ k6 压测，1 Nginx + 3 Go 实例，151 用户 × 25 秒杀券：总 QPS ~1160�
 评测：
 
 ```bash
-make eval-agent-fake   # harness 冒烟（非 stub 报告形状）
-make eval-agent        # 正式（需 LLM + 向量索引）
-make eval-rag-prod-baseline  # 录 Hybrid 基线后做 Agent vs Hybrid 对照
+make eval-rag-prod-baseline
+make eval-hybrid-task  # 与 Agent 完全相同的任务与 trial
+make eval-agent
 ```
 
 ### 4.1 背景
@@ -176,7 +203,7 @@ make eval-rag-prod-baseline  # 录 Hybrid 基线后做 Agent vs Hybrid 对照
 
 - **向量存储**：Redis Stack RediSearch，HNSW 索引，`idx:shop:vector`
 - **Schema**：`internal/config/redis/vector.go`，Hash 前缀 `vec:shop:`，字段含 `name`、`type_name`、`area`、`text_content`、`avg_price`、`score`、`comments`、`sold`、`embedding`（VECTOR HNSW COSINE）
-- **Embedding**：`internal/llm/client.go`，OpenAI 兼容 API（DeepSeek/智谱/通义等）
+- **Embedding**：默认 `local-feature-hash-zh-v2`（384 维确定性本地 embedding，便于离线复现）；也保留 OpenAI-compatible embedding provider 配置
 
 ### 4.3 检索流程
 

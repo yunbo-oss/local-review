@@ -19,6 +19,16 @@ NC='\033[0m'
 pass() { echo -e "${GREEN}✓ $1${NC}"; }
 fail() { echo -e "${RED}✗ $1${NC}"; exit 1; }
 info() { echo -e "${YELLOW}→ $1${NC}"; }
+sse_message_text() {
+  awk '
+    /^event:/ { event_name=$0; sub(/^event:[[:space:]]*/, "", event_name); next }
+    /^data:/ && event_name == "message" {
+      line=$0
+      sub(/^data:[[:space:]]?/, "", line)
+      printf "%s", line
+    }
+  ' "${1:--}"
+}
 
 # 检查服务是否运行
 info "检查服务: $BASE_URL"
@@ -69,9 +79,14 @@ info "========== 3. 登录流程 =========="
 # 获取 Redis 中的验证码（优先用 /code 刚生成的；若无则用 seed-redis 的 123456）
 CODE=""
 if command -v redis-cli &> /dev/null; then
-  CODE=$(redis-cli -a 8888.216 GET "login:code:13800138000" 2>/dev/null | tr -d '"')
-elif docker ps --format '{{.Names}}' 2>/dev/null | grep -q local-review-redis; then
-  CODE=$(docker exec local-review-redis redis-cli -a 8888.216 GET "login:code:13800138000" 2>/dev/null | tr -d '"')
+  REDIS_HOST="${REDIS_ADDR:-127.0.0.1}"
+  REDIS_PORT_VALUE="${REDIS_PORT:-6379}"
+  REDIS_PASS="${REDIS_PASSWORD:-8888.216}"
+  CODE=$(redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT_VALUE" -a "$REDIS_PASS" \
+    GET "login:code:13800138000" 2>/dev/null | tr -d '"')
+elif docker compose ps --status running redis >/dev/null 2>&1; then
+  CODE=$(docker compose exec -T redis redis-cli -a "${REDIS_PASSWORD:-8888.216}" \
+    GET "login:code:13800138000" 2>/dev/null | tr -d '"')
 fi
 
 # 若未设置验证码，使用 seed-redis 中的默认值 123456
@@ -109,15 +124,19 @@ if [[ -n "$CODE" ]]; then
       resp=$(curl -sf "${API}/voucher/list/1" -H "authorization: $TOKEN")
       [[ "$resp" == *"success"* ]] && pass "GET /api/voucher/list/:shopId" || fail "GET /api/voucher/list/:shopId"
 
-      # 秒杀（可能返回 200 成功，429 限流，或库存不足）
-      resp=$(curl -sf -X POST "${API}/voucher-order/seckill/6" -H "authorization: $TOKEN")
-      status=$(echo "$resp" | head -c 200)
-      if [[ "$resp" == *"success"* ]] || [[ "$resp" == *"排队中"* ]] || [[ "$resp" == *"限流"* ]] || [[ "$resp" == *"已抢购"* ]] || [[ "$resp" == *"库存"* ]]; then
-        pass "POST /api/voucher-order/seckill/:id"
+      # 秒杀可重复冒烟：首次可能排队成功，后续可能已抢购/库存不足，限流时为 429。
+      # 不使用 curl -f，否则 set -e 会在读取预期的 4xx 业务响应前提前退出。
+      seckill_response=$(curl -sS -w $'\n%{http_code}' -X POST \
+        "${API}/voucher-order/seckill/6" -H "authorization: $TOKEN")
+      http_code="${seckill_response##*$'\n'}"
+      resp="${seckill_response%$'\n'*}"
+      if [[ "$http_code" == "200" ]] || [[ "$http_code" == "409" ]] \
+        || [[ "$http_code" == "429" ]] \
+        || [[ "$resp" == *"排队中"* ]] || [[ "$resp" == *"限流"* ]] \
+        || [[ "$resp" == *"已抢购"* ]] || [[ "$resp" == *"库存"* ]]; then
+        pass "POST /api/voucher-order/seckill/:id (HTTP $http_code)"
       else
-        # 检查 HTTP 状态码（429 限流也算正常）
-        http_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "${API}/voucher-order/seckill/6" -H "authorization: $TOKEN")
-        [[ "$http_code" == "200" ]] || [[ "$http_code" == "429" ]] && pass "POST /api/voucher-order/seckill/:id (HTTP $http_code)" || fail "POST /api/voucher-order/seckill/:id"
+        fail "POST /api/voucher-order/seckill/:id (HTTP $http_code)"
       fi
 
       # 我的博客
@@ -127,6 +146,34 @@ if [[ -n "$CODE" ]]; then
       # 关注状态
       resp=$(curl -sf "${API}/follow/or/not/1" -H "authorization: $TOKEN")
       [[ "$resp" == *"success"* ]] && pass "GET /api/follow/or/not/:id" || fail "GET /api/follow/or/not/:id"
+
+      if [[ -n "${LLM_API_KEY:-}" ]]; then
+        echo ""
+        info "========== 5. RAG / Agent / 引用 =========="
+
+        rag_sse=$(curl -sfS -N -X POST "${API}/rag/chat" \
+          -H "Authorization: Bearer $TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{"question":"找「静巷咖啡·国贸店」，说明价格和安静办公依据"}')
+        [[ "$rag_sse" == *"event:done"* ]] && [[ "$rag_sse" != *"event:error"* ]] \
+          && pass "POST /api/rag/chat (SSE)" || fail "POST /api/rag/chat (SSE)"
+        rag_text=$(printf '%s\n' "$rag_sse" | sse_message_text)
+        [[ "$rag_text" =~ \[shop:[0-9]+\] ]] \
+          && pass "RAG [shop:id] 引用" || fail "RAG 回答缺少 [shop:id] 引用"
+
+        agent_sse=$(curl -sfS -N -X POST "${API}/agent/recommend" \
+          -H "Authorization: Bearer $TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{"question":"朝阳区找安静办公的咖啡，人均50以内","session_id":"api-smoke-agent"}')
+        [[ "$agent_sse" == *"event:message"* ]] && [[ "$agent_sse" == *"event:done"* ]] \
+          && [[ "$agent_sse" != *"event:error"* ]] \
+          && pass "POST /api/agent/recommend (SSE)" || fail "POST /api/agent/recommend (SSE)"
+        agent_text=$(printf '%s\n' "$agent_sse" | sse_message_text)
+        [[ "$agent_text" =~ \[shop:[0-9]+\] ]] \
+          && pass "Agent grounded citation" || fail "Agent 回答缺少 grounded citation"
+      else
+        info "LLM_API_KEY 未注入，跳过 RAG/Agent 实调"
+      fi
 
       # 登出
       resp=$(curl -sf -X POST "${API}/user/logout" -H "authorization: $TOKEN")

@@ -51,6 +51,16 @@ func TestValidateRelevantNonEmpty(t *testing.T) {
 	}
 }
 
+func TestValidateNoResultCase(t *testing.T) {
+	t.Parallel()
+	if err := ValidateRetrievalCase(RetrievalCase{ID: "none", ExpectNoResults: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateRetrievalCase(RetrievalCase{ID: "bad", ExpectNoResults: true, RelevantShopIDs: []int64{1}}); err == nil {
+		t.Fatal("no-result case with relevant ids must fail")
+	}
+}
+
 func TestAggregateQuality_InfraNotInDenominator(t *testing.T) {
 	t.Parallel()
 	cases := []CaseResult{
@@ -60,6 +70,22 @@ func TestAggregateQuality_InfraNotInDenominator(t *testing.T) {
 	hit, _, _, _, _ := AggregateQuality(cases, 5)
 	if hit != 1.0 {
 		t.Fatalf("infra must not enter quality denominator; hit=%v", hit)
+	}
+}
+
+func TestAggregateQuality_NoResultNotInRankingDenominator(t *testing.T) {
+	t.Parallel()
+	cases := []CaseResult{
+		{HitRate: 1, Recall: 1, Precision: 0.2, MRR: 1, NDCG: 1, TaskSuccess: true},
+		{ExpectNoResults: true, NoResultPass: true, TaskSuccess: true},
+	}
+	hit, recall, _, _, _ := AggregateQuality(cases, 5)
+	if hit != 1 || recall != 1 {
+		t.Fatalf("ranking metrics diluted by no-result case: hit=%v recall=%v", hit, recall)
+	}
+	task, noResult := AggregateTaskSuccess(cases)
+	if task != 1 || noResult != 1 {
+		t.Fatalf("task=%v no_result=%v", task, noResult)
 	}
 }
 

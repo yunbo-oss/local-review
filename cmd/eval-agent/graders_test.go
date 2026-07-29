@@ -14,6 +14,14 @@ func TestGradeGroundedness_UnknownShop(t *testing.T) {
 	}
 }
 
+func TestGradeGroundedness_RequiresCitationForShopTask(t *testing.T) {
+	t.Parallel()
+	r := GradeGroundedness(OutcomeActual{Answer: "推荐一家店"}, Expected{AllowedShopIDs: []int64{26}})
+	if r.Pass {
+		t.Fatal("shop task without citation must fail groundedness")
+	}
+}
+
 func TestGradeTrajectory_OverMaxSteps(t *testing.T) {
 	t.Parallel()
 	actual := OutcomeActual{Steps: 4, ToolCalls: 2}
@@ -33,6 +41,19 @@ func TestGradeOutcome_ProfileMismatch(t *testing.T) {
 	})
 	if r.Pass {
 		t.Fatal("expected profile mismatch fail")
+	}
+}
+
+func TestGradeOutcome_AllowedIsPositiveSetAndForbiddenIsDenyList(t *testing.T) {
+	t.Parallel()
+	actual := OutcomeActual{CitedShopIDs: []int64{26, 18}}
+	if got := GradeOutcome(actual, Expected{AllowedShopIDs: []int64{26}}); !got.Pass {
+		t.Fatalf("grounded neutral comparison should not fail positive-set grading: %v", got.Reasons)
+	}
+	if got := GradeOutcome(actual, Expected{
+		AllowedShopIDs: []int64{26}, ForbiddenShopIDs: []int64{18},
+	}); got.Pass {
+		t.Fatal("explicit forbidden citation must fail")
 	}
 }
 

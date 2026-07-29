@@ -12,6 +12,8 @@ import (
 
 type captureSearch struct {
 	lastFilter *repoInterfaces.VectorSearchFilter
+	lastTopK   int
+	results    []repoInterfaces.ShopSearchResult
 }
 
 func (c *captureSearch) Search(ctx context.Context, query string, filter *repoInterfaces.VectorSearchFilter, strategy RetrieverStrategy, topK int) ([]repoInterfaces.ShopSearchResult, error) {
@@ -21,7 +23,8 @@ func (c *captureSearch) Search(ctx context.Context, query string, filter *repoIn
 
 func (c *captureSearch) SearchWithMeta(ctx context.Context, query string, filter *repoInterfaces.VectorSearchFilter, strategy RetrieverStrategy, topK int, mode SearchMode) (SearchOutcome, error) {
 	c.lastFilter = filter
-	return SearchOutcome{Results: nil, Strategy: strategy, Mode: mode}, nil
+	c.lastTopK = topK
+	return SearchOutcome{Results: c.results, Strategy: strategy, Mode: mode}, nil
 }
 
 type memStub struct {
@@ -112,10 +115,112 @@ func TestShopSearchAdapter_ExplicitOverridesProfile(t *testing.T) {
 	}
 	mp := int64(200)
 	_, _ = a.SearchShops(context.Background(), "咖啡", "朝阳", "", &mp, 5)
-	if cap.lastFilter == nil || cap.lastFilter.Area != "朝阳" {
-		t.Fatalf("want 朝阳, got %+v", cap.lastFilter)
+	if cap.lastFilter == nil || cap.lastFilter.Area != "朝阳区" {
+		t.Fatalf("want 朝阳区, got %+v", cap.lastFilter)
 	}
 	if cap.lastFilter.MaxPrice != 200 {
 		t.Fatalf("want explicit 200, got %d", cap.lastFilter.MaxPrice)
+	}
+}
+
+func TestShopSearchAdapter_NormalizesAreaAndTypeAliases(t *testing.T) {
+	t.Parallel()
+	cap := &captureSearch{}
+	a := &shopSearchAdapter{inner: cap}
+	_, _ = a.SearchShops(context.Background(), "安静办公", "朝阳", "咖啡厅", nil, 5)
+	if cap.lastFilter == nil || cap.lastFilter.Area != "朝阳区" || cap.lastFilter.TypeName != "咖啡" {
+		t.Fatalf("filter=%+v", cap.lastFilter)
+	}
+}
+
+func TestShopSearchAdapter_SemanticEvidenceReranksBeforeTruncation(t *testing.T) {
+	t.Parallel()
+	cap := &captureSearch{results: []repoInterfaces.ShopSearchResult{
+		{ShopID: 1, Name: "普通候选", TextContent: "环境整洁，服务正常"},
+		{ShopID: 2, Name: "证据候选", TextContent: "有儿童椅，适合带孩子家庭聚餐"},
+		{ShopID: 3, Name: "另一个普通候选", TextContent: "交通方便"},
+	}}
+	required := agent.RequiredSemanticConcepts("适合家庭聚餐并照顾孩子")
+	a := &shopSearchAdapter{
+		inner: cap, requiredSemantics: required, semanticRerank: true,
+	}
+	got, err := a.SearchShops(context.Background(), "家庭聚餐", "", "", nil, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cap.lastTopK != 20 {
+		t.Fatalf("semantic candidate pool topK=%d, want 20", cap.lastTopK)
+	}
+	if len(got) != 2 || got[0].ShopID != 2 {
+		t.Fatalf("semantic evidence should rank first: %+v", got)
+	}
+}
+
+func TestInferExplicitFilter(t *testing.T) {
+	t.Parallel()
+	got := inferExplicitFilter("朝阳区找安静办公的咖啡，人均50以内")
+	if got == nil || got.Area != "朝阳区" || got.TypeName != "咖啡" || got.MaxPrice != 50 {
+		t.Fatalf("unexpected filter: %+v", got)
+	}
+	got = inferExplicitFilter("推荐东城区适合约会的餐厅，预算 180 元")
+	if got == nil || got.Area != "东城区" || got.TypeName != "美食" || got.MaxPrice != 180 {
+		t.Fatalf("unexpected restaurant filter: %+v", got)
+	}
+	got = inferExplicitFilter("改成海淀区，预算50，不要沿用朝阳区")
+	if got == nil || got.Area != "海淀区" || got.MaxPrice != 50 {
+		t.Fatalf("correction chose denied area: %+v", got)
+	}
+}
+
+func TestEffectiveProfileForQuestionClearsBudgetForCurrentSearch(t *testing.T) {
+	t.Parallel()
+	budget := int64(80)
+	old := memory.Profile{PreferredAreas: []string{"海淀区"}, BudgetMax: &budget}
+	got := effectiveProfileForQuestion(old, "忘掉预算，改为丰台区")
+	if got.BudgetMax != nil {
+		t.Fatalf("budget should be suppressed for current search: %+v", got)
+	}
+	if len(got.PreferredAreas) != 1 || got.PreferredAreas[0] != "海淀区" {
+		t.Fatalf("effective profile mutated unrelated fields: %+v", got)
+	}
+	if old.BudgetMax == nil || *old.BudgetMax != 80 {
+		t.Fatalf("input profile was mutated: %+v", old)
+	}
+}
+
+func TestEffectiveProfileForQuestionExactNameOverridesDefaults(t *testing.T) {
+	t.Parallel()
+	budget := int64(80)
+	old := memory.Profile{
+		PreferredAreas: []string{"丰台区"},
+		PreferredTypes: []string{"美食"},
+		BudgetMax:      &budget,
+	}
+	got := effectiveProfileForQuestion(old, "找「静巷咖啡·国贸店」，说明价格")
+	if len(got.PreferredAreas) != 0 || len(got.PreferredTypes) != 0 || got.BudgetMax != nil {
+		t.Fatalf("exact-name lookup must not inherit profile defaults: %+v", got)
+	}
+}
+
+func TestInferDeterministicProfilePatchCorrection(t *testing.T) {
+	t.Parallel()
+	budget := int64(80)
+	old := memory.Profile{
+		PreferredAreas: []string{"海淀区"},
+		PreferredTypes: []string{"咖啡"},
+		BudgetMax:      &budget,
+	}
+	got := inferDeterministicProfilePatch("忘掉预算，改为丰台区，再推荐一家适合家庭聚餐的店", old)
+	if got.BudgetMax == nil || *got.BudgetMax != 0 {
+		t.Fatalf("budget clear missing: %+v", got)
+	}
+	if len(got.PreferredAreasAdd) != 1 || got.PreferredAreasAdd[0] != "丰台区" {
+		t.Fatalf("area add missing: %+v", got)
+	}
+	if len(got.PreferredAreasRemove) != 1 || got.PreferredAreasRemove[0] != "海淀区" {
+		t.Fatalf("old area removal missing: %+v", got)
+	}
+	if len(got.PreferredTypesAdd) != 0 || len(got.PreferredTypesRemove) != 0 {
+		t.Fatalf("semantic request must not infer a hard shop type: %+v", got)
 	}
 }

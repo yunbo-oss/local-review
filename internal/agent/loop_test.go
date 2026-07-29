@@ -44,6 +44,14 @@ func TestValidateGroundedness(t *testing.T) {
 	}
 }
 
+func TestNormalizeCitationSyntax(t *testing.T) {
+	t.Parallel()
+	got := NormalizeCitationSyntax("推荐 [喜茶](shop:12) 和 [shop:8]")
+	if got != "推荐 [shop:12] 和 [shop:8]" {
+		t.Fatalf("NormalizeCitationSyntax() = %q", got)
+	}
+}
+
 func TestRunLoop_DuplicateRejected(t *testing.T) {
 	t.Parallel()
 	client := &scriptedClient{turns: []llm.AssistantTurn{
@@ -106,6 +114,23 @@ func TestRunLoop_GroundingFail(t *testing.T) {
 	res := RunLoop(context.Background(), client, exec, DefaultRunConfig(), []llm.ChatMessage{{Role: "user", Content: "x"}}, nil)
 	if res.GroundingOK || res.Err == nil {
 		t.Fatalf("want grounding error, got %+v", res)
+	}
+}
+
+func TestRunLoop_RepairsUnknownShopWithoutNewTools(t *testing.T) {
+	t.Parallel()
+	client := &scriptedClient{turns: []llm.AssistantTurn{
+		{Message: llm.ChatMessage{Role: "assistant", Content: "推荐已发现的店 [shop:1]，以及不存在的店 [shop:999]。"}},
+		{Message: llm.ChatMessage{Role: "assistant", Content: "推荐已发现的店 [shop:1]。"}},
+	}}
+	exec := &ToolExecutor{Ledger: NewEvidenceLedger(), Observed: map[int64]struct{}{}}
+	exec.Ledger.DiscoverFromSearch(1, "已发现的店", map[string]any{"avg_price": int64(50)})
+	res := RunLoop(context.Background(), client, exec, DefaultRunConfig(), []llm.ChatMessage{{Role: "user", Content: "推荐一家店"}}, nil)
+	if !res.GroundingOK || res.GroundingCode != "" {
+		t.Fatalf("repair should pass full verifier: %+v", res)
+	}
+	if res.ModelCalls != 2 || res.ToolCalls != 0 {
+		t.Fatalf("repair must use one model call and no tools: %+v", res)
 	}
 }
 

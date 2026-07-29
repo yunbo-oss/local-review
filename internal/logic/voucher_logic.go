@@ -25,8 +25,8 @@ type VoucherLogic interface {
 }
 
 type voucherLogic struct {
-	voucherRepo             repoInterfaces.VoucherRepo
-	seckillVoucherRepo      repoInterfaces.SeckillVoucherRepo
+	voucherRepo               repoInterfaces.VoucherRepo
+	seckillVoucherRepo        repoInterfaces.SeckillVoucherRepo
 	seckillVoucherBloomFilter *utils.BloomFilter
 }
 
@@ -46,8 +46,8 @@ func NewVoucherLogic(deps VoucherLogicDeps) VoucherLogic {
 		seckillVoucherRepo = repository.NewSeckillVoucherRepo(mysql.GetMysqlDB())
 	}
 	return &voucherLogic{
-		voucherRepo:              voucherRepo,
-		seckillVoucherRepo:      seckillVoucherRepo,
+		voucherRepo:               voucherRepo,
+		seckillVoucherRepo:        seckillVoucherRepo,
 		seckillVoucherBloomFilter: nil,
 	}
 }

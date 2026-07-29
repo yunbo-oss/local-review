@@ -29,13 +29,13 @@ type ChatReq struct {
 
 // ChatFilter 向量检索预过滤（对应 VectorSearchFilter）
 type ChatFilter struct {
-	Area         string   `json:"area,omitempty"`          // 区域，如 "朝阳区"
-	TypeName     string   `json:"typeName,omitempty"`       // 类型，如 "美食"
-	MaxPrice     *int64   `json:"maxPrice,omitempty"`       // 人均上限
-	MinPrice     *int64   `json:"minPrice,omitempty"`       // 人均下限
-	MinScore     *int     `json:"minScore,omitempty"`       // 评分下限
-	MinComments  *int     `json:"minComments,omitempty"`     // 评论数下限
-	MaxDistance  *float64 `json:"maxDistance,omitempty"`    // 语义相似度阈值（COSINE 距离上限，越小越严）
+	Area        string   `json:"area,omitempty"`        // 区域，如 "朝阳区"
+	TypeName    string   `json:"typeName,omitempty"`    // 类型，如 "美食"
+	MaxPrice    *int64   `json:"maxPrice,omitempty"`    // 人均上限
+	MinPrice    *int64   `json:"minPrice,omitempty"`    // 人均下限
+	MinScore    *int     `json:"minScore,omitempty"`    // 评分下限
+	MinComments *int     `json:"minComments,omitempty"` // 评论数下限
+	MaxDistance *float64 `json:"maxDistance,omitempty"` // 语义相似度阈值（COSINE 距离上限，越小越严）
 }
 
 // Chat 智能点评对话（SSE 流式）
@@ -91,7 +91,7 @@ func chatFilterToVectorFilter(f *ChatFilter) *repoInterfaces.VectorSearchFilter 
 		return nil
 	}
 	v := &repoInterfaces.VectorSearchFilter{
-		Area: f.Area,
+		Area:     f.Area,
 		TypeName: f.TypeName,
 	}
 	if f.MaxPrice != nil {

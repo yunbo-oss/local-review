@@ -5,27 +5,30 @@ import (
 	"fmt"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"local-review-go/internal/llm"
 )
 
 var shopCiteRe = regexp.MustCompile(`\[shop:(\d+)\]`)
+var markdownShopLinkRe = regexp.MustCompile(`\[[^\]]+\]\(\s*shop:(\d+)\s*\)`)
 
 // LoopResult 有界循环结果
 type LoopResult struct {
-	Answer             string
-	Steps              int
-	ToolCalls          int // 实际执行（非 duplicate 跳过）的次数
-	ToolAttempts       int // 含失败/重复/未知的尝试次数
-	DuplicateRejected  int
-	ObservedShopIDs    []int64
-	Usage              llm.TokenUsage
-	Messages           []llm.ChatMessage
-	Err                error
-	GroundingOK        bool
-	GroundingCode      string
-	AllowNoResult      bool
+	Answer            string
+	Steps             int
+	ModelCalls        int
+	ToolCalls         int // 实际执行（非 duplicate 跳过）的次数
+	ToolAttempts      int // 含失败/重复/未知的尝试次数
+	DuplicateRejected int
+	ObservedShopIDs   []int64
+	Usage             llm.TokenUsage
+	Messages          []llm.ChatMessage
+	Err               error
+	GroundingOK       bool
+	GroundingCode     string
+	AllowNoResult     bool
 }
 
 // StatusCallback SSE status
@@ -71,6 +74,7 @@ func RunLoop(ctx context.Context, client llm.ToolChatClient, exec *ToolExecutor,
 		}
 		res.Steps = step + 1
 
+		res.ModelCalls++
 		turn, err := client.ChatWithTools(runCtx, res.Messages, tools)
 		if err != nil {
 			res.Err = err
@@ -83,8 +87,9 @@ func RunLoop(ctx context.Context, client llm.ToolChatClient, exec *ToolExecutor,
 		res.Messages = append(res.Messages, turn.Message)
 
 		if len(turn.ToolCalls) == 0 {
-			res.Answer = turn.Message.Content
+			res.Answer = NormalizeCitationSyntax(turn.Message.Content)
 			finalizeGrounding(&res, exec)
+			tryRepairGrounding(runCtx, client, &res, exec)
 			return res
 		}
 
@@ -101,16 +106,27 @@ func RunLoop(ctx context.Context, client llm.ToolChatClient, exec *ToolExecutor,
 			calls = calls[:cfg.MaxToolsPerTurn]
 		}
 
-		for _, tc := range calls {
+		budgetExhausted := false
+		for callIdx, tc := range calls {
 			if res.ToolAttempts >= cfg.MaxToolAttempts {
-				res.Err = NewPublicError(ErrMaxToolCalls, fmt.Sprintf("max tool attempts %d reached", cfg.MaxToolAttempts))
-				res.ObservedShopIDs = observedList(exec)
-				return res
+				for _, skipped := range calls[callIdx:] {
+					res.Messages = append(res.Messages, llm.ChatMessage{
+						Role: "tool", Name: skipped.Name, ToolCallID: skipped.ID,
+						Content: `{"error":"max_tool_attempts","message":"tool budget exhausted; answer from existing evidence"}`,
+					})
+				}
+				budgetExhausted = true
+				break
 			}
 			if res.ToolCalls >= cfg.MaxToolCalls {
-				res.Err = NewPublicError(ErrMaxToolCalls, fmt.Sprintf("max tool calls %d reached", cfg.MaxToolCalls))
-				res.ObservedShopIDs = observedList(exec)
-				return res
+				for _, skipped := range calls[callIdx:] {
+					res.Messages = append(res.Messages, llm.ChatMessage{
+						Role: "tool", Name: skipped.Name, ToolCallID: skipped.ID,
+						Content: `{"error":"max_tool_calls","message":"tool budget exhausted; answer from existing evidence"}`,
+					})
+				}
+				budgetExhausted = true
+				break
 			}
 			res.ToolAttempts++
 			key := tc.Name + "|" + CanonicalArgs(tc.Args)
@@ -135,19 +151,80 @@ func RunLoop(ctx context.Context, client llm.ToolChatClient, exec *ToolExecutor,
 				Role: "tool", Name: tc.Name, ToolCallID: tc.ID, Content: out,
 			})
 		}
+		if budgetExhausted {
+			break
+		}
 	}
 
 	// 预算耗尽：尝试无工具收尾
+	res.Messages = append(res.Messages, llm.ChatMessage{
+		Role:    "user",
+		Content: "工具调用阶段已经结束。不要再调用或输出工具协议；请只根据已有工具结果直接给出中文最终回答，推荐必须带 [shop:id] 引用；若没有候选则明确说没有结果。",
+	})
+	res.ModelCalls++
 	turn, err := client.ChatCompleteTurn(runCtx, res.Messages)
 	if err != nil {
 		res.Err = fmt.Errorf("max steps reached: %w", err)
 		res.ObservedShopIDs = observedList(exec)
 		return res
 	}
-	res.Answer = turn.Message.Content
+	res.Usage.PromptTokens += turn.Usage.PromptTokens
+	res.Usage.CompletionTokens += turn.Usage.CompletionTokens
+	res.Usage.TotalTokens += turn.Usage.TotalTokens
+	res.Answer = NormalizeCitationSyntax(turn.Message.Content)
 	res.Messages = append(res.Messages, turn.Message)
 	finalizeGrounding(&res, exec)
+	tryRepairGrounding(runCtx, client, &res, exec)
 	return res
+}
+
+// NormalizeCitationSyntax accepts the common Markdown-link variant emitted by
+// compatible models and canonicalizes it to the API's [shop:id] contract.
+func NormalizeCitationSyntax(answer string) string {
+	return markdownShopLinkRe.ReplaceAllString(answer, "[shop:$1]")
+}
+
+// tryRepairGrounding performs one bounded, no-tool revision for formatting
+// omissions or an unknown shop introduced by the model. Fact conflicts and
+// unsupported semantic claims are intentionally never rewritten here.
+func tryRepairGrounding(ctx context.Context, client llm.ToolChatClient, res *LoopResult, exec *ToolExecutor) {
+	if res == nil || strings.TrimSpace(res.Answer) == "" {
+		return
+	}
+	if res.GroundingCode != ErrGroundingNoCitation && res.GroundingCode != ErrGroundingUnknownShop {
+		return
+	}
+	ids := observedList(exec)
+	if exec != nil && len(exec.RequiredSemantics) > 0 && exec.Ledger != nil {
+		if semanticIDs := exec.Ledger.SemanticEvidenceIDs(exec.RequiredSemantics); len(semanticIDs) > 0 {
+			ids = semanticIDs
+		}
+	}
+	if len(ids) == 0 {
+		return
+	}
+	instruction := fmt.Sprintf(
+		"引用校验失败：请保留原回答的事实与结论，只把涉及店铺的陈述补成严格的 [shop:id] 引用格式。可引用 id 仅限 %v；不要调用工具，不要加入新事实。",
+		ids,
+	)
+	if res.GroundingCode == ErrGroundingUnknownShop {
+		instruction = fmt.Sprintf(
+			"引用校验失败：原回答包含未在工具结果中出现的店铺。请删除所有未知店名、对应事实和未知引用，只根据可引用 id %v 重写简洁中文答案；每个推荐都使用严格 [shop:id]，不要调用工具，不要加入新事实。",
+			ids,
+		)
+	}
+	res.Messages = append(res.Messages, llm.ChatMessage{Role: "user", Content: instruction})
+	res.ModelCalls++
+	turn, err := client.ChatCompleteTurn(ctx, res.Messages)
+	if err != nil {
+		return
+	}
+	res.Usage.PromptTokens += turn.Usage.PromptTokens
+	res.Usage.CompletionTokens += turn.Usage.CompletionTokens
+	res.Usage.TotalTokens += turn.Usage.TotalTokens
+	res.Answer = NormalizeCitationSyntax(turn.Message.Content)
+	res.Messages = append(res.Messages, turn.Message)
+	finalizeGrounding(res, exec)
 }
 
 func finalizeGrounding(res *LoopResult, exec *ToolExecutor) {
@@ -158,9 +235,24 @@ func finalizeGrounding(res *LoopResult, exec *ToolExecutor) {
 		exec.syncObservedFromLedger()
 		res.ObservedShopIDs = observedList(exec)
 	}
+	var semanticIDs []int64
+	if exec != nil && len(exec.RequiredSemantics) > 0 && ledger != nil {
+		semanticIDs = ledger.SemanticEvidenceIDs(exec.RequiredSemantics)
+		if len(semanticIDs) == 0 {
+			res.Answer = fmt.Sprintf(
+				"没有找到已读取评价能够支持这些语义要求（%s）的候选店铺；为避免无依据推荐，建议放宽条件后重试。",
+				strings.Join(exec.RequiredSemantics, "、"),
+			)
+		}
+	}
 	allowNo := InferAllowNoResult(res.Answer, ledger)
+	if exec != nil && len(exec.RequiredSemantics) > 0 && len(semanticIDs) == 0 {
+		allowNo = true
+	}
 	res.AllowNoResult = allowNo
-	err := VerifyAnswer(res.Answer, ledger, VerifyOptions{AllowNoResult: allowNo})
+	err := VerifyAnswer(res.Answer, ledger, VerifyOptions{
+		AllowNoResult: allowNo, SemanticEvidenceIDs: semanticIDs,
+	})
 	if err != nil {
 		res.GroundingOK = false
 		res.Err = err
@@ -177,6 +269,8 @@ func finalizeGrounding(res *LoopResult, exec *ToolExecutor) {
 		return
 	}
 	res.GroundingOK = true
+	res.Err = nil
+	res.GroundingCode = ""
 }
 
 func observedList(exec *ToolExecutor) []int64 {

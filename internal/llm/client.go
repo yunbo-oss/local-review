@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/binary"
@@ -18,10 +19,13 @@ import (
 )
 
 const (
-	// 默认模型（DeepSeek / OpenAI 兼容）
-	defaultEmbeddingModel = "text-embedding-3-small"
-	defaultChatModel      = "deepseek-chat"
-	defaultBaseURL        = "https://api.deepseek.com/v1"
+	// DeepSeek 官方提供 Chat/Tool Calls，不提供本项目所需的 Embeddings。
+	// 默认用确定性的本地 feature-hash 向量，只把 API 用于 Chat/Agent。
+	defaultEmbeddingProvider = "local"
+	defaultEmbeddingModel    = "local-feature-hash-zh-v2"
+	defaultEmbeddingDim      = 384
+	defaultChatModel         = "deepseek-v4-flash"
+	defaultBaseURL           = "https://api.deepseek.com"
 )
 
 // EmbeddingClient 文本向量化接口
@@ -36,14 +40,17 @@ type ChatClient interface {
 	ChatStream(ctx context.Context, messages []openai.ChatCompletionMessage, onChunk func(string)) error
 	// ChatComplete 非流式完成，返回完整回复（用于 filter 提取等需要结构化输出的场景）
 	ChatComplete(ctx context.Context, messages []openai.ChatCompletionMessage) (string, error)
+	ChatCompleteWithUsage(ctx context.Context, messages []openai.ChatCompletionMessage) (string, TokenUsage, error)
 }
 
 // Config 从环境变量读取 LLM 配置
 type Config struct {
 	BaseURL               string
 	APIKey                string
+	EmbeddingProvider     string
 	EmbeddingModel        string
 	ChatModel             string
+	ThinkingMode          string
 	EmbeddingDim          int
 	TLSInsecureSkipVerify bool // 跳过 TLS 证书校验（仅开发/调试，生产慎用）
 }
@@ -54,15 +61,27 @@ func LoadConfig() Config {
 		baseURL = defaultBaseURL
 	}
 	apiKey := os.Getenv("LLM_API_KEY")
+	embProvider := strings.ToLower(strings.TrimSpace(os.Getenv("LLM_EMBEDDING_PROVIDER")))
+	if embProvider == "" {
+		embProvider = defaultEmbeddingProvider
+	}
 	embModel := os.Getenv("LLM_EMBEDDING_MODEL")
 	if embModel == "" {
-		embModel = defaultEmbeddingModel
+		if embProvider == "local" {
+			embModel = defaultEmbeddingModel
+		} else {
+			embModel = "text-embedding-3-small"
+		}
 	}
 	chatModel := os.Getenv("LLM_CHAT_MODEL")
 	if chatModel == "" {
 		chatModel = defaultChatModel
 	}
-	dim := 1024
+	thinkingMode := strings.ToLower(strings.TrimSpace(os.Getenv("LLM_THINKING_MODE")))
+	if thinkingMode == "" {
+		thinkingMode = "disabled"
+	}
+	dim := defaultEmbeddingDim
 	if d := os.Getenv("LLM_EMBEDDING_DIM"); d != "" {
 		if n, err := fmt.Sscanf(d, "%d", &dim); err == nil && n == 1 {
 			// ok
@@ -76,8 +95,10 @@ func LoadConfig() Config {
 	return Config{
 		BaseURL:               baseURL,
 		APIKey:                apiKey,
+		EmbeddingProvider:     embProvider,
 		EmbeddingModel:        embModel,
 		ChatModel:             chatModel,
+		ThinkingMode:          thinkingMode,
 		EmbeddingDim:          dim,
 		TLSInsecureSkipVerify: tlsSkip,
 	}
@@ -89,27 +110,47 @@ type openAIClient struct {
 	config Config
 }
 
-// NewOpenAIClient 创建 LLM 客户端。若 APIKey 为空则返回 nil，RAG/Agent 功能不可用。
-// 第三个返回值为 ToolChatClient（与 ChatClient 同一实现）。
+// NewOpenAIClient 按配置创建独立的 embedding 与 chat 客户端。
+// local embedding 不需要 API key；Chat/Tool Calls 仍要求 API key。
 func NewOpenAIClient(config Config) (EmbeddingClient, ChatClient, ToolChatClient) {
-	if config.APIKey == "" {
-		logrus.Warn("LLM_API_KEY not set, RAG chat disabled")
+	var embedding EmbeddingClient
+	switch strings.ToLower(strings.TrimSpace(config.EmbeddingProvider)) {
+	case "", "local":
+		embedding = NewLocalEmbeddingClient(config.EmbeddingDim)
+	case "api", "openai":
+		// Assigned after the OpenAI-compatible client is created below.
+	default:
+		logrus.Errorf("unsupported LLM_EMBEDDING_PROVIDER=%q", config.EmbeddingProvider)
 		return nil, nil, nil
+	}
+	if config.APIKey == "" {
+		logrus.Warn("LLM_API_KEY not set, Chat/Agent disabled; local retrieval remains available")
+		return embedding, nil, nil
 	}
 	cfg := openai.DefaultConfig(config.APIKey)
 	cfg.BaseURL = config.BaseURL
+	httpClient := &http.Client{}
 	if config.TLSInsecureSkipVerify {
-		cfg.HTTPClient = &http.Client{
-			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-			},
+		httpClient.Transport = &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 		}
 	}
+	if config.ThinkingMode == "disabled" && strings.Contains(strings.ToLower(config.BaseURL), "deepseek.com") {
+		base := httpClient.Transport
+		if base == nil {
+			base = http.DefaultTransport
+		}
+		httpClient.Transport = &deepSeekThinkingTransport{base: base}
+	}
+	cfg.HTTPClient = httpClient
 	c := &openAIClient{
 		client: openai.NewClientWithConfig(cfg),
 		config: config,
 	}
-	return c, c, c
+	if embedding == nil {
+		embedding = c
+	}
+	return embedding, c, c
 }
 
 // Embed 单条文本向量化
@@ -173,28 +214,72 @@ func (c *openAIClient) Dimension() int {
 	return c.config.EmbeddingDim
 }
 
+// deepSeekThinkingTransport injects the current DeepSeek V4 non-thinking
+// switch without forking the OpenAI-compatible SDK request types.
+type deepSeekThinkingTransport struct {
+	base http.RoundTripper
+}
+
+func (t *deepSeekThinkingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.Body == nil || !strings.HasSuffix(req.URL.Path, "/chat/completions") {
+		return t.base.RoundTrip(req)
+	}
+	raw, err := io.ReadAll(req.Body)
+	if err != nil {
+		return nil, err
+	}
+	_ = req.Body.Close()
+	patched, err := injectDisabledThinking(raw)
+	if err != nil {
+		return nil, err
+	}
+	req.Body = io.NopCloser(bytes.NewReader(patched))
+	req.ContentLength = int64(len(patched))
+	req.Header.Set("Content-Length", fmt.Sprint(len(patched)))
+	return t.base.RoundTrip(req)
+}
+
+func injectDisabledThinking(raw []byte) ([]byte, error) {
+	var body map[string]any
+	if err := json.Unmarshal(raw, &body); err != nil {
+		return nil, fmt.Errorf("decode chat request for DeepSeek thinking mode: %w", err)
+	}
+	body["thinking"] = map[string]any{"type": "disabled"}
+	return json.Marshal(body)
+}
+
 // ChatComplete 非流式对话，返回完整内容
 func (c *openAIClient) ChatComplete(ctx context.Context, messages []openai.ChatCompletionMessage) (string, error) {
+	content, _, err := c.ChatCompleteWithUsage(ctx, messages)
+	return content, err
+}
+
+func (c *openAIClient) ChatCompleteWithUsage(ctx context.Context, messages []openai.ChatCompletionMessage) (string, TokenUsage, error) {
 	resp, err := c.client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-		Model:    c.config.ChatModel,
-		Messages: messages,
-		Stream:   false,
+		Model:     c.config.ChatModel,
+		Messages:  messages,
+		Stream:    false,
+		MaxTokens: 512,
 	})
 	if err != nil {
-		return "", fmt.Errorf("create chat completion: %w", err)
+		return "", TokenUsage{}, fmt.Errorf("create chat completion: %w", err)
 	}
 	if len(resp.Choices) == 0 {
-		return "", fmt.Errorf("chat completion empty")
+		return "", TokenUsage{}, fmt.Errorf("chat completion empty")
 	}
-	return resp.Choices[0].Message.Content, nil
+	return resp.Choices[0].Message.Content, TokenUsage{
+		PromptTokens: resp.Usage.PromptTokens, CompletionTokens: resp.Usage.CompletionTokens,
+		TotalTokens: resp.Usage.TotalTokens,
+	}, nil
 }
 
 // ChatWithTools 带 tools 的非流式一轮（function calling）
 func (c *openAIClient) ChatWithTools(ctx context.Context, messages []ChatMessage, tools []ToolDefinition) (AssistantTurn, error) {
 	req := openai.ChatCompletionRequest{
-		Model:    c.config.ChatModel,
-		Messages: toOpenAIMessages(messages),
-		Stream:   false,
+		Model:     c.config.ChatModel,
+		Messages:  toOpenAIMessages(messages),
+		Stream:    false,
+		MaxTokens: 800,
 	}
 	if len(tools) > 0 {
 		req.Tools = toOpenAITools(tools)
@@ -292,9 +377,10 @@ func assistantTurnFromResponse(resp openai.ChatCompletionResponse) (AssistantTur
 // ChatStream 流式对话
 func (c *openAIClient) ChatStream(ctx context.Context, messages []openai.ChatCompletionMessage, onChunk func(string)) error {
 	stream, err := c.client.CreateChatCompletionStream(ctx, openai.ChatCompletionRequest{
-		Model:    c.config.ChatModel,
-		Messages: messages,
-		Stream:   true,
+		Model:     c.config.ChatModel,
+		Messages:  messages,
+		Stream:    true,
+		MaxTokens: 800,
 	})
 	if err != nil {
 		return fmt.Errorf("create chat stream: %w", err)

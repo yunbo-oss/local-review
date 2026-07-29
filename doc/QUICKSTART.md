@@ -73,11 +73,25 @@ make load-test-seckill-max
 ## 五、RAG 智能点评
 
 - **依赖**：Redis Stack（docker-compose 已替换为 `redis-stack-server`）、`LLM_API_KEY`
-- **向量导入**：`make seed-vector`（需先 `make seed`）
+- **向量导入**：`make seed-vector`（正式评测应先生成 v2 数据并保证 MySQL 共 200 家店）
 - **接口**：`POST /api/rag/chat` 需登录，支持 SSE 流式输出
 - **展示**：`make demo-rag`（3 问题流式）
 
-## 六、常用 Make 命令
+## 六、从空环境复现正式评测
+
+不要把 API key 写入 `.env`。下面的命令会清空本项目 Compose volumes，自动完成迁移、固定数据、Redis、200 条向量和 RocketMQ topic 初始化，再执行 API 校验、正式评测和三轮记忆 Demo。
+
+```bash
+make docker-reset
+LLM_API_KEY='你的密钥' make docker-up
+LLM_API_KEY='你的密钥' make docker-verify
+LLM_API_KEY='你的密钥' make docker-eval
+LLM_API_KEY='你的密钥' make docker-demo
+```
+
+正式指标、报告口径和失败分析见 [AGENT_AND_EVAL.md](AGENT_AND_EVAL.md)；实践问题见 [EVAL_PRACTICE_LOG.md](EVAL_PRACTICE_LOG.md)。
+
+## 七、常用 Make 命令
 
 | 命令 | 说明 |
 |------|------|
@@ -90,6 +104,10 @@ make load-test-seckill-max
 | `make seed-redis` | 初始化 Redis 秒杀库存 + 验证码 |
 | `make seed-reset-load-test` | 重置订单和库存 |
 | `make seed-vector` | RAG 店铺向量导入 |
+| `make generate-eval-data` | 固定种子生成/校验 v2 数据和 golden |
+| `make docker-verify` | 校验数据、登录、API、RAG/Agent SSE 和引用 |
+| `make docker-eval` | 运行三份正式 Retrieval/Hybrid/Agent 报告 |
+| `make docker-demo` | 运行三轮长期记忆 Demo |
 | `make init-rag` | RAG 一键初始化 |
 | `make demo-rag` | RAG 展示（流式） |
 | `make load-test-seckill` | 秒杀压测 |

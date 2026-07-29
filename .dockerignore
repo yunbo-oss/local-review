@@ -6,12 +6,18 @@
 !README.md
 docs/
 specs/
-rag-evals/
-front-end/
+# Runtime image needs formal goldens/reports and static UI assets.
+!rag-evals/
+!rag-evals/**
+!front-end/
+!front-end/**
 *.exe
 *.test
 *.out
 bin/
+/local-review-go
+/eval-rag
+.tmp/
 tmp/
 .DS_Store
 .idea/

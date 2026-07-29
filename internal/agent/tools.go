@@ -28,12 +28,13 @@ const (
 
 // ShopHit 工具返回的精简店铺
 type ShopHit struct {
-	ShopID   int64
-	Name     string
-	Area     string
-	TypeName string
-	AvgPrice int64
-	Score    int
+	ShopID         int64
+	Name           string
+	Area           string
+	TypeName       string
+	AvgPrice       int64
+	Score          int
+	ReviewEvidence string
 }
 
 // ShopSearcher 窄接口，避免 agent→logic 循环依赖
@@ -49,6 +50,9 @@ type ToolExecutor struct {
 	MaxChars int
 	OnStatus func(ToolStatus)
 	Ledger   *EvidenceLedger
+	// RequiredSemantics are derived deterministically from the original user
+	// question and must be backed by fetched review text before recommendation.
+	RequiredSemantics []string
 	// Observed 与 Ledger 可引用集同步（兼容旧 groundedness / graders）
 	Observed map[int64]struct{}
 }
@@ -63,12 +67,12 @@ func ToolDefinitions() []llm.ToolDefinition {
 		},
 		{
 			Name:        ToolGetShop,
-			Description: "读取单店权威详情",
+			Description: "读取单店权威结构化详情（地址、价格、营业时间）；不能证明安静、无障碍、宠物友好等体验",
 			Parameters:  json.RawMessage(`{"type":"object","properties":{"shop_id":{"type":"integer"}},"required":["shop_id"],"additionalProperties":false}`),
 		},
 		{
 			Name:        ToolListShopBlogs,
-			Description: "列出店铺真实评价",
+			Description: "列出店铺真实评价；判断安静办公、约会、亲子、宠物友好、无障碍、商务宴请、深夜体验等语义适配性的必需工具",
 			Parameters:  json.RawMessage(`{"type":"object","properties":{"shop_id":{"type":"integer"},"limit":{"type":"integer"}},"required":["shop_id"],"additionalProperties":false}`),
 		},
 	}
@@ -168,21 +172,24 @@ func (e *ToolExecutor) execSearch(ctx context.Context, argsJSON string) (string,
 		return "", err
 	}
 	type item struct {
-		ShopID   int64  `json:"shop_id"`
-		Name     string `json:"name"`
-		Area     string `json:"area"`
-		TypeName string `json:"type_name"`
-		AvgPrice int64  `json:"avg_price"`
-		Score    int    `json:"score"`
+		ShopID                  int64  `json:"shop_id"`
+		Name                    string `json:"name"`
+		Area                    string `json:"area"`
+		TypeName                string `json:"type_name"`
+		AvgPrice                int64  `json:"avg_price"`
+		Score                   int    `json:"score"`
+		UntrustedReviewEvidence string `json:"untrusted_review_evidence,omitempty"`
 	}
 	items := make([]item, 0, len(results))
 	for _, r := range results {
 		e.Ledger.DiscoverFromSearch(r.ShopID, r.Name, map[string]any{
 			"avg_price": r.AvgPrice, "score": r.Score, "area": r.Area, "type_name": r.TypeName,
+			"review_evidence": r.ReviewEvidence,
 		})
 		items = append(items, item{
 			ShopID: r.ShopID, Name: r.Name, Area: r.Area,
 			TypeName: r.TypeName, AvgPrice: r.AvgPrice, Score: r.Score,
+			UntrustedReviewEvidence: truncateUTF8(r.ReviewEvidence, 500),
 		})
 	}
 	b, _ := json.Marshal(items)
@@ -251,6 +258,7 @@ func (e *ToolExecutor) execListBlogs(ctx context.Context, argsJSON string) (stri
 		return "", err
 	}
 	ids := make([]int64, 0, len(blogs))
+	texts := make([]string, 0, len(blogs))
 	type bi struct {
 		BlogID  int64  `json:"blog_id"`
 		Title   string `json:"title"`
@@ -260,13 +268,14 @@ func (e *ToolExecutor) execListBlogs(ctx context.Context, argsJSON string) (stri
 	items := make([]bi, 0, len(blogs))
 	for _, b := range blogs {
 		ids = append(ids, b.Id)
+		texts = append(texts, strings.TrimSpace(b.Title)+" "+strings.TrimSpace(b.Content))
 		snip := strings.TrimSpace(b.Content)
 		if len([]rune(snip)) > 120 {
 			snip = string([]rune(snip)[:120]) + "…"
 		}
 		items = append(items, bi{BlogID: b.Id, Title: b.Title, Snippet: snip, Score: b.Liked})
 	}
-	_ = e.Ledger.RecordBlogs(a.ShopID, ids)
+	_ = e.Ledger.RecordBlogEvidence(a.ShopID, ids, texts)
 	// content_snippet 为用户生成内容：标注 untrusted，配合 system policy 防注入
 	payload := map[string]any{
 		"shop_id":        a.ShopID,

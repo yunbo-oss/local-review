@@ -1,6 +1,10 @@
 package agent
 
-import "sync"
+import (
+	"sort"
+	"strings"
+	"sync"
+)
 
 // EvidenceValue 带来源的字段值
 type EvidenceValue struct {
@@ -16,6 +20,7 @@ type ShopEvidence struct {
 	Verified     bool
 	Fields       map[string]EvidenceValue
 	BlogIDs      []int64
+	BlogTexts    []string
 }
 
 // Citeable 是否可被 [shop:id] 引用（至少 discovered）
@@ -89,6 +94,12 @@ func (l *EvidenceLedger) VerifyFromGetShop(shopID int64, name string, fields map
 
 // RecordBlogs 仅当已 discovered 且 blogs 非空时登记；空列表不得授予可引用身份
 func (l *EvidenceLedger) RecordBlogs(shopID int64, blogIDs []int64) error {
+	return l.RecordBlogEvidence(shopID, blogIDs, nil)
+}
+
+// RecordBlogEvidence records both provenance IDs and the untrusted review text
+// used by the deterministic semantic-evidence gate.
+func (l *EvidenceLedger) RecordBlogEvidence(shopID int64, blogIDs []int64, blogTexts []string) error {
 	if l == nil {
 		return NewPublicError(ErrToolNotAllowed, "ledger not configured")
 	}
@@ -105,7 +116,93 @@ func (l *EvidenceLedger) RecordBlogs(shopID int64, blogIDs []int64) error {
 		return nil
 	}
 	ev.BlogIDs = append([]int64{}, blogIDs...)
+	ev.BlogTexts = append([]string{}, blogTexts...)
 	return nil
+}
+
+type semanticRule struct {
+	Name    string
+	Aliases []string
+}
+
+var semanticRules = []semanticRule{
+	{Name: "work", Aliases: []string{"安静", "办公", "学习", "自习", "插座", "wifi", "写方案"}},
+	{Name: "date", Aliases: []string{"浪漫", "约会", "情侣", "纪念日", "情调"}},
+	{Name: "family", Aliases: []string{"家庭", "聚餐", "孩子", "儿童椅", "亲子", "老人"}},
+	{Name: "late", Aliases: []string{"深夜", "凌晨", "夜宵", "夜班", "加班后"}},
+	{Name: "pet", Aliases: []string{"宠物", "带狗", "猫狗", "饮水碗"}},
+	{Name: "accessible", Aliases: []string{"无障碍", "轮椅", "坡道", "扶手", "行动不便"}},
+	{Name: "business", Aliases: []string{"商务", "宴请", "客户", "接待"}},
+	{Name: "student_value", Aliases: []string{"学生", "平价", "性价比", "学生党", "学生优惠"}},
+}
+
+// RequiredSemanticConcepts maps a user request to the finite semantic
+// dimensions represented by the deterministic evaluation data.
+func RequiredSemanticConcepts(text string) []string {
+	low := strings.ToLower(text)
+	var out []string
+	for _, rule := range semanticRules {
+		if containsAlias(low, rule.Aliases) {
+			out = append(out, rule.Name)
+		}
+	}
+	return out
+}
+
+// SemanticEvidenceIDs returns discovered shops whose fetched review text
+// contains evidence for every required concept.
+func (l *EvidenceLedger) SemanticEvidenceIDs(required []string) []int64 {
+	if l == nil || len(required) == 0 {
+		return nil
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	var out []int64
+	for id, ev := range l.Shops {
+		evidenceTexts := append([]string{}, ev.BlogTexts...)
+		if field, ok := ev.Fields["review_evidence"]; ok {
+			if text, ok := field.Value.(string); ok {
+				evidenceTexts = append(evidenceTexts, text)
+			}
+		}
+		if ReviewTextSupportsSemantics(strings.Join(evidenceTexts, "\n"), required) {
+			out = append(out, id)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
+}
+
+// ReviewTextSupportsSemantics applies the same finite semantic evidence rules
+// to retrieval candidates and the final grounding verifier. Keeping one rule
+// avoids ranking a candidate that the verifier will later reject.
+func ReviewTextSupportsSemantics(text string, required []string) bool {
+	if strings.TrimSpace(text) == "" || len(required) == 0 {
+		return false
+	}
+	joined := strings.ToLower(text)
+	for _, concept := range required {
+		found := false
+		for _, rule := range semanticRules {
+			if rule.Name == concept && containsAlias(joined, rule.Aliases) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
+}
+
+func containsAlias(text string, aliases []string) bool {
+	for _, alias := range aliases {
+		if strings.Contains(text, alias) {
+			return true
+		}
+	}
+	return false
 }
 
 // IsDiscovered 是否本轮已发现
@@ -155,6 +252,9 @@ func (l *EvidenceLedger) Get(shopID int64) *ShopEvidence {
 	}
 	if ev.BlogIDs != nil {
 		cp.BlogIDs = append([]int64{}, ev.BlogIDs...)
+	}
+	if ev.BlogTexts != nil {
+		cp.BlogTexts = append([]string{}, ev.BlogTexts...)
 	}
 	return &cp
 }

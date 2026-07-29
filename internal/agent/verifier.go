@@ -15,7 +15,8 @@ var (
 // VerifyOptions 终答校验选项
 type VerifyOptions struct {
 	// AllowNoResult 明确无结果路径：允许无 [shop:id]
-	AllowNoResult bool
+	AllowNoResult       bool
+	SemanticEvidenceIDs []int64
 }
 
 // VerifyAnswer 成功推荐前校验：引用 ⊆ 证据；非无结果须有引用；强事实不冲突
@@ -40,6 +41,23 @@ func VerifyAnswer(answer string, ledger *EvidenceLedger, opts VerifyOptions) err
 			return NewPublicError(ErrGroundingUnknownShop, fmt.Sprintf("cited shop %d not in evidence", id))
 		}
 	}
+	if len(opts.SemanticEvidenceIDs) > 0 {
+		semantic := map[int64]struct{}{}
+		for _, id := range opts.SemanticEvidenceIDs {
+			semantic[id] = struct{}{}
+		}
+		hit := false
+		for _, id := range cited {
+			if _, ok := semantic[id]; ok {
+				hit = true
+				break
+			}
+		}
+		if !hit {
+			return NewPublicError(ErrGroundingSemanticUnsupported,
+				"no cited shop has fetched review evidence for the requested semantic preference")
+		}
+	}
 
 	if err := checkFactConflicts(answer, cited, ledger); err != nil {
 		return err
@@ -51,26 +69,28 @@ func checkFactConflicts(answer string, cited []int64, ledger *EvidenceLedger) er
 	if ledger == nil {
 		return nil
 	}
-	// 人均：若答案写了人均 N，则每个被引用且有 avg_price 证据的店必须匹配 N（同一答案多店时取一致价格）
-	if m := avgPriceRe.FindStringSubmatch(answer); len(m) == 2 {
+	// 人均：答案中的每个明确价格都必须出现在被引用店铺的价格证据集合中。
+	// 旧实现把第一个价格与所有引用店逐一比较，会误杀“店 A 42 元、店 B
+	// 35 元”这类正常多店对比。
+	evidencePrices := map[int64]struct{}{}
+	for _, id := range cited {
+		ev := ledger.Get(id)
+		if ev == nil {
+			continue
+		}
+		fv, ok := ev.Fields["avg_price"]
+		if !ok {
+			continue
+		}
+		if got, ok := asInt64(fv.Value); ok {
+			evidencePrices[got] = struct{}{}
+		}
+	}
+	for _, m := range avgPriceRe.FindAllStringSubmatch(answer, -1) {
 		want, _ := strconv.ParseInt(m[1], 10, 64)
-		for _, id := range cited {
-			ev := ledger.Get(id)
-			if ev == nil {
-				continue
-			}
-			fv, ok := ev.Fields["avg_price"]
-			if !ok {
-				continue
-			}
-			got, ok := asInt64(fv.Value)
-			if !ok {
-				continue
-			}
-			if got != want {
-				return NewPublicError(ErrGroundingFactConflict,
-					fmt.Sprintf("avg_price conflict shop %d: answer=%d evidence=%d", id, want, got))
-			}
+		if _, ok := evidencePrices[want]; !ok {
+			return NewPublicError(ErrGroundingFactConflict,
+				fmt.Sprintf("avg_price conflict: answer=%d not present in cited evidence", want))
 		}
 	}
 	_ = scoreRe // 预留评分冲突；首版以均价为主
