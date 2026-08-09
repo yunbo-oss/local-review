@@ -65,7 +65,7 @@ func TestChallengeContractAndIsolation(t *testing.T) {
 	if criticalCases != 10 || criticalTrials != 30 || challengeTrials != 48 {
 		t.Fatalf("critical cases/trials=%d/%d challenge trials=%d", criticalCases, criticalTrials, challengeTrials)
 	}
-	if d.Manifest.FormalEvaluationExecuted {
+	if d.Manifest.FormalEvaluationExecutedAtGeneration {
 		t.Fatal("generated manifest must never claim formal execution")
 	}
 }

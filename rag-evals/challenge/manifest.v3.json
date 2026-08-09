@@ -39,5 +39,5 @@
     "infrastructure fault injection and production-traffic replay require separate runners"
   ],
   "generation_command": "go run ./cmd/generate-challenge-data",
-  "formal_evaluation_executed": false
+  "formal_evaluation_executed_at_generation": false
 }

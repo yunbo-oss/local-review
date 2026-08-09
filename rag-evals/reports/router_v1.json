@@ -1,0 +1,894 @@
+{
+  "runtime": {
+    "started_at_utc": "2026-08-09T08:30:13Z",
+    "git_commit": "6819a5c5ff6e5cc3f6a6ae0d2f92cc748d1061e4",
+    "git_dirty": false,
+    "git_state_known": true,
+    "go_version": "go1.24.13"
+  },
+  "version": "router-eval.v1",
+  "dataset_version": "router.v1",
+  "dataset_hash": "sha256:560dd72ca2170318c40668d1793c281b717263148bcfcaa9ce3a5ec4930e022b",
+  "split": "test",
+  "policy_version": "recommend-router-rules-v1",
+  "n_total": 48,
+  "n_correct": 38,
+  "accuracy": 0.7916666666666666,
+  "infrastructure_errors": 0,
+  "infrastructure_error_rate": 0,
+  "per_class": {
+    "agent_memory": {
+      "support": 11,
+      "predicted": 9,
+      "true_positive": 8,
+      "precision": 0.8888888888888888,
+      "recall": 0.7272727272727273,
+      "f1": 0.7999999999999999
+    },
+    "agent_multistep": {
+      "support": 13,
+      "predicted": 8,
+      "true_positive": 8,
+      "precision": 1,
+      "recall": 0.6153846153846154,
+      "f1": 0.761904761904762
+    },
+    "clarify": {
+      "support": 11,
+      "predicted": 10,
+      "true_positive": 10,
+      "precision": 1,
+      "recall": 0.9090909090909091,
+      "f1": 0.9523809523809523
+    },
+    "rag_oneshot": {
+      "support": 13,
+      "predicted": 21,
+      "true_positive": 12,
+      "precision": 0.5714285714285714,
+      "recall": 0.9230769230769231,
+      "f1": 0.7058823529411765
+    }
+  },
+  "confusion_matrix": {
+    "agent_memory": {
+      "agent_memory": 8,
+      "rag_oneshot": 3
+    },
+    "agent_multistep": {
+      "agent_multistep": 8,
+      "rag_oneshot": 5
+    },
+    "clarify": {
+      "clarify": 10,
+      "rag_oneshot": 1
+    },
+    "rag_oneshot": {
+      "agent_memory": 1,
+      "rag_oneshot": 12
+    }
+  },
+  "tag_accuracy": {
+    "ambiguous_reference": 1,
+    "area": 1,
+    "boundary": 0.75,
+    "category": 1,
+    "clarify": 0.9,
+    "compare": 0.6,
+    "empty": 1,
+    "explanation": 0.5,
+    "followup": 0.75,
+    "force_route": 1,
+    "history_independent": 1,
+    "invalid_force": 1,
+    "memory": 0.7,
+    "missing_history": 0,
+    "multistep": 0.5833333333333334,
+    "oneshot": 0.9166666666666666,
+    "override": 1,
+    "paraphrase": 0,
+    "preference_delete": 0.6666666666666666,
+    "preference_update": 0.6666666666666666,
+    "price": 1,
+    "prompt_injection": 0.6666666666666666,
+    "quoted_text": 0,
+    "review_check": 1,
+    "review_conflict": 0,
+    "score": 1,
+    "semantic_preference": 1,
+    "shop_detail": 0.6666666666666666,
+    "too_short": 1,
+    "underspecified": 1,
+    "whitespace": 1
+  },
+  "errors": [
+    {
+      "id": "rt-agent-07",
+      "tags": [
+        "multistep",
+        "compare",
+        "paraphrase"
+      ],
+      "expected_route": "agent_multistep",
+      "actual_route": "rag_oneshot",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "clear_oneshot",
+      "pass": false
+    },
+    {
+      "id": "rt-agent-08",
+      "tags": [
+        "multistep",
+        "compare",
+        "paraphrase"
+      ],
+      "expected_route": "agent_multistep",
+      "actual_route": "rag_oneshot",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "clear_oneshot",
+      "pass": false
+    },
+    {
+      "id": "rt-agent-09",
+      "tags": [
+        "multistep",
+        "shop_detail",
+        "paraphrase"
+      ],
+      "expected_route": "agent_multistep",
+      "actual_route": "rag_oneshot",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "clear_oneshot",
+      "pass": false
+    },
+    {
+      "id": "rt-agent-10",
+      "tags": [
+        "multistep",
+        "review_conflict",
+        "paraphrase"
+      ],
+      "expected_route": "agent_multistep",
+      "actual_route": "rag_oneshot",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "clear_oneshot",
+      "pass": false
+    },
+    {
+      "id": "rt-agent-11",
+      "tags": [
+        "multistep",
+        "explanation",
+        "paraphrase"
+      ],
+      "expected_route": "agent_multistep",
+      "actual_route": "rag_oneshot",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "clear_oneshot",
+      "pass": false
+    },
+    {
+      "id": "rt-clarify-08",
+      "tags": [
+        "clarify",
+        "missing_history",
+        "boundary"
+      ],
+      "expected_route": "clarify",
+      "actual_route": "rag_oneshot",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "clear_oneshot",
+      "pass": false
+    },
+    {
+      "id": "rt-memory-08",
+      "tags": [
+        "memory",
+        "preference_delete",
+        "paraphrase"
+      ],
+      "expected_route": "agent_memory",
+      "actual_route": "rag_oneshot",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "clear_oneshot",
+      "pass": false
+    },
+    {
+      "id": "rt-memory-09",
+      "tags": [
+        "memory",
+        "preference_update",
+        "paraphrase"
+      ],
+      "expected_route": "agent_memory",
+      "actual_route": "rag_oneshot",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "clear_oneshot",
+      "pass": false
+    },
+    {
+      "id": "rt-memory-10",
+      "tags": [
+        "memory",
+        "followup",
+        "paraphrase"
+      ],
+      "expected_route": "agent_memory",
+      "actual_route": "rag_oneshot",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "clear_oneshot",
+      "pass": false
+    },
+    {
+      "id": "rt-rag-11",
+      "tags": [
+        "oneshot",
+        "prompt_injection",
+        "quoted_text"
+      ],
+      "expected_route": "rag_oneshot",
+      "actual_route": "agent_memory",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "pref_correct",
+      "pass": false
+    }
+  ],
+  "cases": [
+    {
+      "id": "rt-rag-01",
+      "tags": [
+        "oneshot",
+        "area",
+        "category"
+      ],
+      "expected_route": "rag_oneshot",
+      "actual_route": "rag_oneshot",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "clear_oneshot",
+      "pass": true
+    },
+    {
+      "id": "rt-rag-02",
+      "tags": [
+        "oneshot",
+        "area",
+        "price"
+      ],
+      "expected_route": "rag_oneshot",
+      "actual_route": "rag_oneshot",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "clear_oneshot",
+      "pass": true
+    },
+    {
+      "id": "rt-rag-03",
+      "tags": [
+        "oneshot",
+        "semantic_preference"
+      ],
+      "expected_route": "rag_oneshot",
+      "actual_route": "rag_oneshot",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "clear_oneshot",
+      "pass": true
+    },
+    {
+      "id": "rt-rag-04",
+      "tags": [
+        "oneshot",
+        "score"
+      ],
+      "expected_route": "rag_oneshot",
+      "actual_route": "rag_oneshot",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "clear_oneshot",
+      "pass": true
+    },
+    {
+      "id": "rt-rag-05",
+      "tags": [
+        "oneshot",
+        "semantic_preference"
+      ],
+      "expected_route": "rag_oneshot",
+      "actual_route": "rag_oneshot",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "clear_oneshot",
+      "pass": true
+    },
+    {
+      "id": "rt-rag-06",
+      "tags": [
+        "oneshot",
+        "semantic_preference"
+      ],
+      "expected_route": "rag_oneshot",
+      "actual_route": "rag_oneshot",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "clear_oneshot",
+      "pass": true
+    },
+    {
+      "id": "rt-rag-07",
+      "tags": [
+        "oneshot",
+        "semantic_preference"
+      ],
+      "expected_route": "rag_oneshot",
+      "actual_route": "rag_oneshot",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "clear_oneshot",
+      "pass": true
+    },
+    {
+      "id": "rt-rag-08",
+      "tags": [
+        "oneshot",
+        "area",
+        "category"
+      ],
+      "expected_route": "rag_oneshot",
+      "actual_route": "rag_oneshot",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "clear_oneshot",
+      "pass": true
+    },
+    {
+      "id": "rt-rag-09",
+      "tags": [
+        "oneshot",
+        "price",
+        "history_independent"
+      ],
+      "expected_route": "rag_oneshot",
+      "actual_route": "rag_oneshot",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "clear_oneshot",
+      "pass": true
+    },
+    {
+      "id": "rt-rag-10",
+      "tags": [
+        "oneshot",
+        "invalid_force",
+        "boundary"
+      ],
+      "expected_route": "rag_oneshot",
+      "actual_route": "rag_oneshot",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "clear_oneshot",
+      "pass": true
+    },
+    {
+      "id": "rt-rag-11",
+      "tags": [
+        "oneshot",
+        "prompt_injection",
+        "quoted_text"
+      ],
+      "expected_route": "rag_oneshot",
+      "actual_route": "agent_memory",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "pref_correct",
+      "pass": false
+    },
+    {
+      "id": "rt-rag-12",
+      "tags": [
+        "oneshot",
+        "prompt_injection"
+      ],
+      "expected_route": "rag_oneshot",
+      "actual_route": "rag_oneshot",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "clear_oneshot",
+      "pass": true
+    },
+    {
+      "id": "rt-agent-01",
+      "tags": [
+        "multistep",
+        "compare"
+      ],
+      "expected_route": "agent_multistep",
+      "actual_route": "agent_multistep",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "needs_detail",
+      "pass": true
+    },
+    {
+      "id": "rt-agent-02",
+      "tags": [
+        "multistep",
+        "compare",
+        "explanation"
+      ],
+      "expected_route": "agent_multistep",
+      "actual_route": "agent_multistep",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "needs_detail",
+      "pass": true
+    },
+    {
+      "id": "rt-agent-03",
+      "tags": [
+        "multistep",
+        "review_check"
+      ],
+      "expected_route": "agent_multistep",
+      "actual_route": "agent_multistep",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "needs_detail",
+      "pass": true
+    },
+    {
+      "id": "rt-agent-04",
+      "tags": [
+        "multistep",
+        "shop_detail"
+      ],
+      "expected_route": "agent_multistep",
+      "actual_route": "agent_multistep",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "needs_detail",
+      "pass": true
+    },
+    {
+      "id": "rt-agent-05",
+      "tags": [
+        "multistep",
+        "shop_detail"
+      ],
+      "expected_route": "agent_multistep",
+      "actual_route": "agent_multistep",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "needs_detail",
+      "pass": true
+    },
+    {
+      "id": "rt-agent-06",
+      "tags": [
+        "multistep",
+        "review_check"
+      ],
+      "expected_route": "agent_multistep",
+      "actual_route": "agent_multistep",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "needs_detail",
+      "pass": true
+    },
+    {
+      "id": "rt-agent-07",
+      "tags": [
+        "multistep",
+        "compare",
+        "paraphrase"
+      ],
+      "expected_route": "agent_multistep",
+      "actual_route": "rag_oneshot",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "clear_oneshot",
+      "pass": false
+    },
+    {
+      "id": "rt-agent-08",
+      "tags": [
+        "multistep",
+        "compare",
+        "paraphrase"
+      ],
+      "expected_route": "agent_multistep",
+      "actual_route": "rag_oneshot",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "clear_oneshot",
+      "pass": false
+    },
+    {
+      "id": "rt-agent-09",
+      "tags": [
+        "multistep",
+        "shop_detail",
+        "paraphrase"
+      ],
+      "expected_route": "agent_multistep",
+      "actual_route": "rag_oneshot",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "clear_oneshot",
+      "pass": false
+    },
+    {
+      "id": "rt-agent-10",
+      "tags": [
+        "multistep",
+        "review_conflict",
+        "paraphrase"
+      ],
+      "expected_route": "agent_multistep",
+      "actual_route": "rag_oneshot",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "clear_oneshot",
+      "pass": false
+    },
+    {
+      "id": "rt-agent-11",
+      "tags": [
+        "multistep",
+        "explanation",
+        "paraphrase"
+      ],
+      "expected_route": "agent_multistep",
+      "actual_route": "rag_oneshot",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "clear_oneshot",
+      "pass": false
+    },
+    {
+      "id": "rt-agent-12",
+      "tags": [
+        "multistep",
+        "compare",
+        "prompt_injection"
+      ],
+      "expected_route": "agent_multistep",
+      "actual_route": "agent_multistep",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "needs_detail",
+      "pass": true
+    },
+    {
+      "id": "rt-memory-01",
+      "tags": [
+        "memory",
+        "preference_delete"
+      ],
+      "expected_route": "agent_memory",
+      "actual_route": "agent_memory",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "pref_correct",
+      "pass": true
+    },
+    {
+      "id": "rt-memory-02",
+      "tags": [
+        "memory",
+        "preference_delete"
+      ],
+      "expected_route": "agent_memory",
+      "actual_route": "agent_memory",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "pref_correct",
+      "pass": true
+    },
+    {
+      "id": "rt-memory-03",
+      "tags": [
+        "memory",
+        "preference_update"
+      ],
+      "expected_route": "agent_memory",
+      "actual_route": "agent_memory",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "pref_correct",
+      "pass": true
+    },
+    {
+      "id": "rt-memory-04",
+      "tags": [
+        "memory",
+        "preference_update"
+      ],
+      "expected_route": "agent_memory",
+      "actual_route": "agent_memory",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "pref_correct",
+      "pass": true
+    },
+    {
+      "id": "rt-memory-05",
+      "tags": [
+        "memory",
+        "followup"
+      ],
+      "expected_route": "agent_memory",
+      "actual_route": "agent_memory",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "session_followup",
+      "pass": true
+    },
+    {
+      "id": "rt-memory-06",
+      "tags": [
+        "memory",
+        "followup"
+      ],
+      "expected_route": "agent_memory",
+      "actual_route": "agent_memory",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "session_followup",
+      "pass": true
+    },
+    {
+      "id": "rt-memory-07",
+      "tags": [
+        "memory",
+        "followup"
+      ],
+      "expected_route": "agent_memory",
+      "actual_route": "agent_memory",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "session_followup",
+      "pass": true
+    },
+    {
+      "id": "rt-memory-08",
+      "tags": [
+        "memory",
+        "preference_delete",
+        "paraphrase"
+      ],
+      "expected_route": "agent_memory",
+      "actual_route": "rag_oneshot",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "clear_oneshot",
+      "pass": false
+    },
+    {
+      "id": "rt-memory-09",
+      "tags": [
+        "memory",
+        "preference_update",
+        "paraphrase"
+      ],
+      "expected_route": "agent_memory",
+      "actual_route": "rag_oneshot",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "clear_oneshot",
+      "pass": false
+    },
+    {
+      "id": "rt-memory-10",
+      "tags": [
+        "memory",
+        "followup",
+        "paraphrase"
+      ],
+      "expected_route": "agent_memory",
+      "actual_route": "rag_oneshot",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "clear_oneshot",
+      "pass": false
+    },
+    {
+      "id": "rt-clarify-01",
+      "tags": [
+        "clarify",
+        "empty",
+        "whitespace"
+      ],
+      "expected_route": "clarify",
+      "actual_route": "clarify",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "empty_question",
+      "pass": true
+    },
+    {
+      "id": "rt-clarify-02",
+      "tags": [
+        "clarify",
+        "too_short"
+      ],
+      "expected_route": "clarify",
+      "actual_route": "clarify",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "too_short",
+      "pass": true
+    },
+    {
+      "id": "rt-clarify-03",
+      "tags": [
+        "clarify",
+        "ambiguous_reference"
+      ],
+      "expected_route": "clarify",
+      "actual_route": "clarify",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "too_short",
+      "pass": true
+    },
+    {
+      "id": "rt-clarify-04",
+      "tags": [
+        "clarify",
+        "underspecified"
+      ],
+      "expected_route": "clarify",
+      "actual_route": "clarify",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "too_short",
+      "pass": true
+    },
+    {
+      "id": "rt-clarify-05",
+      "tags": [
+        "clarify",
+        "underspecified",
+        "boundary"
+      ],
+      "expected_route": "clarify",
+      "actual_route": "clarify",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "underspecified",
+      "pass": true
+    },
+    {
+      "id": "rt-clarify-06",
+      "tags": [
+        "clarify",
+        "ambiguous_reference"
+      ],
+      "expected_route": "clarify",
+      "actual_route": "clarify",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "too_short",
+      "pass": true
+    },
+    {
+      "id": "rt-clarify-07",
+      "tags": [
+        "clarify",
+        "underspecified",
+        "boundary"
+      ],
+      "expected_route": "clarify",
+      "actual_route": "clarify",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "underspecified",
+      "pass": true
+    },
+    {
+      "id": "rt-clarify-08",
+      "tags": [
+        "clarify",
+        "missing_history",
+        "boundary"
+      ],
+      "expected_route": "clarify",
+      "actual_route": "rag_oneshot",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "clear_oneshot",
+      "pass": false
+    },
+    {
+      "id": "rt-clarify-09",
+      "tags": [
+        "clarify",
+        "ambiguous_reference"
+      ],
+      "expected_route": "clarify",
+      "actual_route": "clarify",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "missing_session_context",
+      "pass": true
+    },
+    {
+      "id": "rt-clarify-10",
+      "tags": [
+        "clarify",
+        "ambiguous_reference",
+        "too_short"
+      ],
+      "expected_route": "clarify",
+      "actual_route": "clarify",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "too_short",
+      "pass": true
+    },
+    {
+      "id": "rt-force-01",
+      "tags": [
+        "force_route",
+        "override"
+      ],
+      "expected_route": "rag_oneshot",
+      "actual_route": "rag_oneshot",
+      "expected_forced": true,
+      "actual_forced": true,
+      "reason": "force",
+      "pass": true
+    },
+    {
+      "id": "rt-force-02",
+      "tags": [
+        "force_route",
+        "override"
+      ],
+      "expected_route": "agent_multistep",
+      "actual_route": "agent_multistep",
+      "expected_forced": true,
+      "actual_forced": true,
+      "reason": "force",
+      "pass": true
+    },
+    {
+      "id": "rt-force-03",
+      "tags": [
+        "force_route",
+        "override",
+        "whitespace"
+      ],
+      "expected_route": "agent_memory",
+      "actual_route": "agent_memory",
+      "expected_forced": true,
+      "actual_forced": true,
+      "reason": "force",
+      "pass": true
+    },
+    {
+      "id": "rt-force-04",
+      "tags": [
+        "force_route",
+        "override"
+      ],
+      "expected_route": "clarify",
+      "actual_route": "clarify",
+      "expected_forced": true,
+      "actual_forced": true,
+      "reason": "force",
+      "pass": true
+    }
+  ]
+}

@@ -53,7 +53,7 @@ func Build(sourceManifestSHA string) Dataset {
 		// The generator never invokes a model. A real report must set its own
 		// execution metadata; this flag prevents generated files being mistaken
 		// for a measured baseline.
-		FormalEvaluationExecuted: false,
+		FormalEvaluationExecutedAtGeneration: false,
 	}
 	return Dataset{Retrieval: retrieval, Agent: agent, Manifest: manifest}
 }

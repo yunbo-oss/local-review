@@ -9,7 +9,7 @@
 - 底层仍使用 v2 的固定 200 家店铺、1000 条评论，挑战的是表达和任务分布，不冒充生产流量。
 - `dev` 可用于调试 harness、prompt 和评分规则；`challenge` 只在代码冻结后运行。
 - 文件在仓库中可见，所以它是“可复现的冻结 holdout”，不是保密 benchmark；这一限制在 manifest 中明示。
-- 生成命令不调用模型，`formal_evaluation_executed=false`，因此生成文件不能被当成正式成绩。
+- 生成命令不调用模型，`formal_evaluation_executed_at_generation=false`，因此仅生成文件不能被当成正式成绩；正式执行证据在带运行时元数据的 reports 中。
 
 ## 正确使用协议
 

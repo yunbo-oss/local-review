@@ -209,7 +209,7 @@
 
 **修复**：让 Hybrid RAG 直接运行 Agent 的同一份 test 场景和同一份 trial 计划，并复用相同 outcome/groundedness/composite grader；报告写入数据哈希、场景 ID 和 trial 序列，比较前逐项校验。
 
-**验证**：双方均运行 22 个场景、38 个 trial，数据哈希一致，infra error 均为 0%；最终 task success 为 Agent 100%、Hybrid RAG 81.58%，差异为 +18.42 个百分点。
+**当时验证**：双方均运行 22 个场景、38 个 trial，数据哈希一致，infra error 均为 0%。该轮曾报告 Agent 100%、Hybrid 81.58%、+18.42pp；后续第 40～42 项发现多轮遥测漏计和 grader 过松，因此这个分数已作废，不再用于结论。
 
 ## 21. 成功率、引用和稳定性被一个分数混在一起
 
@@ -219,7 +219,7 @@
 
 **修复**：分开输出 outcome、groundedness、trajectory 和 composite；tag 级别分别提供 outcome 与 composite；将旧字段改为 `all_trials_pass_rate`，只统计至少 3 trial 的关键场景，要求该场景所有 trial 都通过。
 
-**验证**：最终 JSON 中不存在 `pass_at_k`；Agent 的 outcome/composite/all-trials 均为 100%，Hybrid 分别为 81.58%/81.58%/75.00%，差异可以独立解释。
+**当时验证**：JSON 中已不存在 `pass_at_k`，三个维度可独立解释；当时的 100% 数字后来被更严格 grader 推翻。现正式 v2 Agent outcome/composite/all-trials 为 84.21%/84.21%/62.50%，v3 challenge 为 52.08%/45.83%/30.00%。
 
 ## 22. 首轮分数不能直接作为项目结论
 
@@ -229,7 +229,7 @@
 
 **修复**：保留每个失败 trial 的回答、步骤、工具、Token、stop reason 和 grader 原因；按“单测 → 定点真实调用 → 单 trial test → 关键场景三 trial → 完整正式评测”逐层收敛，修复后重新生成并覆盖正式报告。
 
-**验证**：最终 Retrieval 60/60 task success，Agent 38/38 composite，成功回答 groundedness 100%，三份正式 baseline 均含真实模型、延迟、Token 和逐 trial 记录。首轮 26.3% 仅作为修复过程记录，不进入简历数字。
+**当时验证**：Retrieval 60/60 task success，Agent 38/38 composite。后续严格 allowed-only 和全 turn 累计发现旧 Agent 报告仍有漏判，因此 38/38 已被新正式报告替代；首轮 26.3% 和旧 100% 都只保留为过程记录。
 
 ## 23. 流式 API 不接受标准 Bearer 头
 
@@ -377,9 +377,89 @@
 
 **验证**：新增共享语义证据规则单测，并在正式 test 场景上复跑验证，避免只优化离线 Retrieval golden。
 
-正式复跑中 a2-20 从 Outcome 失败恢复为通过；完整结果为 22/22 场景、38/38 trial 的 outcome、groundedness、trajectory 和 composite 全部通过。
+当时复跑中 a2-20 从 Outcome 失败恢复为通过；这证明了该定点修复，但随后第 40～42 项升级 harness/grader 后，完整 38/38 结论不再有效。
 
-## 37. 临时验收命令硬编码了错误的数据库与索引名
+## 40. 多轮 Agent 遥测只保留最后一轮
+
+**现象**：多轮场景的报告看起来模型调用、工具调用、Token 和 observed shop 很少，旧成本与成功率无法和实际链路对应。
+
+**根因**：runner 在每一轮覆盖 trial actual，只保留最终回答对应的一轮；前序轮的调用与证据丢失。
+
+**修复**：所有 turn 累加 model calls、tool calls、duplicate calls、Token 和 observed IDs；只有最终 answer、filter、route 和 trace 使用最后一轮结果，并增加多轮 runner 回归测试。
+
+**验证**：正式 v2 Agent 平均 4.45 model calls / 2.45 tool calls / 5361 Token；v3 为 5.35 / 2.06 / 6131，报告与真实多轮链路一致。旧 +18.42pp 和旧成本数字因此废弃。
+
+## 41. Groundedness 只检查“见过”，没有检查“该不该推荐”
+
+**现象**：旧正式报告的某个 trial 引用了真实观察过但与目标无关的店，仍被判通过。
+
+**根因**：grader 只验证 citation ⊆ observed，没有 `allowed_only`、允许/禁止店集合及 claim coverage。
+
+**修复**：增加 `allowed_only`、`permitted_shop_ids`、required/forbidden answer、required claim 和 required tools；groundedness 分开报告 citation legality 与 claim coverage。
+
+**验证**：严格重跑后 v2 Agent 不再是 100%，而是 84.21% trial-micro；v3 challenge 为 52.08%。成功回答 groundedness 仍为 100%。
+
+## 42. 工具事实单位和字段语义错误
+
+**现象**：工具把数据库 score=47 展示成 47 分；评价点赞字段又被命名为 score，模型可能生成错误事实。
+
+**根因**：数据库评分使用十分制整数，工具层未归一化；blog DTO 沿用了含糊字段名。
+
+**修复**：评分统一转换为 4.7 形式；评价字段改名为 `liked`；verifier 新增评分、地址和营业时间校验，事实冲突只能基于白名单证据修订。
+
+**验证**：单位和字段单测通过，成功回答在 v2/v3 的 groundedness 均为 100%。
+
+## 43. 正式 Router test 暴露同义改写召回不足
+
+**现象**：dev 12/12，但冻结 test 只有 38/48；多步比较、记忆修改的同义表达常被路由到 RAG。
+
+**根因**：Router 是高精度关键词/规则 fast path，paraphrase 覆盖有限；quoted injection 文本还可能含路由触发词。
+
+**修复**：冻结前仅补充明确 intent suffix、无历史歧义澄清和轻量 HasHistory；正式 test 后不再按个例补关键词。
+
+**验证**：test accuracy 79.17%、infra error 0；错误完整保存。后续方案是规则 fast path + 分类器 fallback，而不是调当前 holdout。
+
+## 44. v3 challenge 推翻“回归集 100% 等于上线可用”
+
+**现象**：v2 Retrieval task success 100%，v3 challenge 降至 64.17%；Agent v3 也只有 52.08% trial-micro。
+
+**根因**：v2 已参与修复，表达较规则；v3 增加错别字、否定纠正、OOD 同义表达、未知 taxonomy 和更难拒答。
+
+**修复**：不针对 v3 个例改行为；保留失败，作为下一版 regression 输入。
+
+**验证**：v3 Retrieval 120、Agent/Hybrid 各 48 trials 全部真实执行，infra error 0；no-result accuracy 12.5% 被列为最高优先级限制。
+
+## 45. Demo profile 复用已删除 Docker network
+
+**现象**：第一次 reset 成功，随后 memory demo 报 `network ... not found`。
+
+**根因**：旧 profile 一次性容器残留，Compose 自动拉起依赖时尝试复用已经被 `down` 删除的 network。
+
+**修复**：`docker-demo` 显式用 `--no-deps` 分别运行 `memory-demo-reset` 和 `memory-demo`，不复用陈旧 profile 容器；`docker-reset` 同时启用所有 profile 再执行 `down -v --remove-orphans`，确保下次空卷验证会清理这些一次性容器。
+
+**验证**：重跑 3/3 SSE 成功，第 2/3 轮含引用，预算清空且丰台区纠正写入 profile version 3。
+
+## 46. Challenge manifest 字段容易误读
+
+**现象**：challenge 已正式执行，但生成 manifest 仍显示 `formal_evaluation_executed=false`，容易被误认为报告未运行。
+
+**根因**：manifest 是确定性生成产物，字段实际表达“生成命令没有调用模型”，命名却像运行状态。
+
+**修复**：改名为 `formal_evaluation_executed_at_generation=false`；正式执行状态由带 started_at、git commit、dataset hash 的 report 证明。
+
+**验证**：challenge 三个生成文件仍可 `--check` 字节复现，正式报告保留冻结 commit。
+
+## 47. 博客变化没有刷新检索向量
+
+**现象**：新评价或点赞改变 Top reviews 后，向量文档仍可能保留旧文本；保存博客无关注者时还曾返回 ID 0。
+
+**根因**：BlogLogic 未注入 shop-update producer；DB commit 后 follower 查询失败被当作整体失败；返回值走了无关注者早退路径。
+
+**修复**：认证用户覆盖请求体 userId，提交后始终返回真实 ID；follower 查询失败只告警；保存和 like/unlike 通知向量刷新，并用注入 Redis/MQ 依赖补测试。
+
+**验证**：保存/点赞触发刷新测试通过。剩余限制是 MQ 发送失败缺少 transactional outbox，需 reconciliation 兜底。
+
+## 48. 临时验收命令硬编码了错误的数据库与索引名
 
 **现象**：最终服务全部 healthy，但人工只读计数先后报 MySQL database 不存在、Redis 未认证和 RediSearch index 不存在。
 
@@ -389,7 +469,7 @@
 
 **验证**：最终只读计数为 MySQL `shops=200`、`blogs=1000`，RediSearch 索引文档数为 `200`。
 
-## 38. Docker build cache 挤满宿主磁盘
+## 49. Docker build cache 挤满宿主磁盘
 
 **现象**：最后一次镜像构建长时间停在 Go 编译且没有新输出；宿主数据盘只剩约 1.5 GB。
 
@@ -399,7 +479,7 @@
 
 **验证**：五个 Go 二进制与最终镜像重新构建成功，随后 App、MySQL、Redis、RocketMQ Broker/NameServer 全部恢复 healthy，初始化任务仍为 exit 0。
 
-## 39. zsh 的 `status` 只读变量让健康等待命令假失败
+## 50. zsh 的 `status` 只读变量让健康等待命令假失败
 
 **现象**：Compose 已启动 App，但最终健康等待命令以 `read-only variable: status` 退出。
 

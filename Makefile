@@ -130,7 +130,7 @@ test-llm:
 # --- Docker 可复现评测闭环 ---
 # LLM_API_KEY 只从当前 shell 注入；不要写进 .env 或仓库。
 docker-reset:
-	docker compose down -v --remove-orphans
+	docker compose --profile verify --profile eval --profile challenge --profile demo down -v --remove-orphans
 
 docker-up:
 	docker compose up -d --build
@@ -155,7 +155,8 @@ docker-challenge:
 
 docker-demo:
 	@test -n "$$LLM_API_KEY" || (echo "LLM_API_KEY is required" >&2; exit 1)
-	docker compose --profile demo run --rm memory-demo
+	docker compose --profile demo run --rm --no-deps memory-demo-reset
+	docker compose --profile demo run --rm --no-deps memory-demo
 
 # 秒杀压测（多用户+多券，8G 内存推荐限流 50 QPS/实例）
 load-test-seckill:

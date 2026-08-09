@@ -9,7 +9,7 @@
 
 ## 秋招演示：可复现 Agent / RAG 评测闭环
 
-本仓库已用固定种子扩充到 **200 家店、1000 条评论**，并提供 68 题 Retrieval golden（test 60）和 28 场景 Agent golden（test 22，其中 8 个关键场景各跑 3 次）。正式报告来自真实 DeepSeek API 调用，不含 placeholder、fake 或 stub 数据。
+本仓库已用固定种子扩充到 **200 家店、1000 条评论**。v2 regression 含 Retrieval test 60 题、Agent test 22 场景/38 trials；冻结的 v3 challenge 含 Retrieval 120 题、Agent 28 场景/48 trials。正式报告来自真实 DeepSeek API 调用，不含 placeholder、fake 或 stub 数据。
 
 ```bash
 # API key 只临时注入 shell，不写入仓库
@@ -18,19 +18,24 @@ LLM_API_KEY='你的密钥' make docker-up
 LLM_API_KEY='你的密钥' make docker-verify
 LLM_API_KEY='你的密钥' make docker-eval
 LLM_API_KEY='你的密钥' make docker-demo
+
+# 只在代码与数据冻结后运行一次
+LLM_API_KEY='你的密钥' make docker-challenge
 ```
 
-正式 test 指标（2026-07-29）：
+正式指标（2026-08-09，冻结 commit `6819a5c`）：
 
-- Retrieval：HitRate@5 100%、Recall@5 81.63%、Precision@5 83.21%、MRR/NDCG@5 1.000、过滤字段/结果合规 100%、infra error 0%。
-- Agent：38/38 trial task success、groundedness、trajectory、composite 全部通过，8 个关键场景全部 trial 通过率 100%，P50/P95 7.61s/12.43s。
-- 同任务 Hybrid RAG：task success 81.58%，P50/P95 3.06s/7.08s；Agent 提升 18.42 个百分点，但平均 Token 从 1074 增至 5099。
+- v2 Retrieval：HitRate@5 100%、Recall@5 81.63%、Precision@5 83.21%、MRR 0.9732、NDCG@5 0.9802、过滤准确率 100%、infra error 0%。
+- v3 challenge Retrieval：HitRate@5 70.54%、task success 64.17%、no-result accuracy 12.50%，如实暴露 OOD 同义表达、错别字和拒答弱点。
+- v3 同任务对照：Agent scenario-macro task success 53.57%，Hybrid RAG 11.90%，提升 **41.67 个百分点**；成功回答 groundedness 100%，但 Agent P50/P95 为 7.51s/12.56s，平均 Token 6131。
+- Router test 48 题准确率 79.17%；三轮记忆 Demo 3/3 SSE、引用及 profile 纠正均通过。
 
 完整口径、实验条件、失败分析和诚实限制：
 
 - [Agent 与评测说明](doc/AGENT_AND_EVAL.md)
 - [实践问题与修复日志](doc/EVAL_PRACTICE_LOG.md)
 - [面试演示说明](doc/INTERVIEW_DEMO.md)
+- [Agent 面试拷打题库](doc/AGENT_INTERVIEW_GUIDE.md)
 
 ---
 

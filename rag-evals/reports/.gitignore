@@ -1,2 +1,6 @@
 *
 !.gitignore
+!agent_challenge_v3.json
+!memory_demo_latest.json
+!retrieval_challenge_v3.json
+!router_v1.json

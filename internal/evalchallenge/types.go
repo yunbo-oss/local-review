@@ -90,21 +90,21 @@ type FreezePolicy struct {
 }
 
 type Manifest struct {
-	Version                  string         `json:"version"`
-	GeneratorSeed            int64          `json:"generator_seed"`
-	SourceDatasetVersion     string         `json:"source_dataset_version"`
-	SourceManifestSHA256     string         `json:"source_manifest_sha256"`
-	CatalogShops             int            `json:"catalog_shops"`
-	CatalogReviews           int            `json:"catalog_reviews"`
-	RetrievalCases           int            `json:"retrieval_cases"`
-	AgentCases               int            `json:"agent_cases"`
-	RetrievalSHA256          string         `json:"retrieval_sha256"`
-	AgentSHA256              string         `json:"agent_sha256"`
-	Coverage                 map[string]int `json:"coverage"`
-	FreezePolicy             FreezePolicy   `json:"freeze_policy"`
-	KnownEvaluationGap       []string       `json:"known_evaluation_gaps"`
-	GenerationCommand        string         `json:"generation_command"`
-	FormalEvaluationExecuted bool           `json:"formal_evaluation_executed"`
+	Version                              string         `json:"version"`
+	GeneratorSeed                        int64          `json:"generator_seed"`
+	SourceDatasetVersion                 string         `json:"source_dataset_version"`
+	SourceManifestSHA256                 string         `json:"source_manifest_sha256"`
+	CatalogShops                         int            `json:"catalog_shops"`
+	CatalogReviews                       int            `json:"catalog_reviews"`
+	RetrievalCases                       int            `json:"retrieval_cases"`
+	AgentCases                           int            `json:"agent_cases"`
+	RetrievalSHA256                      string         `json:"retrieval_sha256"`
+	AgentSHA256                          string         `json:"agent_sha256"`
+	Coverage                             map[string]int `json:"coverage"`
+	FreezePolicy                         FreezePolicy   `json:"freeze_policy"`
+	KnownEvaluationGap                   []string       `json:"known_evaluation_gaps"`
+	GenerationCommand                    string         `json:"generation_command"`
+	FormalEvaluationExecutedAtGeneration bool           `json:"formal_evaluation_executed_at_generation"`
 }
 
 type Dataset struct {

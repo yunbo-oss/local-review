@@ -414,7 +414,7 @@ func compareHybridBaseline(rep *AgentEvalReport, baselinePath string) error {
 	hybridScenarioTask, hybridScenarioComposite, _ := scenarioMacroRates(base.Cases)
 	rep.Comparison = &ComparisonSection{
 		BaselinePath: baselinePath, BaselineHash: sha256Hex(raw),
-		Notes:       "Agent vs Hybrid RAG on identical agent.v2 tasks and trial counts; trial-micro weights every run equally, scenario-macro weights every scenario equally, and task success remains separate from composite pass.",
+		Notes:       "Agent vs Hybrid RAG on identical task datasets and trial counts; trial-micro weights every run equally, scenario-macro weights every scenario equally, and task success remains separate from composite pass.",
 		SameDataset: true, SameCasesAndTrials: true,
 		AgentTaskSuccessRate: rep.Summary.OutcomeRate, HybridTaskSuccessRate: base.Summary.OutcomeRate,
 		TaskSuccessDelta:       round4(rep.Summary.OutcomeRate - base.Summary.OutcomeRate),
