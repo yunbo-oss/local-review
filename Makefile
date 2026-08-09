@@ -29,7 +29,7 @@ test-api:
 demo-rag:
 	chmod +x script/rag.sh && ./script/rag.sh --demo
 
-# RAG 一键初始化：seed + seed-redis + seed-vector + 后台启动服务（面试前执行一次）
+# RAG 一键初始化：seed + seed-redis + seed-vector + 后台启动服务
 init-rag:
 	chmod +x script/rag.sh && ./script/rag.sh --init
 
@@ -166,6 +166,7 @@ docker-challenge-v4:
 
 docker-demo:
 	@test -n "$$LLM_API_KEY" || (echo "LLM_API_KEY is required" >&2; exit 1)
+	docker compose --profile demo run --rm --no-deps redis-seed
 	docker compose --profile demo run --rm --no-deps memory-demo-reset
 	docker compose --profile demo run --rm --no-deps memory-demo
 

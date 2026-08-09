@@ -4,8 +4,6 @@
 .env.*
 *.md
 !README.md
-docs/
-specs/
 # Runtime image needs formal goldens/reports and static UI assets.
 !rag-evals/
 !rag-evals/**
@@ -22,9 +20,6 @@ tmp/
 .DS_Store
 .idea/
 .vscode/
-agent-transcripts/
-memory-bank/
-.specify/
 *.log
 coverage/
 vendor/

@@ -5,21 +5,21 @@
   "rounds": [
     {
       "round": 1,
-      "trace_id": "6d58fdf8-ccf2-403f-9577-1e65440e01ae",
+      "trace_id": "ba0d1113-da6e-4a68-ac96-7f2e5c4c3968",
       "route": "rag_oneshot",
       "citation_count": 0,
       "sse_success": true
     },
     {
       "round": 2,
-      "trace_id": "08f60cc0-12bf-401d-8a41-8d0398580e72",
+      "trace_id": "ee033182-8e38-4e2b-9cec-fa76e6fe4fdb",
       "route": "rag_oneshot",
-      "citation_count": 4,
+      "citation_count": 3,
       "sse_success": true
     },
     {
       "round": 3,
-      "trace_id": "71412576-a33f-4973-9740-8dab3824f8d0",
+      "trace_id": "89c1aff3-8b1d-4481-ae04-b6344c716cd3",
       "route": "agent_memory",
       "citation_count": 3,
       "sse_success": true
@@ -30,7 +30,7 @@
       "丰台区"
     ],
     "preferred_types": [
-      "家庭聚餐"
+      "美食"
     ],
     "budget_max": null,
     "version": 3

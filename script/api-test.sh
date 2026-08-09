@@ -164,7 +164,7 @@ if [[ -n "$CODE" ]]; then
         agent_sse=$(curl -sfS -N -X POST "${API}/agent/recommend" \
           -H "Authorization: Bearer $TOKEN" \
           -H "Content-Type: application/json" \
-          -d '{"question":"朝阳区找安静办公的咖啡，人均50以内","session_id":"api-smoke-agent"}')
+          -d '{"question":"只查《静巷咖啡·国贸店》，总结安静办公的评价依据","session_id":"api-smoke-agent"}')
         [[ "$agent_sse" == *"event:message"* ]] && [[ "$agent_sse" == *"event:done"* ]] \
           && [[ "$agent_sse" != *"event:error"* ]] \
           && pass "POST /api/agent/recommend (SSE)" || fail "POST /api/agent/recommend (SSE)"

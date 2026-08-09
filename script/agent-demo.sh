@@ -100,7 +100,7 @@ recommend "我以后优先海淀区、预算80元以内" 1 no
 # 2) 同 session 追问（应自动补全区域/预算）
 recommend "按我的偏好推荐一家适合学生的店" 2 yes
 # 3) 纠正：忘掉预算并切换区域
-recommend "忘掉预算，改为丰台区，再推荐一家适合家庭聚餐的店" 3 yes
+recommend "忘掉预算，改为丰台区，再推荐一家美食类、适合家庭聚餐的店" 3 yes
 
 PROFILE_JSON=$(redis-cli -h "${REDIS_ADDR:-redis}" -p "${REDIS_PORT:-6379}" \
   -a "${REDIS_PASSWORD:-8888.216}" --no-auth-warning GET "agent:profile:cache:${USER_ID}")

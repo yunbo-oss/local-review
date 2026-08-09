@@ -1,15 +1,15 @@
 # Local Review Go
 
 基于 **Gin + Nginx** 的分布式点评/电商应用，涵盖用户鉴权、优惠券秒杀、商户检索、AI 智能搜索等核心模块。
-秒杀模块参考了黑马点评的实现，在 Cursor 的帮助下使用 Go 进行了重构。AI 协作规范见 [.cursorrules](.cursorrules)、[AGENTS.md](AGENTS.md)、[memory-bank/activeContext.md](memory-bank/activeContext.md)；面试知识库见 [docs/solutions/](docs/solutions/)。
+项目在传统点评业务之上实现了 Hybrid Retrieval、有界多步推荐 Agent、结构化用户画像、证据校验和 Docker 可复现评测闭环。
 
 **启动与测试**：详见 [doc/QUICKSTART.md](doc/QUICKSTART.md)。
 
 ---
 
-## 秋招演示：可复现 Agent / RAG 评测闭环
+## 可复现 Agent / RAG 评测闭环
 
-本仓库已用固定种子扩充到 **200 家店、1000 条评论**。v2 regression 含 Retrieval test 60 题、Agent test 22 场景/38 trials；冻结的 v3 challenge 含 Retrieval 120 题、Agent 28 场景/48 trials。正式报告来自真实 DeepSeek API 调用，不含 placeholder、fake 或 stub 数据。
+本仓库用固定种子生成 **200 家店、1000 条评价**。Retrieval v2 regression 有 60 题，冻结 v3 challenge 有 120 题；Agent v4 有 8 个 dev 场景和 28 个冻结 challenge 场景，关键场景运行 3 次，共 48 个 challenge trial。正式报告来自真实 DeepSeek API 与真实 MySQL/Redis 服务，不使用占位或模拟结果。
 
 ```bash
 # API key 只临时注入 shell，不写入仓库
@@ -19,23 +19,24 @@ LLM_API_KEY='你的密钥' make docker-verify
 LLM_API_KEY='你的密钥' make docker-eval
 LLM_API_KEY='你的密钥' make docker-demo
 
-# 只在代码与数据冻结后运行一次
-LLM_API_KEY='你的密钥' make docker-challenge
+# 冻结 v4 同任务 Agent / Hybrid 对照
+LLM_API_KEY='你的密钥' make docker-challenge-v4
 ```
 
-正式指标（2026-08-09，冻结 commit `6819a5c`）：
+正式指标（2026-08-09，冻结代码/数据 commit `fb85084`）：
 
 - v2 Retrieval：HitRate@5 100%、Recall@5 81.63%、Precision@5 83.21%、MRR 0.9732、NDCG@5 0.9802、过滤准确率 100%、infra error 0%。
 - v3 challenge Retrieval：HitRate@5 70.54%、task success 64.17%、no-result accuracy 12.50%，如实暴露 OOD 同义表达、错别字和拒答弱点。
-- v3 同任务对照：Agent scenario-macro task success 53.57%，Hybrid RAG 11.90%，提升 **41.67 个百分点**；成功回答 groundedness 100%，但 Agent P50/P95 为 7.51s/12.56s，平均 Token 6131。
+- v4 同任务对照：Agent scenario-macro task success 96.43%，one-shot Hybrid RAG 为 46.43%，提升 **50.00 个百分点**；trial-micro 为 97.92% vs 52.08%。
+- v4 Agent：成功回答 groundedness 100%，trajectory 100%，关键场景全部 trial 通过率 100%，P50/P95 为 6.043s/10.049s，平均 2.56 次工具调用、5292 Token；infra error 0%。
 - Router test 48 题准确率 79.17%；三轮记忆 Demo 3/3 SSE、引用及 profile 纠正均通过。
+
+v4 对照固定走 `agent_multistep`，目的是隔离 Agent 本体能力；Router 单独评测，不计入上述 50.00 个百分点。该任务集刻意覆盖多轮记忆、纠正、评价核验、无结果和提示注入，因此结果只代表冻结 v4 的复杂任务分布，不代表线上所有请求。
 
 完整口径、实验条件、失败分析和诚实限制：
 
 - [Agent 与评测说明](doc/AGENT_AND_EVAL.md)
 - [实践问题与修复日志](doc/EVAL_PRACTICE_LOG.md)
-- [面试演示说明](doc/INTERVIEW_DEMO.md)
-- [Agent 面试拷打题库](doc/AGENT_INTERVIEW_GUIDE.md)
 
 ---
 
@@ -184,7 +185,7 @@ k6 压测，1 Nginx + 3 Go 实例，151 用户 × 25 秒杀券：总 QPS ~1160�
 
 > 暂未实现前端。RAG 演示：`make demo-rag`；Agent 记忆演示：`make demo-agent`。说明见 [doc/AGENT_AND_EVAL.md](doc/AGENT_AND_EVAL.md)。
 
-### 4.0 推荐入口（003）
+### 4.0 推荐入口
 
 | 接口 | 说明 |
 |------|------|
@@ -192,7 +193,7 @@ k6 压测，1 Nginx + 3 Go 实例，151 用户 × 25 秒杀券：总 QPS ~1160�
 | `POST /api/agent/recommend` | 有界多步 Agent（需登录；`force_route` 可选） |
 | `POST /api/recommend` | 统一入口：`RecommendRouter` → RAG / Agent |
 
-评测：
+同任务评测：
 
 ```bash
 make eval-rag-prod-baseline
@@ -216,8 +217,8 @@ make eval-agent
 用户提问
     │
     ├─ 1. LLM 意图解析：提取 area、typeName、maxPrice、minScore 等 JSON
-    ├─ 2. Embedding API：问题转向量
-    ├─ 3. VectorRepo.SearchShops：FT.SEARCH 预过滤 + KNN
+    ├─ 2. 确定性本地 embedding：问题转为 384 维向量
+    ├─ 3. ShopSearchLogic：RediSearch TEXT + KNN，RRF 融合
     │       └─ 预过滤：TAG(area, type_name) + NUMERIC 范围
     │       └─ 语义阈值：MaxDistance 过滤 COSINE 距离过大的结果
     ├─ 4. 组装上下文：店铺信息 + 探店笔记（BlogRepo）
@@ -228,6 +229,26 @@ make eval-agent
 
 - **实时**：店铺创建/更新发 MQ → RAG 消费者 `NewShopUpdateRAGHandler` 异步 Embedding + `StoreShop`
 - **离线**：`make seed-vector` 批量导入
+
+### 4.5 有界推荐 Agent
+
+```text
+请求
+  -> RecommendRouter（单轮 RAG / 多步 Agent / 澄清）
+  -> 加载结构化 profile，并应用本轮显式纠正
+  -> 最多 3 steps / 5 次成功工具调用 / 8 次尝试
+       search_shops -> get_shop / list_shop_blogs
+  -> EvidenceLedger 记录本轮观察到的店铺与事实
+  -> 引用、价格、评分、地址、营业时间和评价证据校验
+  -> 必要时仅允许一次无工具、白名单约束的修订
+  -> SSE 输出 answer、route、steps、tool_calls、tokens、trace_id
+```
+
+- `search_shops` 复用线上 Hybrid 检索，详情与评价工具只读且独立限时。
+- 用户本轮显式条件优先于长期画像；画像使用结构化字段和版本号，不把全部聊天历史当作硬约束。
+- 评价与检索摘要被标记为不可信数据；推荐只能引用本轮证据账本中的 `[shop:id]`。
+- task outcome、groundedness、trajectory 和 composite 分开统计，基础设施错误单列。
+- 简单单轮请求仍走 Hybrid RAG；Agent 用额外调用和 Token 换取复杂任务完成率，不是所有请求的默认路径。
 
 ---
 
@@ -253,11 +274,17 @@ make eval-agent
 ```
 local-review-go/
 ├── cmd/
-│   └── server/main.go           # 入口：依赖注入、路由、布隆过滤器预热、MQ 消费者
+│   ├── server/                   # 服务入口
+│   ├── eval-rag/                 # Retrieval 评测
+│   ├── eval-agent/               # Agent / 同任务 Hybrid 评测
+│   └── generate-*/               # 固定种子数据与 golden 生成器
 ├── internal/
+│   ├── agent/                    # 有界循环、工具、证据账本、事实校验
 │   ├── config/                   # MySQL、Redis、RocketMQ、OTel、env
-│   ├── handler/                  # HTTP 层（shop、user、voucher、blog、rag 等）
+│   ├── handler/                  # HTTP 与 SSE 接口
 │   ├── logic/                    # 业务逻辑层
+│   ├── memory/                   # 结构化画像与会话记忆
+│   ├── rag/                      # Hybrid 检索与向量存储
 │   ├── repository/               # 数据访问（含 interface/）
 │   ├── model/                    # GORM 实体
 │   ├── middleware/               # JWT、UV、限流
@@ -267,8 +294,9 @@ local-review-go/
 │   ├── httpx/                    # Result[T]、Ok/Fail、BindJSON
 │   └── utils/                    # BloomFilter、DistributedLock、redisx
 ├── configs/nginx.conf            # Nginx 负载均衡
-├── script/                       # Lua、seed、RAG、压测脚本
-└── doc/                           # 文档
+├── rag-evals/                     # 版本化数据集、golden 与正式报告
+├── script/                        # Lua、seed、Demo、冒烟和压测脚本
+└── doc/                           # 使用说明与技术文档
 ```
 
-详见 [AGENTS.md](AGENTS.md)。
+压测方式与报告见 [doc/LOAD_TEST.md](doc/LOAD_TEST.md)。

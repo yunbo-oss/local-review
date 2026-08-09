@@ -89,7 +89,7 @@ do_init() {
 
   echo -e "${GREEN}========== 初始化完成 ==========${NC}"
   echo ""
-  echo "面试时执行: make demo-rag"
+  echo "展示时执行: make demo-rag"
   echo "停止服务: kill $SERVER_PID"
   echo ""
   exit 0

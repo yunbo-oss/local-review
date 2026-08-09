@@ -87,6 +87,9 @@ LLM_API_KEY='你的密钥' make docker-up
 LLM_API_KEY='你的密钥' make docker-verify
 LLM_API_KEY='你的密钥' make docker-eval
 LLM_API_KEY='你的密钥' make docker-demo
+
+# 冻结 v4 同任务 Agent / Hybrid 对照
+LLM_API_KEY='你的密钥' make docker-challenge-v4
 ```
 
 正式指标、报告口径和失败分析见 [AGENT_AND_EVAL.md](AGENT_AND_EVAL.md)；实践问题见 [EVAL_PRACTICE_LOG.md](EVAL_PRACTICE_LOG.md)。
@@ -107,6 +110,7 @@ LLM_API_KEY='你的密钥' make docker-demo
 | `make generate-eval-data` | 固定种子生成/校验 v2 数据和 golden |
 | `make docker-verify` | 校验数据、登录、API、RAG/Agent SSE 和引用 |
 | `make docker-eval` | 运行三份正式 Retrieval/Hybrid/Agent 报告 |
+| `make docker-challenge-v4` | 运行冻结 v4 的 Agent / 同任务 Hybrid challenge |
 | `make docker-demo` | 运行三轮长期记忆 Demo |
 | `make init-rag` | RAG 一键初始化 |
 | `make demo-rag` | RAG 展示（流式） |

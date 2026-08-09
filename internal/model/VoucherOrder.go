@@ -24,10 +24,12 @@ type VoucherOrder struct {
 	PayType    int       `gorm:"column:pay_type" json:"payType"`
 	Status     int       `gorm:"column:status" json:"status"`
 	CreateTime time.Time `gorm:"column:create_time" json:"create_time"`
-	PayTime    time.Time `gorm:"column:pay_time" json:"payTime"`
-	UseTime    time.Time `gorm:"column:use_time" json:"useTime"`
-	RefundTime time.Time `gorm:"column:refund_time" json:"refundTime"`
-	UpdateTime time.Time `gorm:"column:update_time" json:"updateTime"`
+	// 订单在未支付/未核销/未退款时没有对应时间。使用指针让 GORM 写
+	// SQL NULL，而不是 MySQL strict mode 会拒绝的 0000-00-00。
+	PayTime    *time.Time `gorm:"column:pay_time" json:"payTime"`
+	UseTime    *time.Time `gorm:"column:use_time" json:"useTime"`
+	RefundTime *time.Time `gorm:"column:refund_time" json:"refundTime"`
+	UpdateTime time.Time  `gorm:"column:update_time" json:"updateTime"`
 }
 
 func (*VoucherOrder) TableName() string {
