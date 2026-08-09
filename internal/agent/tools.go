@@ -39,7 +39,7 @@ type ShopHit struct {
 
 // ShopSearcher 窄接口，避免 agent→logic 循环依赖
 type ShopSearcher interface {
-	SearchShops(ctx context.Context, query, area, typeName string, maxPrice *int64, topK int) ([]ShopHit, error)
+	SearchShops(ctx context.Context, query, area, typeName string, maxPrice, minPrice *int64, topK int) ([]ShopHit, error)
 }
 
 // ToolExecutor 执行领域工具
@@ -53,6 +53,16 @@ type ToolExecutor struct {
 	// RequiredSemantics are derived deterministically from the original user
 	// question and must be backed by fetched review text before recommendation.
 	RequiredSemantics []string
+	// RequiredTools is a deterministic minimum evidence plan. The loop gets one
+	// bounded chance to request any missing tool before accepting a final answer.
+	RequiredTools []string
+	// TargetShopName is populated for explicit-name lookups so deterministic
+	// evidence prefetch never chooses a semantically similar neighbour.
+	TargetShopName string
+	// FactualLookup distinguishes an explicitly named shop being inspected from
+	// a shop being recommended. Its citations are evidence, not recommendations.
+	FactualLookup  bool
+	CandidateOrder []int64
 	// Observed 与 Ledger 可引用集同步（兼容旧 groundedness / graders）
 	Observed map[int64]struct{}
 }
@@ -63,7 +73,7 @@ func ToolDefinitions() []llm.ToolDefinition {
 		{
 			Name:        ToolSearchShops,
 			Description: "按条件搜索候选店铺（Hybrid 检索）",
-			Parameters:  json.RawMessage(`{"type":"object","properties":{"query":{"type":"string"},"area":{"type":"string"},"type_name":{"type":"string"},"max_price":{"type":"integer"}},"required":["query"],"additionalProperties":false}`),
+			Parameters:  json.RawMessage(`{"type":"object","properties":{"query":{"type":"string"},"area":{"type":"string"},"type_name":{"type":"string"},"max_price":{"type":"integer"},"min_price":{"type":"integer"}},"required":["query"],"additionalProperties":false}`),
 		},
 		{
 			Name:        ToolGetShop,
@@ -151,6 +161,7 @@ type searchArgs struct {
 	Area     string `json:"area"`
 	TypeName string `json:"type_name"`
 	MaxPrice *int64 `json:"max_price"`
+	MinPrice *int64 `json:"min_price"`
 }
 
 func (e *ToolExecutor) execSearch(ctx context.Context, argsJSON string) (string, error) {
@@ -164,10 +175,16 @@ func (e *ToolExecutor) execSearch(ctx context.Context, argsJSON string) (string,
 	if a.MaxPrice != nil && *a.MaxPrice < 0 {
 		return "", fmt.Errorf("max_price must be >= 0")
 	}
+	if a.MinPrice != nil && *a.MinPrice < 0 {
+		return "", fmt.Errorf("min_price must be >= 0")
+	}
+	if a.MinPrice != nil && a.MaxPrice != nil && *a.MinPrice > *a.MaxPrice {
+		return "[]", nil
+	}
 	if e.Search == nil {
 		return "", fmt.Errorf("search not configured")
 	}
-	results, err := e.Search.SearchShops(ctx, a.Query, a.Area, a.TypeName, a.MaxPrice, 5)
+	results, err := e.Search.SearchShops(ctx, a.Query, a.Area, a.TypeName, a.MaxPrice, a.MinPrice, 5)
 	if err != nil {
 		return "", err
 	}
@@ -181,7 +198,9 @@ func (e *ToolExecutor) execSearch(ctx context.Context, argsJSON string) (string,
 		UntrustedReviewEvidence string  `json:"untrusted_review_evidence,omitempty"`
 	}
 	items := make([]item, 0, len(results))
+	e.CandidateOrder = e.CandidateOrder[:0]
 	for _, r := range results {
+		e.CandidateOrder = append(e.CandidateOrder, r.ShopID)
 		e.Ledger.DiscoverFromSearch(r.ShopID, r.Name, map[string]any{
 			"avg_price": r.AvgPrice, "score": r.Score, "area": r.Area, "type_name": r.TypeName,
 			"review_evidence": r.ReviewEvidence,

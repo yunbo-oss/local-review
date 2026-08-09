@@ -41,23 +41,26 @@ type RetrievalFile struct {
 }
 
 type AgentExpected struct {
-	FilterContains            map[string]any `json:"filter_contains"`
-	AllowedShopIDs            []int64        `json:"allowed_shop_ids"`
-	PermittedShopIDs          []int64        `json:"permitted_shop_ids,omitempty"`
-	ForbiddenShopIDs          []int64        `json:"forbidden_shop_ids"`
-	AllowedOnly               bool           `json:"allowed_only,omitempty"`
-	ProfileAfter              map[string]any `json:"profile_after,omitempty"`
-	MaxSteps                  int            `json:"max_steps"`
-	MaxToolCalls              int            `json:"max_tool_calls"`
-	RequiredTools             []string       `json:"required_tools,omitempty"`
-	RequiredAnswerSubstrings  []string       `json:"required_answer_substrings,omitempty"`
-	ForbiddenAnswerSubstrings []string       `json:"forbidden_answer_substrings,omitempty"`
-	RequiredAnswerRegex       []string       `json:"required_answer_regex,omitempty"`
-	ForbiddenAnswerRegex      []string       `json:"forbidden_answer_regex,omitempty"`
-	RequiredClaimSubstrings   []string       `json:"required_claim_substrings,omitempty"`
-	RequiredClaimRegex        []string       `json:"required_claim_regex,omitempty"`
-	ExpectNoResults           bool           `json:"expect_no_results"`
-	ExpectGroundedness        *bool          `json:"expect_groundedness"`
+	FilterContains              map[string]any `json:"filter_contains"`
+	AllowedShopIDs              []int64        `json:"allowed_shop_ids"`
+	PermittedShopIDs            []int64        `json:"permitted_shop_ids,omitempty"`
+	RequiredCitedShopIDs        []int64        `json:"required_cited_shop_ids,omitempty"`
+	ForbiddenShopIDs            []int64        `json:"forbidden_shop_ids"`
+	ForbiddenCitedShopIDs       []int64        `json:"forbidden_cited_shop_ids,omitempty"`
+	AllowedOnly                 bool           `json:"allowed_only,omitempty"`
+	RequireRecommendationHeader bool           `json:"require_recommendation_header,omitempty"`
+	ProfileAfter                map[string]any `json:"profile_after,omitempty"`
+	MaxSteps                    int            `json:"max_steps"`
+	MaxToolCalls                int            `json:"max_tool_calls"`
+	RequiredTools               []string       `json:"required_tools,omitempty"`
+	RequiredAnswerSubstrings    []string       `json:"required_answer_substrings,omitempty"`
+	ForbiddenAnswerSubstrings   []string       `json:"forbidden_answer_substrings,omitempty"`
+	RequiredAnswerRegex         []string       `json:"required_answer_regex,omitempty"`
+	ForbiddenAnswerRegex        []string       `json:"forbidden_answer_regex,omitempty"`
+	RequiredClaimSubstrings     []string       `json:"required_claim_substrings,omitempty"`
+	RequiredClaimRegex          []string       `json:"required_claim_regex,omitempty"`
+	ExpectNoResults             bool           `json:"expect_no_results"`
+	ExpectGroundedness          *bool          `json:"expect_groundedness"`
 }
 
 type AgentTurn struct {
@@ -111,4 +114,29 @@ type Dataset struct {
 	Retrieval RetrievalFile
 	Agent     AgentFile
 	Manifest  Manifest
+}
+
+// AgentSuiteManifest describes corrected regression and newly seeded holdout
+// suites without pretending that an unrelated Retrieval file was regenerated.
+type AgentSuiteManifest struct {
+	Version                              string         `json:"version"`
+	GeneratorSeed                        int64          `json:"generator_seed"`
+	SourceDatasetVersion                 string         `json:"source_dataset_version"`
+	SourceManifestSHA256                 string         `json:"source_manifest_sha256"`
+	ParentSuite                          string         `json:"parent_suite"`
+	CatalogShops                         int            `json:"catalog_shops"`
+	CatalogReviews                       int            `json:"catalog_reviews"`
+	AgentCases                           int            `json:"agent_cases"`
+	AgentChallengeTrials                 int            `json:"agent_challenge_trials"`
+	AgentSHA256                          string         `json:"agent_sha256"`
+	Coverage                             map[string]int `json:"coverage"`
+	FreezePolicy                         FreezePolicy   `json:"freeze_policy"`
+	KnownEvaluationGap                   []string       `json:"known_evaluation_gaps"`
+	GenerationCommand                    string         `json:"generation_command"`
+	FormalEvaluationExecutedAtGeneration bool           `json:"formal_evaluation_executed_at_generation"`
+}
+
+type AgentSuite struct {
+	Agent    AgentFile
+	Manifest AgentSuiteManifest
 }

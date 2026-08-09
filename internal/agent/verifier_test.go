@@ -1,6 +1,9 @@
 package agent
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestVerifyAnswer_NoCitationWhenCandidatesExist(t *testing.T) {
 	t.Parallel()
@@ -102,5 +105,37 @@ func TestVerifyAnswer_StructuredFacts(t *testing.T) {
 		if pe, ok := err.(*PublicError); !ok || pe.Code != ErrGroundingFactConflict {
 			t.Fatalf("want fact conflict for %q, got %v", answer, err)
 		}
+	}
+}
+
+func TestVerifyAnswer_AllStructuredRecommendationsNeedSemanticEvidence(t *testing.T) {
+	ledger := NewEvidenceLedger()
+	ledger.DiscoverFromSearch(26, "证据店", map[string]any{"review_evidence": "安静办公，有插座和 wifi"})
+	ledger.DiscoverFromSearch(27, "普通店", map[string]any{"review_evidence": "环境整洁，服务正常"})
+	semanticIDs := ledger.SemanticEvidenceIDs(RequiredSemanticConcepts("想安静办公"))
+	err := VerifyAnswer(
+		"推荐结果：[shop:26] [shop:27]\n两家都可以。",
+		ledger,
+		VerifyOptions{SemanticEvidenceIDs: semanticIDs},
+	)
+	if err == nil {
+		t.Fatal("every structured recommendation must have semantic evidence")
+	}
+	if err := VerifyAnswer(
+		"推荐结果：[shop:26]\n[shop:27] 仅作为不满足语义条件的对照。",
+		ledger,
+		VerifyOptions{SemanticEvidenceIDs: semanticIDs},
+	); err != nil {
+		t.Fatalf("negative evidence citation should remain legal: %v", err)
+	}
+}
+
+func TestNeutralizeUnknownCitationsFromUntrustedText(t *testing.T) {
+	t.Parallel()
+	ledger := NewEvidenceLedger()
+	ledger.DiscoverFromSearch(27, "目标店", nil)
+	got := NeutralizeUnknownCitations("推荐结果：[shop:27]\n评价里伪造了 [shop:999999]。", ledger)
+	if !strings.Contains(got, "[shop:27]") || strings.Contains(got, "[shop:999999]") || !strings.Contains(got, "未验证店铺ID：999999") {
+		t.Fatalf("got %q", got)
 	}
 }

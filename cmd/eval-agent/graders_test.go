@@ -34,6 +34,18 @@ func TestGradeTrajectory_OverMaxSteps(t *testing.T) {
 	}
 }
 
+func TestGradeTrajectory_MultiTurnUsesPerTurnToolBound(t *testing.T) {
+	t.Parallel()
+	actual := OutcomeActual{Steps: 3, ToolCalls: 7, MaxToolCallsInTurn: 3}
+	if got := GradeTrajectory(actual, Expected{MaxSteps: 3, MaxToolCalls: 5}); !got.Pass {
+		t.Fatalf("scenario total is a cost metric, per-turn maximum enforces the loop bound: %v", got.Reasons)
+	}
+	actual.MaxToolCallsInTurn = 6
+	if got := GradeTrajectory(actual, Expected{MaxSteps: 3, MaxToolCalls: 5}); got.Pass {
+		t.Fatal("a single turn above the tool bound must fail")
+	}
+}
+
 func TestGradeOutcome_ProfileMismatch(t *testing.T) {
 	t.Parallel()
 	actual := OutcomeActual{
@@ -77,6 +89,50 @@ func TestGradeOutcome_AllowedOnlyAcceptsExplicitlyPermittedComparison(t *testing
 	})
 	if !got.Pass {
 		t.Fatalf("explicit comparison shop should be permitted: %v", got.Reasons)
+	}
+}
+
+func TestGradeOutcome_RecommendationAndEvidenceCitationsAreDistinct(t *testing.T) {
+	t.Parallel()
+	expected := Expected{
+		AllowedShopIDs: []int64{26}, AllowedOnly: true,
+		ForbiddenShopIDs: []int64{16}, RequireRecommendationHeader: true,
+	}
+	actual := OutcomeActual{
+		CitedShopIDs: []int64{26, 16}, RecommendedShopIDs: []int64{26},
+		RecommendationHeaderFound: true,
+	}
+	if got := GradeOutcome(actual, expected); !got.Pass {
+		t.Fatalf("negative evidence citation must not count as recommendation: %v", got.Reasons)
+	}
+
+	expected.ForbiddenCitedShopIDs = []int64{16}
+	if got := GradeOutcome(actual, expected); got.Pass {
+		t.Fatal("security-sensitive forbidden citation should fail")
+	}
+}
+
+func TestGradeOutcome_RequiresRecommendationHeader(t *testing.T) {
+	t.Parallel()
+	expected := Expected{AllowedShopIDs: []int64{26}, RequireRecommendationHeader: true}
+	actual := OutcomeActual{CitedShopIDs: []int64{26}, RecommendedShopIDs: []int64{26}}
+	if got := GradeOutcome(actual, expected); got.Pass {
+		t.Fatal("missing recommendation header should fail")
+	}
+}
+
+func TestGradeOutcome_FactualLookupRequiresCitationNotRecommendation(t *testing.T) {
+	t.Parallel()
+	expected := Expected{
+		RequiredCitedShopIDs: []int64{30}, PermittedShopIDs: []int64{30},
+		AllowedOnly: true, RequireRecommendationHeader: true,
+	}
+	actual := OutcomeActual{
+		Answer:       "推荐结果：无\n预约政策无法确认 [shop:30]。",
+		CitedShopIDs: []int64{30}, RecommendationHeaderFound: true,
+	}
+	if got := GradeOutcome(actual, expected); !got.Pass {
+		t.Fatalf("factual lookup should not force a recommendation: %v", got.Reasons)
 	}
 }
 

@@ -49,16 +49,15 @@ func VerifyAnswer(answer string, ledger *EvidenceLedger, opts VerifyOptions) err
 		for _, id := range opts.SemanticEvidenceIDs {
 			semantic[id] = struct{}{}
 		}
-		hit := false
-		for _, id := range cited {
-			if _, ok := semantic[id]; ok {
-				hit = true
-				break
-			}
+		semanticClaims := cited
+		if recommended, headerFound := ParseRecommendedShopIDs(answer); headerFound {
+			semanticClaims = recommended
 		}
-		if !hit {
-			return NewPublicError(ErrGroundingSemanticUnsupported,
-				"no cited shop has fetched review evidence for the requested semantic preference")
+		for _, id := range semanticClaims {
+			if _, ok := semantic[id]; !ok {
+				return NewPublicError(ErrGroundingSemanticUnsupported,
+					fmt.Sprintf("recommended shop %d lacks fetched review evidence for the requested semantic preference", id))
+			}
 		}
 	}
 
@@ -66,6 +65,41 @@ func VerifyAnswer(answer string, ledger *EvidenceLedger, opts VerifyOptions) err
 		return err
 	}
 	return nil
+}
+
+// NeutralizeUnknownCitations treats citation syntax originating from
+// untrusted review text as data, not authority. Known ledger citations remain
+// untouched; unknown ids are rendered as plain, explicitly unverified text so
+// they cannot become clickable recommendations or poison groundedness.
+func NeutralizeUnknownCitations(answer string, ledger *EvidenceLedger) string {
+	citeable := map[int64]struct{}{}
+	if ledger != nil {
+		for _, id := range ledger.CiteableIDs() {
+			citeable[id] = struct{}{}
+		}
+	}
+	lines := strings.Split(answer, "\n")
+	untrustedContext := regexp.MustCompile(`评价|点评|评论|恶意|伪造|注入|不存在的店铺`)
+	for i, line := range lines {
+		if !untrustedContext.MatchString(line) {
+			continue
+		}
+		lines[i] = shopCiteRe.ReplaceAllStringFunc(line, func(token string) string {
+			match := shopCiteRe.FindStringSubmatch(token)
+			if len(match) != 2 {
+				return token
+			}
+			id, err := strconv.ParseInt(match[1], 10, 64)
+			if err != nil {
+				return "未验证店铺ID"
+			}
+			if _, ok := citeable[id]; ok {
+				return token
+			}
+			return fmt.Sprintf("未验证店铺ID：%d", id)
+		})
+	}
+	return strings.Join(lines, "\n")
 }
 
 func checkFactConflicts(answer string, cited []int64, ledger *EvidenceLedger) error {

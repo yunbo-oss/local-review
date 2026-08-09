@@ -19,13 +19,21 @@ func GradeOutcome(actual OutcomeActual, expected Expected) GradeResult {
 			fails = append(fails, fmt.Sprintf("filter %s: want %v got %v", k, want, got))
 		}
 	}
+	if expected.RequireRecommendationHeader && !actual.RecommendationHeaderFound {
+		fails = append(fails, "answer missing structured recommendation header")
+	}
+	recommended := actual.RecommendedShopIDs
+	if !actual.RecommendationHeaderFound && recommended == nil {
+		// Backward compatibility for unit fixtures and historical v2/v3 files.
+		recommended = actual.CitedShopIDs
+	}
 	if len(expected.AllowedShopIDs) > 0 {
-		if len(actual.CitedShopIDs) == 0 && !expected.ExpectNoResults {
-			fails = append(fails, "expected at least one cited shop")
+		if len(recommended) == 0 && !expected.ExpectNoResults {
+			fails = append(fails, "expected at least one recommended shop")
 		}
 		allowed := toSet(expected.AllowedShopIDs)
 		hit := false
-		for _, id := range actual.CitedShopIDs {
+		for _, id := range recommended {
 			if allowed[id] {
 				hit = true
 			}
@@ -34,8 +42,20 @@ func GradeOutcome(actual OutcomeActual, expected Expected) GradeResult {
 		// deny-list. A grounded comparison may cite a neutral alternative;
 		// cases that must reject a specific hard negative use
 		// forbidden_shop_ids below.
-		if len(actual.CitedShopIDs) > 0 && !hit {
-			fails = append(fails, "no cited shop matched allowed set")
+		if len(recommended) > 0 && !hit {
+			fails = append(fails, "no recommended shop matched allowed set")
+		}
+	}
+	for _, requiredID := range expected.RequiredCitedShopIDs {
+		found := false
+		for _, citedID := range actual.CitedShopIDs {
+			if citedID == requiredID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			fails = append(fails, fmt.Sprintf("required evidence shop %d was not cited", requiredID))
 		}
 	}
 	if expected.AllowedOnly {
@@ -43,21 +63,28 @@ func GradeOutcome(actual OutcomeActual, expected Expected) GradeResult {
 		for _, id := range expected.PermittedShopIDs {
 			allowed[id] = true
 		}
-		for _, id := range actual.CitedShopIDs {
+		for _, id := range recommended {
 			if !allowed[id] {
-				fails = append(fails, fmt.Sprintf("shop %d cited outside exhaustive allowed set", id))
+				fails = append(fails, fmt.Sprintf("shop %d recommended outside exhaustive allowed set", id))
 			}
 		}
 	}
 	for _, id := range expected.ForbiddenShopIDs {
+		for _, c := range recommended {
+			if c == id {
+				fails = append(fails, fmt.Sprintf("forbidden shop %d recommended", id))
+			}
+		}
+	}
+	for _, id := range expected.ForbiddenCitedShopIDs {
 		for _, c := range actual.CitedShopIDs {
 			if c == id {
 				fails = append(fails, fmt.Sprintf("forbidden shop %d cited", id))
 			}
 		}
 	}
-	if expected.ExpectNoResults && len(actual.CitedShopIDs) > 0 {
-		fails = append(fails, "expected no results but cited shops")
+	if expected.ExpectNoResults && len(recommended) > 0 {
+		fails = append(fails, "expected no results but recommended shops")
 	}
 	if expected.ProfileAfter != nil {
 		fails = append(fails, diffProfile(actual.ProfileAfter, expected.ProfileAfter)...)
@@ -65,8 +92,12 @@ func GradeOutcome(actual OutcomeActual, expected Expected) GradeResult {
 	if expected.MaxSteps > 0 && actual.Steps > expected.MaxSteps {
 		fails = append(fails, fmt.Sprintf("steps %d > max %d", actual.Steps, expected.MaxSteps))
 	}
-	if expected.MaxToolCalls > 0 && actual.ToolCalls > expected.MaxToolCalls {
-		fails = append(fails, fmt.Sprintf("tool_calls %d > max %d", actual.ToolCalls, expected.MaxToolCalls))
+	boundedToolCalls := actual.ToolCalls
+	if actual.MaxToolCallsInTurn > 0 {
+		boundedToolCalls = actual.MaxToolCallsInTurn
+	}
+	if expected.MaxToolCalls > 0 && boundedToolCalls > expected.MaxToolCalls {
+		fails = append(fails, fmt.Sprintf("max tool_calls in one turn %d > max %d", boundedToolCalls, expected.MaxToolCalls))
 	}
 	fails = append(fails, gradeAnswerAssertions(actual.Answer, expected)...)
 
@@ -93,7 +124,8 @@ func GradeGroundedness(actual OutcomeActual, expected Expected) GradeResult {
 	}
 	obs := toSet(actual.ObservedShopIDs)
 	var fails []string
-	if len(expected.AllowedShopIDs) > 0 && !expected.ExpectNoResults && len(actual.CitedShopIDs) == 0 {
+	if (len(expected.AllowedShopIDs) > 0 || len(expected.RequiredCitedShopIDs) > 0) &&
+		!expected.ExpectNoResults && len(actual.CitedShopIDs) == 0 {
 		r.Components["citation_legality"] = "fail"
 		fails = append(fails, "citation_legality: successful shop answer requires at least one [shop:id] citation")
 	}
@@ -133,8 +165,12 @@ func GradeTrajectory(actual OutcomeActual, expected Expected) GradeResult {
 	if actual.Steps > maxSteps {
 		fails = append(fails, fmt.Sprintf("steps %d > %d", actual.Steps, maxSteps))
 	}
-	if actual.ToolCalls > maxTools {
-		fails = append(fails, fmt.Sprintf("tool_calls %d > %d", actual.ToolCalls, maxTools))
+	boundedToolCalls := actual.ToolCalls
+	if actual.MaxToolCallsInTurn > 0 {
+		boundedToolCalls = actual.MaxToolCallsInTurn
+	}
+	if boundedToolCalls > maxTools {
+		fails = append(fails, fmt.Sprintf("max tool_calls in one turn %d > %d", boundedToolCalls, maxTools))
 	}
 	if actual.DuplicateToolCalls > 0 {
 		fails = append(fails, fmt.Sprintf("duplicate tool calls: %d", actual.DuplicateToolCalls))

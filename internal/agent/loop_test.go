@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -68,6 +69,57 @@ func TestNormalizeCitationSyntax(t *testing.T) {
 	}
 }
 
+func TestParseRecommendedShopIDs_SeparatesEvidenceCitations(t *testing.T) {
+	t.Parallel()
+	answer := "推荐结果：[shop:26]\n不推荐 [shop:16]，因为它超出预算。"
+	ids, found := ParseRecommendedShopIDs(answer)
+	if !found || len(ids) != 1 || ids[0] != 26 {
+		t.Fatalf("recommended=%v found=%v", ids, found)
+	}
+	if cited := ParseCitedShopIDs(answer); len(cited) != 2 {
+		t.Fatalf("cited=%v", cited)
+	}
+
+	ids, found = ParseRecommendedShopIDs("推荐结果：无\n没有满足条件的候选。")
+	if !found || len(ids) != 0 {
+		t.Fatalf("no-result recommended=%v found=%v", ids, found)
+	}
+
+	ids, found = ParseRecommendedShopIDs("可考虑 [shop:29]")
+	if found || len(ids) != 1 || ids[0] != 29 {
+		t.Fatalf("legacy fallback=%v found=%v", ids, found)
+	}
+}
+
+func TestNormalizeAnswerContract_MovesMarkdownHeaderToFirstLine(t *testing.T) {
+	t.Parallel()
+	got := NormalizeAnswerContract("先说明证据。\n\n**推荐结果：[shop:26]**\n[shop:16] 只作反例。")
+	want := "推荐结果：[shop:26]\n先说明证据。\n\n[shop:16] 只作反例。"
+	if got != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+	ids, found := ParseRecommendedShopIDs(got)
+	if !found || len(ids) != 1 || ids[0] != 26 {
+		t.Fatalf("recommended=%v found=%v", ids, found)
+	}
+}
+
+func TestFinalizeGrounding_FactualLookupAddsNoRecommendationHeader(t *testing.T) {
+	ledger := NewEvidenceLedger()
+	ledger.DiscoverFromSearch(30, "月下餐厅", map[string]any{"area": "朝阳区", "type_name": "美食"})
+	res := LoopResult{Answer: "现有材料没有说明预约政策，无法确认。[shop:30]"}
+	exec := &ToolExecutor{Ledger: ledger, Observed: map[int64]struct{}{}, FactualLookup: true}
+
+	finalizeGrounding(&res, exec)
+
+	if !strings.HasPrefix(res.Answer, "推荐结果：无\n") {
+		t.Fatalf("expected factual no-recommendation header, got %q", res.Answer)
+	}
+	if !res.GroundingOK {
+		t.Fatalf("expected grounded factual answer, got code=%s err=%v", res.GroundingCode, res.Err)
+	}
+}
+
 func TestRunLoop_DuplicateRejected(t *testing.T) {
 	t.Parallel()
 	client := &scriptedClient{turns: []llm.AssistantTurn{
@@ -94,6 +146,40 @@ func TestRunLoop_DuplicateRejected(t *testing.T) {
 	}
 	if !res.GroundingOK {
 		t.Fatalf("want grounding ok after seed, err=%v", res.Err)
+	}
+}
+
+func TestRunLoop_RequestsMissingRequiredEvidenceTool(t *testing.T) {
+	t.Parallel()
+	client := &scriptedClient{turns: []llm.AssistantTurn{
+		{Message: llm.ChatMessage{Role: "assistant", ToolCalls: []llm.ToolCall{{ID: "1", Name: ToolSearchShops, Args: `{"query":"咖啡"}`}}}, ToolCalls: []llm.ToolCall{{ID: "1", Name: ToolSearchShops, Args: `{"query":"咖啡"}`}}},
+		{Message: llm.ChatMessage{Role: "assistant", Content: "推荐结果：[shop:29]"}},
+		{Message: llm.ChatMessage{Role: "assistant", ToolCalls: []llm.ToolCall{{ID: "2", Name: ToolListShopBlogs, Args: `{"shop_id":29}`}}}, ToolCalls: []llm.ToolCall{{ID: "2", Name: ToolListShopBlogs, Args: `{"shop_id":29}`}}},
+		{Message: llm.ChatMessage{Role: "assistant", Content: "推荐结果：[shop:29]"}},
+	}}
+	exec := &ToolExecutor{
+		Search: normalizedScoreSearch{}, Ledger: NewEvidenceLedger(), RequiredTools: []string{ToolSearchShops, ToolListShopBlogs},
+	}
+	res := RunLoop(context.Background(), client, exec, DefaultRunConfig(), []llm.ChatMessage{{Role: "user", Content: "x"}}, nil)
+	if res.ToolCalls != 2 || len(res.ToolNames) != 2 || res.ToolNames[1] != ToolListShopBlogs {
+		t.Fatalf("missing required tool was not requested: %+v", res)
+	}
+}
+
+func TestRunLoop_PrefetchesExactShopEvidenceWithinBound(t *testing.T) {
+	t.Parallel()
+	client := &scriptedClient{turns: []llm.AssistantTurn{
+		{Message: llm.ChatMessage{Role: "assistant", ToolCalls: []llm.ToolCall{{ID: "1", Name: ToolSearchShops, Args: `{"query":"无界餐厅"}`}}}, ToolCalls: []llm.ToolCall{{ID: "1", Name: ToolSearchShops, Args: `{"query":"无界餐厅"}`}}},
+		{Message: llm.ChatMessage{Role: "assistant", Content: "推荐结果：[shop:29]"}},
+	}}
+	exec := &ToolExecutor{
+		Search: normalizedScoreSearch{}, Ledger: NewEvidenceLedger(),
+		RequiredTools:  []string{ToolSearchShops, ToolGetShop, ToolListShopBlogs},
+		TargetShopName: "无界餐厅",
+	}
+	res := RunLoop(context.Background(), client, exec, DefaultRunConfig(), []llm.ChatMessage{{Role: "user", Content: "x"}}, nil)
+	if res.ToolCalls != 3 || strings.Join(res.ToolNames, ",") != strings.Join([]string{ToolSearchShops, ToolGetShop, ToolListShopBlogs}, ",") {
+		t.Fatalf("exact evidence plan=%+v", res)
 	}
 }
 

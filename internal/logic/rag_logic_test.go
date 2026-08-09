@@ -44,6 +44,9 @@ func TestHasExplicitExactShopName(t *testing.T) {
 	if hasExplicitExactShopName("找安静的咖啡店") {
 		t.Fatal("generic request must not be exact-name intent")
 	}
+	if !hasExplicitExactShopName("只查《静巷咖啡·国贸店》的评价") {
+		t.Fatal("Chinese book-title brackets should mark an exact shop lookup")
+	}
 	if hasExplicitExactShopName("找「未闭合的店名") {
 		t.Fatal("unclosed quote must not be exact-name intent")
 	}

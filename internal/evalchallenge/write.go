@@ -67,3 +67,63 @@ func Generate(root string, check bool) ([]string, error) {
 	}
 	return paths, nil
 }
+
+// GenerateAgentSuite writes a corrected v3.1 regression or newly seeded v4
+// holdout beside the immutable v3 artifacts. It never overwrites v3.
+func GenerateAgentSuite(root, suite string, check bool) ([]string, error) {
+	sourcePath := filepath.Join(root, "rag-evals", "dataset_manifest.v2.json")
+	sourceRaw, err := os.ReadFile(sourcePath)
+	if err != nil {
+		return nil, fmt.Errorf("read source manifest: %w", err)
+	}
+	var source sourceManifest
+	if err := json.Unmarshal(sourceRaw, &source); err != nil {
+		return nil, fmt.Errorf("parse source manifest: %w", err)
+	}
+	if source.Version != SourceDataset || source.TotalShops != SourceCatalogShops || source.TotalReviews != SourceCatalogReviews {
+		return nil, fmt.Errorf("source dataset/catalog mismatch")
+	}
+
+	var built AgentSuite
+	var agentName, manifestName string
+	switch suite {
+	case "v31":
+		built = BuildAgentRegressionV31(hash(sourceRaw))
+		agentName, manifestName = "agent.v3.1.json", "manifest.agent.v3.1.json"
+	case "v4":
+		built = BuildAgentChallengeV4(hash(sourceRaw))
+		agentName, manifestName = "agent.v4.json", "manifest.agent.v4.json"
+	default:
+		return nil, fmt.Errorf("unknown agent suite %q (want v31 or v4)", suite)
+	}
+	files := []struct {
+		name string
+		data []byte
+	}{
+		{agentName, mustJSON(built.Agent)},
+		{manifestName, mustJSON(built.Manifest)},
+	}
+	paths := make([]string, 0, len(files))
+	for _, file := range files {
+		relative := filepath.Join("rag-evals", "challenge", file.name)
+		path := filepath.Join(root, relative)
+		paths = append(paths, path)
+		if check {
+			got, readErr := os.ReadFile(path)
+			if readErr != nil {
+				return paths, fmt.Errorf("read generated artifact %s: %w", relative, readErr)
+			}
+			if string(got) != string(file.data) {
+				return paths, fmt.Errorf("generated artifact differs: %s", relative)
+			}
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return paths, err
+		}
+		if err := os.WriteFile(path, file.data, 0o644); err != nil {
+			return paths, err
+		}
+	}
+	return paths, nil
+}

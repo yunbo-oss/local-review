@@ -77,3 +77,53 @@ func TestChallengeBuildIsDeterministic(t *testing.T) {
 		t.Fatal("challenge build is not deterministic")
 	}
 }
+
+func TestCorrectedAgentSuitesHaveValidPositiveGoldens(t *testing.T) {
+	v31 := BuildAgentRegressionV31("sha256:source")
+	v4 := BuildAgentChallengeV4("sha256:source")
+	for name, suite := range map[string]AgentSuite{"v31": v31, "v4": v4} {
+		t.Run(name, func(t *testing.T) {
+			if len(suite.Agent.Cases) != 36 || suite.Agent.Splits["challenge"].Cases != 28 {
+				t.Fatalf("invalid suite shape: cases=%d splits=%+v", len(suite.Agent.Cases), suite.Agent.Splits)
+			}
+			challengeTrials := 0
+			hasExhaustiveBroadGolden := false
+			for _, c := range suite.Agent.Cases {
+				if c.Split == "challenge" {
+					challengeTrials += c.Trials
+				}
+				if !c.Expected.ExpectNoResults && len(c.Expected.AllowedShopIDs) == 0 && len(c.Expected.RequiredCitedShopIDs) == 0 {
+					t.Fatalf("%s positive case has empty allowed set", c.ID)
+				}
+				if !c.Expected.RequireRecommendationHeader {
+					t.Fatalf("%s must use recommendation/citation separation", c.ID)
+				}
+				if c.Expected.AllowedOnly && len(c.Expected.AllowedShopIDs) > 10 {
+					hasExhaustiveBroadGolden = true
+				}
+				for _, tag := range c.Tags {
+					if tag == "typo" {
+						t.Fatalf("%s typo robustness is outside the measured v3.1+ scope", c.ID)
+					}
+				}
+			}
+			if challengeTrials != 48 || suite.Manifest.AgentChallengeTrials != 48 {
+				t.Fatalf("challenge trials=%d manifest=%d", challengeTrials, suite.Manifest.AgentChallengeTrials)
+			}
+			if !hasExhaustiveBroadGolden {
+				t.Fatal("corrected AllowedOnly goldens must not be silently capped at top 10")
+			}
+		})
+	}
+	if hash(mustJSON(v31.Agent)) == hash(mustJSON(v4.Agent)) {
+		t.Fatal("newly seeded v4 must differ from v3.1 regression")
+	}
+}
+
+func TestAgentSuiteBuildIsDeterministic(t *testing.T) {
+	a := BuildAgentChallengeV4("sha256:source")
+	b := BuildAgentChallengeV4("sha256:source")
+	if hash(mustJSON(a)) != hash(mustJSON(b)) {
+		t.Fatal("v4 agent suite is not deterministic")
+	}
+}

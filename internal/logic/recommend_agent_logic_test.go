@@ -2,6 +2,7 @@ package logic
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"local-review-go/internal/agent"
@@ -35,7 +36,11 @@ func (m *memStub) LoadProfile(ctx context.Context, userID int64) (memory.Profile
 	return m.prof, nil
 }
 func (m *memStub) MergeProfile(ctx context.Context, userID int64, patch memory.ProfilePatch) (memory.Profile, error) {
-	return m.prof, nil
+	merged, err := memory.MergeProfile(m.prof, patch)
+	if err == nil {
+		m.prof = merged
+	}
+	return merged, err
 }
 func (m *memStub) ReplaceProfile(ctx context.Context, userID int64, profile memory.Profile) error {
 	return nil
@@ -74,6 +79,21 @@ func TestRecommendAgentLogic_RequireConfigAndIDs(t *testing.T) {
 	}
 }
 
+func TestRecommendAgentLogic_PureProfileUpdateUsesDeterministicFastPath(t *testing.T) {
+	mem := &memStub{}
+	l := NewRecommendAgentLogic(RecommendAgentLogicDeps{
+		ToolChat: &toolChatOnce{}, Memory: mem, Search: &captureSearch{},
+		Config: agent.DefaultRunConfig(),
+	})
+	res, err := l.Recommend(context.Background(), 1, "profile-fast-path", "我接下来几次都在东城区活动", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.ModelCalls != 0 || len(res.ProfileAfter.PreferredAreas) != 1 || res.ProfileAfter.PreferredAreas[0] != "东城区" {
+		t.Fatalf("result=%+v", res)
+	}
+}
+
 func TestRecommendAgentLogic_GroundingFailWithoutEvidence(t *testing.T) {
 	tc := &toolChatOnce{turn: llm.AssistantTurn{
 		Message: llm.ChatMessage{Role: "assistant", Content: "推荐这家 [shop:1]"},
@@ -96,7 +116,7 @@ func TestShopSearchAdapter_ProfileFillEmpty(t *testing.T) {
 		inner:   cap,
 		profile: memory.Profile{PreferredAreas: []string{"海淀"}, BudgetMax: &budget},
 	}
-	_, _ = a.SearchShops(context.Background(), "咖啡", "", "", nil, 5)
+	_, _ = a.SearchShops(context.Background(), "咖啡", "", "", nil, nil, 5)
 	if cap.lastFilter == nil || cap.lastFilter.Area != "海淀" {
 		t.Fatalf("want area 海淀, got %+v", cap.lastFilter)
 	}
@@ -114,7 +134,7 @@ func TestShopSearchAdapter_ExplicitOverridesProfile(t *testing.T) {
 		profile: memory.Profile{PreferredAreas: []string{"海淀"}, BudgetMax: &budget},
 	}
 	mp := int64(200)
-	_, _ = a.SearchShops(context.Background(), "咖啡", "朝阳", "", &mp, 5)
+	_, _ = a.SearchShops(context.Background(), "咖啡", "朝阳", "", &mp, nil, 5)
 	if cap.lastFilter == nil || cap.lastFilter.Area != "朝阳区" {
 		t.Fatalf("want 朝阳区, got %+v", cap.lastFilter)
 	}
@@ -127,7 +147,7 @@ func TestShopSearchAdapter_NormalizesAreaAndTypeAliases(t *testing.T) {
 	t.Parallel()
 	cap := &captureSearch{}
 	a := &shopSearchAdapter{inner: cap}
-	_, _ = a.SearchShops(context.Background(), "安静办公", "朝阳", "咖啡厅", nil, 5)
+	_, _ = a.SearchShops(context.Background(), "安静办公", "朝阳", "咖啡厅", nil, nil, 5)
 	if cap.lastFilter == nil || cap.lastFilter.Area != "朝阳区" || cap.lastFilter.TypeName != "咖啡" {
 		t.Fatalf("filter=%+v", cap.lastFilter)
 	}
@@ -144,7 +164,7 @@ func TestShopSearchAdapter_SemanticEvidenceReranksBeforeTruncation(t *testing.T)
 	a := &shopSearchAdapter{
 		inner: cap, requiredSemantics: required, semanticRerank: true,
 	}
-	got, err := a.SearchShops(context.Background(), "家庭聚餐", "", "", nil, 2)
+	got, err := a.SearchShops(context.Background(), "家庭聚餐", "", "", nil, nil, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,6 +189,85 @@ func TestInferExplicitFilter(t *testing.T) {
 	got = inferExplicitFilter("改成海淀区，预算50，不要沿用朝阳区")
 	if got == nil || got.Area != "海淀区" || got.MaxPrice != 50 {
 		t.Fatalf("correction chose denied area: %+v", got)
+	}
+}
+
+func TestInferExplicitFilter_NormalizesTyposAndChineseBudget(t *testing.T) {
+	t.Parallel()
+	got := inferExplicitFilter("海定区，洒店，三百二以内。来一个")
+	if got == nil || got.Area != "海淀区" || got.TypeName != "酒店" || got.MaxPrice != 320 {
+		t.Fatalf("unexpected normalized filter: %+v", got)
+	}
+	got = inferExplicitFilter("日料人均至少200但最多20，两个数都不能改")
+	if got == nil || got.TypeName != "日料" || got.MinPrice != 200 || got.MaxPrice != 20 {
+		t.Fatalf("unexpected contradictory range: %+v", got)
+	}
+}
+
+func TestRequiredEvidenceTools(t *testing.T) {
+	t.Parallel()
+	assertTools := func(q string, want ...string) {
+		t.Helper()
+		got := requiredEvidenceTools(q)
+		if strings.Join(got, ",") != strings.Join(want, ",") {
+			t.Fatalf("question=%q tools=%v want=%v", q, got, want)
+		}
+	}
+	assertTools("先不用推荐，我还在确认同行的人")
+	assertTools("给我找一家咖啡", agent.ToolSearchShops)
+	assertTools("找一家适合安静办公的咖啡", agent.ToolSearchShops, agent.ToolListShopBlogs)
+	assertTools("只查《静巷咖啡·国贸店》的地址", agent.ToolSearchShops, agent.ToolGetShop, agent.ToolListShopBlogs)
+}
+
+func TestConstrainProfilePatchToExplicitUtterancePreservesUnmentionedFields(t *testing.T) {
+	t.Parallel()
+	zero := int64(0)
+	modelPatch := memory.ProfilePatch{
+		PreferredAreasRemove: []string{"海淀区"}, BudgetMax: &zero,
+	}
+	got := constrainProfilePatchToExplicitUtterance("按更新后的条件来，给一个有依据的", modelPatch)
+	if len(got.PreferredAreasRemove) != 0 || got.BudgetMax != nil {
+		t.Fatalf("unmentioned profile fields must be preserved: %+v", got)
+	}
+
+	got = constrainProfilePatchToExplicitUtterance("记住以后优先丰台区，人均上限270", modelPatch)
+	if got.BudgetMax == nil || len(got.PreferredAreasRemove) != 1 {
+		t.Fatalf("explicit durable mutation should remain available: %+v", got)
+	}
+}
+
+func TestPreflightRecommendationGuard(t *testing.T) {
+	t.Parallel()
+	for name, tc := range map[string]struct {
+		question string
+		code     string
+	}{
+		"contradiction": {"日料人均至少200但最多20，两个数都不能改", "contradictory_price_range"},
+		"taxonomy":      {"朝阳区找电影院，只认这个类别", "unsupported_category"},
+		"reference":     {"还是上回那家吧", "unresolved_reference"},
+		"insufficient":  {"给我一个合适的，区域、类别和预算我都没说；信息不足就问", "insufficient_constraints"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			code, answer := preflightRecommendationGuard(tc.question, nil, memory.Profile{})
+			if code != tc.code || !strings.HasPrefix(answer, "推荐结果：无") {
+				t.Fatalf("code=%q answer=%q", code, answer)
+			}
+		})
+	}
+	if code, _ := preflightRecommendationGuard("通州区的咖啡，没有就说没有", nil, memory.Profile{}); code != "" {
+		t.Fatalf("valid empty retrieval should reach search, code=%s", code)
+	}
+}
+
+func TestResolveWorkingQuestionCarriesPreviousIntent(t *testing.T) {
+	t.Parallel()
+	history := []memory.Message{
+		{Role: "user", Content: "好了，就按前面那个地点和价位；需要专注敲代码，网速得稳"},
+		{Role: "assistant", Content: "我来查找。"},
+	}
+	got := resolveWorkingQuestion("上句就是最终需求，给出带引用的结论", history)
+	if !strings.Contains(got, "敲代码") || len(agent.RequiredSemanticConcepts(got)) == 0 {
+		t.Fatalf("working question lost prior semantic intent: %q", got)
 	}
 }
 
@@ -222,5 +321,17 @@ func TestInferDeterministicProfilePatchCorrection(t *testing.T) {
 	}
 	if len(got.PreferredTypesAdd) != 0 || len(got.PreferredTypesRemove) != 0 {
 		t.Fatalf("semantic request must not infer a hard shop type: %+v", got)
+	}
+}
+
+func TestInferDeterministicProfilePatchWorkingIntentTurns(t *testing.T) {
+	t.Parallel()
+	areaPatch := inferDeterministicProfilePatch("我接下来几次都在东城区活动", memory.Profile{})
+	if len(areaPatch.PreferredAreasAdd) != 1 || areaPatch.PreferredAreasAdd[0] != "东城区" {
+		t.Fatalf("area patch=%+v", areaPatch)
+	}
+	budgetPatch := inferDeterministicProfilePatch("花销按人均250封顶，先记住", memory.Profile{})
+	if budgetPatch.BudgetMax == nil || *budgetPatch.BudgetMax != 250 {
+		t.Fatalf("budget patch=%+v", budgetPatch)
 	}
 }

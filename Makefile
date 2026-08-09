@@ -1,6 +1,7 @@
 .PHONY: run build test tidy clean air test-api seed seed-redis seed-load-test seed-reset-load-test seed-vector load-test-seckill \
 	generate-eval-data generate-challenge-data eval-router eval-rag eval-rag-smoke eval-rag-oracle eval-rag-prod eval-rag-prod-baseline \
-	eval-hybrid-task eval-agent eval-agent-fake demo-agent docker-reset docker-up docker-verify docker-eval docker-challenge docker-demo
+	eval-hybrid-task eval-agent eval-agent-fake demo-agent docker-reset docker-up docker-verify docker-eval docker-challenge docker-demo \
+	docker-challenge-v4
 
 run:
 	go run ./cmd/server
@@ -62,10 +63,14 @@ generate-eval-data:
 	go run ./cmd/generate-eval-data
 	go run ./cmd/generate-eval-data --check
 
-# 生成独立 v3 challenge；不调用 LLM，不修改 v2 regression goldens
+# 生成冻结 v3、可检查 v3.1 regression 与新种子 v4 challenge；均不调用 LLM
 generate-challenge-data:
 	go run ./cmd/generate-challenge-data
 	go run ./cmd/generate-challenge-data --check
+	go run ./cmd/generate-challenge-data --suite=v31
+	go run ./cmd/generate-challenge-data --suite=v31 --check
+	go run ./cmd/generate-challenge-data --suite=v4
+	go run ./cmd/generate-challenge-data --suite=v4 --check
 
 # 生产规则 Router 的确定性分类评测（不调用 LLM）
 eval-router:
@@ -130,7 +135,7 @@ test-llm:
 # --- Docker 可复现评测闭环 ---
 # LLM_API_KEY 只从当前 shell 注入；不要写进 .env 或仓库。
 docker-reset:
-	docker compose --profile verify --profile eval --profile challenge --profile demo down -v --remove-orphans
+	docker compose --profile verify --profile eval --profile challenge --profile challenge-v4 --profile demo down -v --remove-orphans
 
 docker-up:
 	docker compose up -d --build
@@ -152,6 +157,12 @@ docker-challenge:
 	docker compose --profile challenge run --rm challenge-rag-eval
 	docker compose --profile challenge run --rm challenge-hybrid-task-eval
 	docker compose --profile challenge run --rm --no-deps challenge-agent-eval
+
+# 修复只在 v3.1 回归集完成；冻结后 v4 只正式运行一次，不按逐题结果继续调参。
+docker-challenge-v4:
+	@test -n "$$LLM_API_KEY" || (echo "LLM_API_KEY is required" >&2; exit 1)
+	docker compose --profile challenge-v4 run --rm challenge-v4-hybrid-task-eval
+	docker compose --profile challenge-v4 run --rm --no-deps challenge-v4-agent-eval
 
 docker-demo:
 	@test -n "$$LLM_API_KEY" || (echo "LLM_API_KEY is required" >&2; exit 1)

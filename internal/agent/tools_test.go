@@ -8,7 +8,7 @@ import (
 
 type normalizedScoreSearch struct{}
 
-func (normalizedScoreSearch) SearchShops(context.Context, string, string, string, *int64, int) ([]ShopHit, error) {
+func (normalizedScoreSearch) SearchShops(context.Context, string, string, string, *int64, *int64, int) ([]ShopHit, error) {
 	return []ShopHit{{ShopID: 29, Name: "无界餐厅", Area: "东城区", TypeName: "美食", AvgPrice: 128, Score: 47}}, nil
 }
 

@@ -126,14 +126,14 @@ type semanticRule struct {
 }
 
 var semanticRules = []semanticRule{
-	{Name: "work", Aliases: []string{"安静", "办公", "学习", "自习", "插座", "wifi", "写方案"}},
-	{Name: "date", Aliases: []string{"浪漫", "约会", "情侣", "纪念日", "情调"}},
-	{Name: "family", Aliases: []string{"家庭", "聚餐", "孩子", "儿童椅", "亲子", "老人"}},
-	{Name: "late", Aliases: []string{"深夜", "凌晨", "夜宵", "夜班", "加班后"}},
-	{Name: "pet", Aliases: []string{"宠物", "带狗", "猫狗", "饮水碗"}},
-	{Name: "accessible", Aliases: []string{"无障碍", "轮椅", "坡道", "扶手", "行动不便"}},
-	{Name: "business", Aliases: []string{"商务", "宴请", "客户", "接待"}},
-	{Name: "student_value", Aliases: []string{"学生", "平价", "性价比", "学生党", "学生优惠"}},
+	{Name: "work", Aliases: []string{"安静", "办公", "学习", "自习", "插座", "wifi", "写方案", "电脑", "线上会议", "充电", "赶稿", "专注", "敲代码", "网速"}},
+	{Name: "date", Aliases: []string{"浪漫", "约会", "情侣", "纪念日", "情调", "二人世界", "表白", "恋爱周年", "仪式感"}},
+	{Name: "family", Aliases: []string{"家庭", "聚餐", "孩子", "儿童椅", "亲子", "老人", "三代", "小朋友", "带娃", "长辈", "一家五口", "老少"}},
+	{Name: "late", Aliases: []string{"深夜", "凌晨", "夜宵", "夜班", "加班后", "演出散场", "十一点", "末班车", "午夜", "十二点", "夜里", "打烊"}},
+	{Name: "pet", Aliases: []string{"宠物", "带狗", "猫狗", "饮水碗", "毛孩子", "柯基", "主子", "四脚朋友"}},
+	{Name: "accessible", Aliases: []string{"无障碍", "轮椅", "坡道", "扶手", "行动不便", "助行器", "台阶", "拄拐", "腿脚", "通道"}},
+	{Name: "business", Aliases: []string{"商务", "宴请", "客户", "接待", "合作方", "供应商", "合同", "项目伙伴", "工作饭局", "独立空间"}},
+	{Name: "student_value", Aliases: []string{"学生", "平价", "性价比", "学生党", "学生优惠", "钱包", "刚毕业", "租房族", "控制花销", "预算紧", "分量", "省着花"}},
 }
 
 // RequiredSemanticConcepts maps a user request to the finite semantic
@@ -147,6 +147,30 @@ func RequiredSemanticConcepts(text string) []string {
 		}
 	}
 	return out
+}
+
+// SemanticQueryExpansion bridges colloquial requests to the finite evidence
+// ontology stored in review documents. It improves retrieval recall without
+// weakening hard filters or declaring a shop relevant by itself; the final
+// semantic-evidence gate still requires matching fetched review text.
+func SemanticQueryExpansion(required []string) string {
+	keywords := map[string]string{
+		"work":          "安静 办公 插座 wifi",
+		"date":          "浪漫 约会 情侣 纪念日",
+		"family":        "家庭 聚餐 孩子 儿童椅 老人",
+		"late":          "深夜 凌晨 夜宵 营业",
+		"pet":           "宠物 带狗 猫狗 饮水碗",
+		"accessible":    "无障碍 轮椅 坡道 扶手",
+		"business":      "商务 宴请 客户 接待 包间",
+		"student_value": "学生 平价 性价比 优惠",
+	}
+	parts := make([]string, 0, len(required))
+	for _, concept := range required {
+		if value := keywords[concept]; value != "" {
+			parts = append(parts, value)
+		}
+	}
+	return strings.Join(parts, " ")
 }
 
 // SemanticEvidenceIDs returns discovered shops whose fetched review text

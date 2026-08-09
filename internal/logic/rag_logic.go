@@ -180,11 +180,20 @@ func (l *ragLogic) buildShopContext(ctx context.Context, shops []repoInterfaces.
 }
 
 func hasExplicitExactShopName(question string) bool {
-	start := strings.Index(question, "「")
-	if start < 0 {
-		return false
+	return explicitExactShopName(question) != ""
+}
+
+func explicitExactShopName(question string) string {
+	for _, pair := range [][2]string{{"「", "」"}, {"《", "》"}, {"『", "』"}} {
+		start := strings.Index(question, pair[0])
+		if start < 0 {
+			continue
+		}
+		rest := question[start+len(pair[0]):]
+		end := strings.Index(rest, pair[1])
+		if end > 0 && strings.TrimSpace(rest[:end]) != "" {
+			return strings.TrimSpace(rest[:end])
+		}
 	}
-	rest := question[start+len("「"):]
-	end := strings.Index(rest, "」")
-	return end > 0 && strings.TrimSpace(rest[:end]) != ""
+	return ""
 }

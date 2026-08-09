@@ -205,6 +205,8 @@ services:
       - |
         ./generate-eval-data --check
         ./generate-challenge-data --check
+        ./generate-challenge-data --suite=v31 --check
+        ./generate-challenge-data --suite=v4 --check
     restart: "no"
 
   router-eval:
@@ -345,6 +347,44 @@ services:
       - ./rag-evals:/app/rag-evals
     depends_on:
       challenge-hybrid-task-eval:
+        condition: service_completed_successfully
+    restart: "no"
+
+  challenge-v4-hybrid-task-eval:
+    <<: *app-image
+    profiles: ["challenge-v4"]
+    command:
+      - ./eval-agent
+      - --mode=inprocess
+      - --system=hybrid_rag
+      - --split=challenge
+      - --test-set=rag-evals/challenge/agent.v4.json
+      - --out=rag-evals/baseline/hybrid_task_challenge_v4.json
+    environment: *app-environment
+    volumes:
+      - ./rag-evals:/app/rag-evals
+    depends_on:
+      vector-init:
+        condition: service_completed_successfully
+    restart: "no"
+
+  challenge-v4-agent-eval:
+    <<: *app-image
+    profiles: ["challenge-v4"]
+    command:
+      - ./eval-agent
+      - --mode=inprocess
+      - --system=agent
+      - --split=challenge
+      - --force-route=agent_multistep
+      - --test-set=rag-evals/challenge/agent.v4.json
+      - --out=rag-evals/reports/agent_challenge_v4.json
+      - --compare-baseline=rag-evals/baseline/hybrid_task_challenge_v4.json
+    environment: *app-environment
+    volumes:
+      - ./rag-evals:/app/rag-evals
+    depends_on:
+      challenge-v4-hybrid-task-eval:
         condition: service_completed_successfully
     restart: "no"
 
