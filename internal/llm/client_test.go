@@ -71,6 +71,18 @@ func TestValidateEmbeddingDimension(t *testing.T) {
 	}
 }
 
+func TestLoadConfigTemperature(t *testing.T) {
+	t.Setenv("LLM_TEMPERATURE", "0.25")
+	cfg := LoadConfig()
+	if cfg.Temperature != 0.25 {
+		t.Fatalf("temperature=%v want=0.25", cfg.Temperature)
+	}
+	t.Setenv("LLM_TEMPERATURE", "invalid")
+	if got := LoadConfig().Temperature; got != defaultTemperature {
+		t.Fatalf("invalid temperature fallback=%v want=%v", got, defaultTemperature)
+	}
+}
+
 func TestOpenAIClient_EmbedBatch_RejectsDimMismatch(t *testing.T) {
 	t.Parallel()
 	// Unit-test the validation path without hitting the network:

@@ -14,6 +14,7 @@ import (
 	"local-review-go/internal/config"
 	"local-review-go/internal/config/mysql"
 	"local-review-go/internal/config/redis"
+	"local-review-go/internal/evalmeta"
 	"local-review-go/internal/llm"
 	"local-review-go/internal/logic"
 	"local-review-go/internal/repository"
@@ -31,6 +32,8 @@ func main() {
 	limit := flag.Int("limit", 0, "max cases (0=all); smoke helper")
 	caseID := flag.String("case-id", "", "run one exact case id; empty runs the selected split")
 	userID := flag.Int64("user-id", 900001, "eval user id for memory isolation")
+	inputPrice := flag.Float64("input-price-usd-per-million", 0.14, "cache-miss input token price used for cost estimate")
+	outputPrice := flag.Float64("output-price-usd-per-million", 0.28, "output token price used for cost estimate")
 	flag.Parse()
 
 	raw, err := os.ReadFile(*testSet)
@@ -61,12 +64,18 @@ func main() {
 
 	var runner TrialRunner
 	exp := ExperimentMeta{
-		System:        *system,
-		AgentMaxSteps: agent.DefaultMaxSteps,
-		AgentMaxTools: agent.DefaultMaxToolCalls,
-		ForceRoute:    *forceRoute,
-		Mode:          *mode,
-		PolicyVersion: "agent-policy-v1",
+		System:                *system,
+		Split:                 *split,
+		AgentMaxSteps:         agent.DefaultMaxSteps,
+		AgentMaxTools:         agent.DefaultMaxToolCalls,
+		ForceRoute:            *forceRoute,
+		Mode:                  *mode,
+		PolicyVersion:         "agent-policy-v1",
+		Retriever:             "hybrid",
+		TopK:                  5,
+		InputPriceUSDPerMTok:  *inputPrice,
+		OutputPriceUSDPerMTok: *outputPrice,
+		Runtime:               evalmeta.Capture(),
 	}
 
 	switch strings.ToLower(*mode) {
@@ -84,6 +93,11 @@ func main() {
 		cfg := llm.LoadConfig()
 		emb, chat, toolChat := llm.NewOpenAIClient(cfg)
 		exp.ChatModel = cfg.ChatModel
+		exp.ChatTemperature = cfg.Temperature
+		exp.ThinkingMode = cfg.ThinkingMode
+		exp.EmbeddingProvider = cfg.EmbeddingProvider
+		exp.EmbeddingModel = cfg.EmbeddingModel
+		exp.EmbeddingDim = cfg.EmbeddingDim
 		baseSearch := logic.NewShopSearchLogic(logic.ShopSearchLogicDeps{
 			EmbeddingClient: emb,
 			VectorRepo:      repository.NewVectorRepo(redis.GetRedisClient()),
@@ -105,12 +119,19 @@ func main() {
 				repository.NewAgentProfileRepo(mysql.GetMysqlDB(), redis.GetRedisClient()))
 			shopRepo := repository.NewShopRepo(mysql.GetMysqlDB())
 			blogRepo := repository.NewBlogRepo(mysql.GetMysqlDB())
+			runCfg := agent.DefaultRunConfig()
+			exp.AgentMaxSteps = runCfg.MaxSteps
+			exp.AgentMaxTools = runCfg.MaxToolCalls
+			exp.AgentMaxToolAttempts = runCfg.MaxToolAttempts
+			exp.AgentMaxToolsPerTurn = runCfg.MaxToolsPerTurn
+			exp.AgentRunTimeout = runCfg.RunTimeout.String()
+			exp.AgentToolTimeout = runCfg.ToolTimeout.String()
 			agentLogic := logic.NewRecommendAgentLogic(logic.RecommendAgentLogicDeps{
 				ToolChat: toolChat, ChatClient: chat, Memory: mem,
 				Search: capSearch, ShopRepo: shopRepo, BlogRepo: blogRepo,
 				RunRepo: repository.NewAgentRunRepo(mysql.GetMysqlDB()),
 				Router:  logic.NewRecommendRouter(),
-				Config:  agent.DefaultRunConfig(),
+				Config:  runCfg,
 			})
 			runner = &InProcessRunner{Logic: agentLogic, Memory: mem, Search: capSearch, UserID: *userID}
 		default:
@@ -193,8 +214,8 @@ func main() {
 	if err := writeReport(*out, rep); err != nil {
 		log.Fatal(err)
 	}
-	fmt.Printf("wrote %s version=%s cases=%d evaluated=%d infra=%d outcome_rate=%.3f all_trials_pass_rate=%.3f\n",
-		*out, rep.Version, rep.NTotal, rep.NEvaluated, rep.NInfraError,
+	fmt.Printf("wrote %s version=%s cases=%d trials=%d evaluated=%d infra=%d outcome_rate=%.3f all_trials_pass_rate=%.3f\n",
+		*out, rep.Version, rep.NCases, rep.NTrials, rep.NEvaluated, rep.NInfraError,
 		rep.Summary.OutcomeRate, rep.Summary.AllTrialsPassRate)
 	if nInfra > 0 {
 		os.Exit(2)

@@ -15,6 +15,7 @@ import (
 
 	"local-review-go/internal/config"
 	"local-review-go/internal/config/redis"
+	"local-review-go/internal/evalmeta"
 	"local-review-go/internal/llm"
 	"local-review-go/internal/logic"
 	"local-review-go/internal/repository"
@@ -82,16 +83,21 @@ func main() {
 	}
 
 	report := EvalReport{
+		Runtime:            evalmeta.Capture(),
 		DatasetVersion:     version,
 		DatasetSHA256:      datasetSHA,
 		SeedVersion:        "seed.sql",
 		RedisImage:         "redis/redis-stack-server:7.4.0-v8",
 		IndexSchemaVersion: "idx:shop:vector",
 		Retriever:          string(strategy),
+		Split:              *split,
 		FilterMode:         *filterMode,
+		EmbeddingProvider:  cfg.EmbeddingProvider,
 		EmbeddingModel:     cfg.EmbeddingModel,
 		EmbeddingDim:       cfg.EmbeddingDim,
 		FilterModel:        cfg.ChatModel,
+		ChatTemperature:    cfg.Temperature,
+		ThinkingMode:       cfg.ThinkingMode,
 		TopK:               *topK,
 		RRFK:               60,
 		CandidateK:         20,
@@ -193,6 +199,8 @@ func main() {
 	report.MRR = mrr
 	report.NDCGAtK = ndcg
 	report.TaskSuccessRate, report.NoResultAccuracy = AggregateTaskSuccess(report.PerCase)
+	taskOK, taskN := TaskSuccessCounts(report.PerCase)
+	report.TaskSuccessWilson95 = wilson95(taskOK, taskN)
 	report.P50LatencyMs, report.P95LatencyMs = AggregateLatency(report.PerCase)
 	if filterAccN > 0 {
 		report.FilterFieldAccuracy = filterAccSum / float64(filterAccN)

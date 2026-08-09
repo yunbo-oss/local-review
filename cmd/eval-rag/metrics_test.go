@@ -89,6 +89,23 @@ func TestAggregateQuality_NoResultNotInRankingDenominator(t *testing.T) {
 	}
 }
 
+func TestTaskSuccessWilsonExcludesInfrastructureErrors(t *testing.T) {
+	t.Parallel()
+	cases := []CaseResult{
+		{TaskSuccess: true},
+		{TaskSuccess: false},
+		{TaskSuccess: false, InfraError: "redis down"},
+	}
+	ok, n := TaskSuccessCounts(cases)
+	if ok != 1 || n != 2 {
+		t.Fatalf("successes/trials=%d/%d", ok, n)
+	}
+	ci := wilson95(ok, n)
+	if ci.Successes != 1 || ci.Trials != 2 || ci.Lower <= 0 || ci.Upper >= 1 {
+		t.Fatalf("unexpected Wilson interval: %+v", ci)
+	}
+}
+
 func TestNDCGAtK_Ideal(t *testing.T) {
 	t.Parallel()
 	retrieved := []int64{1, 2, 3}

@@ -15,11 +15,14 @@ x-app-environment: &app-environment
   LLM_BASE_URL: ${LLM_BASE_URL:-https://api.deepseek.com}
   LLM_CHAT_MODEL: ${LLM_CHAT_MODEL:-deepseek-v4-flash}
   LLM_THINKING_MODE: disabled
+  LLM_TEMPERATURE: ${LLM_TEMPERATURE:-0.1}
   LLM_EMBEDDING_PROVIDER: ${LLM_EMBEDDING_PROVIDER:-local}
   LLM_EMBEDDING_MODEL: ${LLM_EMBEDDING_MODEL:-local-feature-hash-zh-v2}
   LLM_EMBEDDING_DIM: ${LLM_EMBEDDING_DIM:-384}
   RAG_RETRIEVER: hybrid
   RAG_SEARCH_MODE: strict
+  EVAL_GIT_SHA: ${EVAL_GIT_SHA:-}
+  EVAL_GIT_DIRTY: ${EVAL_GIT_DIRTY:-}
 
 x-app-image: &app-image
   image: local-review-eval:latest
@@ -196,7 +199,25 @@ services:
   data-check:
     <<: *app-image
     profiles: ["verify"]
-    command: ["./generate-eval-data", "--check"]
+    command:
+      - sh
+      - -ec
+      - |
+        ./generate-eval-data --check
+        ./generate-challenge-data --check
+    restart: "no"
+
+  router-eval:
+    <<: *app-image
+    profiles: ["verify"]
+    command:
+      - ./eval-router
+      - --split=test
+      - --test-set=rag-evals/golden/router.v1.json
+      - --out=rag-evals/reports/router_v1.json
+    environment: *app-environment
+    volumes:
+      - ./rag-evals:/app/rag-evals
     restart: "no"
 
   api-smoke:
@@ -268,6 +289,62 @@ services:
       - ./rag-evals:/app/rag-evals
     depends_on:
       hybrid-task-eval:
+        condition: service_completed_successfully
+    restart: "no"
+
+  challenge-rag-eval:
+    <<: *app-image
+    profiles: ["challenge"]
+    command:
+      - ./eval-rag
+      - --test-set=rag-evals/challenge/retrieval.v3.json
+      - --filter-mode=llm
+      - --retriever=hybrid
+      - --split=challenge
+      - --out=rag-evals/reports/retrieval_challenge_v3.json
+    environment: *app-environment
+    volumes:
+      - ./rag-evals:/app/rag-evals
+    depends_on:
+      vector-init:
+        condition: service_completed_successfully
+    restart: "no"
+
+  challenge-hybrid-task-eval:
+    <<: *app-image
+    profiles: ["challenge"]
+    command:
+      - ./eval-agent
+      - --mode=inprocess
+      - --system=hybrid_rag
+      - --split=challenge
+      - --test-set=rag-evals/challenge/agent.v3.json
+      - --out=rag-evals/baseline/hybrid_task_challenge_v3.json
+    environment: *app-environment
+    volumes:
+      - ./rag-evals:/app/rag-evals
+    depends_on:
+      vector-init:
+        condition: service_completed_successfully
+    restart: "no"
+
+  challenge-agent-eval:
+    <<: *app-image
+    profiles: ["challenge"]
+    command:
+      - ./eval-agent
+      - --mode=inprocess
+      - --system=agent
+      - --split=challenge
+      - --force-route=agent_multistep
+      - --test-set=rag-evals/challenge/agent.v3.json
+      - --out=rag-evals/reports/agent_challenge_v3.json
+      - --compare-baseline=rag-evals/baseline/hybrid_task_challenge_v3.json
+    environment: *app-environment
+    volumes:
+      - ./rag-evals:/app/rag-evals
+    depends_on:
+      challenge-hybrid-task-eval:
         condition: service_completed_successfully
     restart: "no"
 

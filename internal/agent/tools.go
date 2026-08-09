@@ -172,13 +172,13 @@ func (e *ToolExecutor) execSearch(ctx context.Context, argsJSON string) (string,
 		return "", err
 	}
 	type item struct {
-		ShopID                  int64  `json:"shop_id"`
-		Name                    string `json:"name"`
-		Area                    string `json:"area"`
-		TypeName                string `json:"type_name"`
-		AvgPrice                int64  `json:"avg_price"`
-		Score                   int    `json:"score"`
-		UntrustedReviewEvidence string `json:"untrusted_review_evidence,omitempty"`
+		ShopID                  int64   `json:"shop_id"`
+		Name                    string  `json:"name"`
+		Area                    string  `json:"area"`
+		TypeName                string  `json:"type_name"`
+		AvgPrice                int64   `json:"avg_price"`
+		Score                   float64 `json:"score"`
+		UntrustedReviewEvidence string  `json:"untrusted_review_evidence,omitempty"`
 	}
 	items := make([]item, 0, len(results))
 	for _, r := range results {
@@ -188,7 +188,7 @@ func (e *ToolExecutor) execSearch(ctx context.Context, argsJSON string) (string,
 		})
 		items = append(items, item{
 			ShopID: r.ShopID, Name: r.Name, Area: r.Area,
-			TypeName: r.TypeName, AvgPrice: r.AvgPrice, Score: r.Score,
+			TypeName: r.TypeName, AvgPrice: r.AvgPrice, Score: float64(r.Score) / 10,
 			UntrustedReviewEvidence: truncateUTF8(r.ReviewEvidence, 500),
 		})
 	}
@@ -225,7 +225,7 @@ func (e *ToolExecutor) execGetShop(ctx context.Context, argsJSON string) (string
 	})
 	b, _ := json.Marshal(map[string]any{
 		"shop_id": shop.Id, "name": shop.Name, "area": shop.Area,
-		"avg_price": shop.AvgPrice, "score": shop.Score, "address": shop.Address,
+		"avg_price": shop.AvgPrice, "score": float64(shop.Score) / 10, "address": shop.Address,
 		"open_hours": shop.OpenHours,
 	})
 	return string(b), nil
@@ -263,7 +263,7 @@ func (e *ToolExecutor) execListBlogs(ctx context.Context, argsJSON string) (stri
 		BlogID  int64  `json:"blog_id"`
 		Title   string `json:"title"`
 		Snippet string `json:"content_snippet"`
-		Score   int    `json:"score"`
+		Liked   int    `json:"liked"`
 	}
 	items := make([]bi, 0, len(blogs))
 	for _, b := range blogs {
@@ -273,7 +273,7 @@ func (e *ToolExecutor) execListBlogs(ctx context.Context, argsJSON string) (stri
 		if len([]rune(snip)) > 120 {
 			snip = string([]rune(snip)[:120]) + "…"
 		}
-		items = append(items, bi{BlogID: b.Id, Title: b.Title, Snippet: snip, Score: b.Liked})
+		items = append(items, bi{BlogID: b.Id, Title: b.Title, Snippet: snip, Liked: b.Liked})
 	}
 	_ = e.Ledger.RecordBlogEvidence(a.ShopID, ids, texts)
 	// content_snippet 为用户生成内容：标注 untrusted，配合 system policy 防注入

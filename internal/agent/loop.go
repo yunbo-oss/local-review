@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -20,6 +21,7 @@ type LoopResult struct {
 	Steps             int
 	ModelCalls        int
 	ToolCalls         int // 实际执行（非 duplicate 跳过）的次数
+	ToolNames         []string
 	ToolAttempts      int // 含失败/重复/未知的尝试次数
 	DuplicateRejected int
 	ObservedShopIDs   []int64
@@ -140,6 +142,7 @@ func RunLoop(ctx context.Context, client llm.ToolChatClient, exec *ToolExecutor,
 			}
 			seen[key] = struct{}{}
 			res.ToolCalls++
+			res.ToolNames = append(res.ToolNames, tc.Name)
 
 			toolCtx, toolCancel := context.WithTimeout(runCtx, cfg.ToolTimeout)
 			out, execErr := exec.Execute(toolCtx, tc.Name, tc.Args)
@@ -185,13 +188,13 @@ func NormalizeCitationSyntax(answer string) string {
 }
 
 // tryRepairGrounding performs one bounded, no-tool revision for formatting
-// omissions or an unknown shop introduced by the model. Fact conflicts and
-// unsupported semantic claims are intentionally never rewritten here.
+// omissions, an unknown shop, or a structured fact conflict introduced by the
+// model. Unsupported semantic claims are intentionally never rewritten here.
 func tryRepairGrounding(ctx context.Context, client llm.ToolChatClient, res *LoopResult, exec *ToolExecutor) {
 	if res == nil || strings.TrimSpace(res.Answer) == "" {
 		return
 	}
-	if res.GroundingCode != ErrGroundingNoCitation && res.GroundingCode != ErrGroundingUnknownShop {
+	if res.GroundingCode != ErrGroundingNoCitation && res.GroundingCode != ErrGroundingUnknownShop && res.GroundingCode != ErrGroundingFactConflict {
 		return
 	}
 	ids := observedList(exec)
@@ -213,6 +216,12 @@ func tryRepairGrounding(ctx context.Context, client llm.ToolChatClient, res *Loo
 			ids,
 		)
 	}
+	if res.GroundingCode == ErrGroundingFactConflict {
+		instruction = fmt.Sprintf(
+			"事实校验失败：原回答包含与工具证据不一致的价格、评分、地址或营业时间。请只使用以下结构化证据重写，删除无法核实的事实；保留严格 [shop:id] 引用，不要调用工具，不要加入新事实。证据：%s",
+			groundingRepairFacts(exec, ids),
+		)
+	}
 	res.Messages = append(res.Messages, llm.ChatMessage{Role: "user", Content: instruction})
 	res.ModelCalls++
 	turn, err := client.ChatCompleteTurn(ctx, res.Messages)
@@ -225,6 +234,37 @@ func tryRepairGrounding(ctx context.Context, client llm.ToolChatClient, res *Loo
 	res.Answer = NormalizeCitationSyntax(turn.Message.Content)
 	res.Messages = append(res.Messages, turn.Message)
 	finalizeGrounding(res, exec)
+}
+
+func groundingRepairFacts(exec *ToolExecutor, ids []int64) string {
+	if exec == nil || exec.Ledger == nil {
+		return "{}"
+	}
+	facts := make(map[int64]map[string]any, len(ids))
+	for _, id := range ids {
+		ev := exec.Ledger.Get(id)
+		if ev == nil {
+			continue
+		}
+		item := map[string]any{"name": ev.Name}
+		for _, field := range []string{"area", "type_name", "avg_price", "score", "address", "open_hours"} {
+			if fv, ok := ev.Fields[field]; ok {
+				value := fv.Value
+				if field == "score" {
+					if raw, ok := asInt64(value); ok {
+						value = float64(raw) / 10
+					}
+				}
+				item[field] = value
+			}
+		}
+		facts[id] = item
+	}
+	b, err := json.Marshal(facts)
+	if err != nil {
+		return "{}"
+	}
+	return string(b)
 }
 
 func finalizeGrounding(res *LoopResult, exec *ToolExecutor) {

@@ -12,6 +12,7 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/sashabaranov/go-openai"
@@ -26,6 +27,7 @@ const (
 	defaultEmbeddingDim      = 384
 	defaultChatModel         = "deepseek-v4-flash"
 	defaultBaseURL           = "https://api.deepseek.com"
+	defaultTemperature       = float32(0.1)
 )
 
 // EmbeddingClient 文本向量化接口
@@ -51,6 +53,7 @@ type Config struct {
 	EmbeddingModel        string
 	ChatModel             string
 	ThinkingMode          string
+	Temperature           float32
 	EmbeddingDim          int
 	TLSInsecureSkipVerify bool // 跳过 TLS 证书校验（仅开发/调试，生产慎用）
 }
@@ -81,6 +84,14 @@ func LoadConfig() Config {
 	if thinkingMode == "" {
 		thinkingMode = "disabled"
 	}
+	temperature := defaultTemperature
+	if raw := strings.TrimSpace(os.Getenv("LLM_TEMPERATURE")); raw != "" {
+		if value, err := strconv.ParseFloat(raw, 32); err == nil && value >= 0 && value <= 2 {
+			temperature = float32(value)
+		} else {
+			logrus.Warnf("invalid LLM_TEMPERATURE=%q; using %.2f", raw, defaultTemperature)
+		}
+	}
 	dim := defaultEmbeddingDim
 	if d := os.Getenv("LLM_EMBEDDING_DIM"); d != "" {
 		if n, err := fmt.Sscanf(d, "%d", &dim); err == nil && n == 1 {
@@ -99,6 +110,7 @@ func LoadConfig() Config {
 		EmbeddingModel:        embModel,
 		ChatModel:             chatModel,
 		ThinkingMode:          thinkingMode,
+		Temperature:           temperature,
 		EmbeddingDim:          dim,
 		TLSInsecureSkipVerify: tlsSkip,
 	}
@@ -256,10 +268,11 @@ func (c *openAIClient) ChatComplete(ctx context.Context, messages []openai.ChatC
 
 func (c *openAIClient) ChatCompleteWithUsage(ctx context.Context, messages []openai.ChatCompletionMessage) (string, TokenUsage, error) {
 	resp, err := c.client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-		Model:     c.config.ChatModel,
-		Messages:  messages,
-		Stream:    false,
-		MaxTokens: 512,
+		Model:       c.config.ChatModel,
+		Messages:    messages,
+		Stream:      false,
+		MaxTokens:   512,
+		Temperature: c.config.Temperature,
 	})
 	if err != nil {
 		return "", TokenUsage{}, fmt.Errorf("create chat completion: %w", err)
@@ -276,10 +289,11 @@ func (c *openAIClient) ChatCompleteWithUsage(ctx context.Context, messages []ope
 // ChatWithTools 带 tools 的非流式一轮（function calling）
 func (c *openAIClient) ChatWithTools(ctx context.Context, messages []ChatMessage, tools []ToolDefinition) (AssistantTurn, error) {
 	req := openai.ChatCompletionRequest{
-		Model:     c.config.ChatModel,
-		Messages:  toOpenAIMessages(messages),
-		Stream:    false,
-		MaxTokens: 800,
+		Model:       c.config.ChatModel,
+		Messages:    toOpenAIMessages(messages),
+		Stream:      false,
+		MaxTokens:   800,
+		Temperature: c.config.Temperature,
 	}
 	if len(tools) > 0 {
 		req.Tools = toOpenAITools(tools)
@@ -377,10 +391,11 @@ func assistantTurnFromResponse(resp openai.ChatCompletionResponse) (AssistantTur
 // ChatStream 流式对话
 func (c *openAIClient) ChatStream(ctx context.Context, messages []openai.ChatCompletionMessage, onChunk func(string)) error {
 	stream, err := c.client.CreateChatCompletionStream(ctx, openai.ChatCompletionRequest{
-		Model:     c.config.ChatModel,
-		Messages:  messages,
-		Stream:    true,
-		MaxTokens: 800,
+		Model:       c.config.ChatModel,
+		Messages:    messages,
+		Stream:      true,
+		MaxTokens:   800,
+		Temperature: c.config.Temperature,
 	})
 	if err != nil {
 		return fmt.Errorf("create chat stream: %w", err)

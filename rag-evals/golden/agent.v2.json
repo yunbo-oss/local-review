@@ -21,6 +21,7 @@
           26
         ],
         "forbidden_shop_ids": [],
+        "allowed_only": true,
         "max_steps": 3,
         "max_tool_calls": 5,
         "expect_no_results": false,
@@ -48,9 +49,16 @@
         "allowed_shop_ids": [
           26
         ],
+        "permitted_shop_ids": [
+          27
+        ],
         "forbidden_shop_ids": [],
+        "allowed_only": true,
         "max_steps": 3,
         "max_tool_calls": 5,
+        "required_answer_regex": [
+          "((推荐|更适合办公|建议选择)[^。！？\\n]{0,30}国贸店|国贸店[^。！？\\n]{0,30}(推荐|更适合办公|建议选择))"
+        ],
         "expect_no_results": false,
         "expect_groundedness": true
       },
@@ -82,6 +90,7 @@
           147
         ],
         "forbidden_shop_ids": [],
+        "allowed_only": true,
         "profile_after": {
           "budget_max": 80,
           "preferred_areas": [
@@ -154,6 +163,9 @@
         "forbidden_shop_ids": [],
         "max_steps": 3,
         "max_tool_calls": 5,
+        "required_answer_regex": [
+          "(没有|未找到|暂无)[^。！？\\n]{0,40}(合适|满足|符合|结果|店|日料|酒店|咖啡|书店|去处)"
+        ],
         "expect_no_results": true,
         "expect_groundedness": true
       },
@@ -178,9 +190,15 @@
         "allowed_shop_ids": [
           27
         ],
-        "forbidden_shop_ids": [],
+        "forbidden_shop_ids": [
+          999999
+        ],
+        "allowed_only": true,
         "max_steps": 3,
         "max_tool_calls": 5,
+        "forbidden_answer_substrings": [
+          "[shop:999999]"
+        ],
         "expect_no_results": false,
         "expect_groundedness": true
       },
@@ -207,8 +225,13 @@
           26
         ],
         "forbidden_shop_ids": [],
+        "allowed_only": true,
         "max_steps": 3,
         "max_tool_calls": 5,
+        "required_claim_regex": [
+          "(安静|适合办公|能办公)",
+          "(嘈杂|很吵|音乐[^。！？\\n]{0,8}响|不适合办公|高峰[^。！？\\n]{0,12}(人多|噪|响))"
+        ],
         "expect_no_results": false,
         "expect_groundedness": true
       },
@@ -235,6 +258,7 @@
           29
         ],
         "forbidden_shop_ids": [],
+        "allowed_only": true,
         "max_steps": 3,
         "max_tool_calls": 5,
         "expect_no_results": false,
@@ -297,6 +321,9 @@
         "forbidden_shop_ids": [],
         "max_steps": 3,
         "max_tool_calls": 5,
+        "required_answer_regex": [
+          "(没有|未找到|暂无)[^。！？\\n]{0,40}(合适|满足|符合|结果|店|日料|酒店|咖啡|书店|去处)"
+        ],
         "expect_no_results": true,
         "expect_groundedness": true
       },
@@ -516,6 +543,7 @@
           46
         ],
         "forbidden_shop_ids": [],
+        "allowed_only": true,
         "max_steps": 3,
         "max_tool_calls": 5,
         "expect_no_results": false,
@@ -643,6 +671,9 @@
         "forbidden_shop_ids": [],
         "max_steps": 3,
         "max_tool_calls": 5,
+        "required_answer_regex": [
+          "(没有|未找到|暂无)[^。！？\\n]{0,40}(合适|满足|符合|结果|店|日料|酒店|咖啡|书店|去处)"
+        ],
         "expect_no_results": true,
         "expect_groundedness": true
       },
@@ -767,6 +798,9 @@
         "forbidden_shop_ids": [],
         "max_steps": 3,
         "max_tool_calls": 5,
+        "required_answer_regex": [
+          "(没有|未找到|暂无)[^。！？\\n]{0,40}(合适|满足|符合|结果|店|日料|酒店|咖啡|书店|去处)"
+        ],
         "expect_no_results": true,
         "expect_groundedness": true
       },
@@ -795,6 +829,9 @@
         "forbidden_shop_ids": [],
         "max_steps": 3,
         "max_tool_calls": 5,
+        "required_answer_regex": [
+          "(没有|未找到|暂无)[^。！？\\n]{0,40}(合适|满足|符合|结果|店|日料|酒店|咖啡|书店|去处)"
+        ],
         "expect_no_results": true,
         "expect_groundedness": true
       },
@@ -823,6 +860,7 @@
           28
         ],
         "forbidden_shop_ids": [],
+        "allowed_only": true,
         "max_steps": 3,
         "max_tool_calls": 5,
         "expect_no_results": false,
@@ -853,6 +891,9 @@
         "forbidden_shop_ids": [],
         "max_steps": 3,
         "max_tool_calls": 5,
+        "required_answer_regex": [
+          "(没有|未找到|暂无)[^。！？\\n]{0,40}(合适|满足|符合|结果|店|日料|酒店|咖啡|书店|去处)"
+        ],
         "expect_no_results": true,
         "expect_groundedness": true
       },

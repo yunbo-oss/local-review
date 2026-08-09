@@ -17,9 +17,14 @@ import (
 )
 
 type fakeRecommendLogic struct {
-	answer string
-	err    error
-	status []agent.ToolStatus
+	answer  string
+	err     error
+	status  []agent.ToolStatus
+	history bool
+}
+
+func (f *fakeRecommendLogic) HasSessionHistory(context.Context, int64, string) (bool, error) {
+	return f.history, nil
 }
 
 func (f *fakeRecommendLogic) Recommend(ctx context.Context, userID int64, sessionID, question, forceRoute string, onStatus func(agent.ToolStatus)) (logic.RecommendResult, error) {
@@ -36,6 +41,8 @@ func (f *fakeRecommendLogic) Recommend(ctx context.Context, userID int64, sessio
 		Steps:  1, ToolCalls: 1,
 		Usage:        llm.TokenUsage{TotalTokens: 10},
 		ProfileAfter: memory.Profile{},
+		Route:        forceRoute,
+		RouteReason:  "test",
 	}, nil
 }
 

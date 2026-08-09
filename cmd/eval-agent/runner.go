@@ -61,6 +61,7 @@ func (f *FakeRunner) RunTrial(ctx context.Context, c AgentCase, trialIdx int, fo
 	actual := OutcomeActual{
 		Filter: filter, CitedShopIDs: cited, ObservedShopIDs: obs,
 		ProfileAfter: prof, Steps: 1, ModelCalls: 1, ToolCalls: 1,
+		ToolNames: []string{agent.ToolSearchShops}, ToolTraceAvailable: true,
 		Answer: ans, LatencyMs: 10, PromptTokens: 80, CompletionTokens: 20, Tokens: 100,
 	}
 	return TrialDetail{
@@ -216,7 +217,8 @@ func (r *HybridRAGRunner) RunTrial(ctx context.Context, c AgentCase, trialIdx in
 		Filter: filterToMap(lastFilter), CitedShopIDs: agent.ParseCitedShopIDs(lastAnswer),
 		ObservedShopIDs: lastObserved, ProfileAfter: profileToMap(profile),
 		Steps: len(c.Turns), ModelCalls: modelCalls, ToolCalls: 0,
-		Answer: lastAnswer, LatencyMs: time.Since(start).Milliseconds(),
+		ToolTraceAvailable: true,
+		Answer:             lastAnswer, LatencyMs: time.Since(start).Milliseconds(),
 		PromptTokens: usage.PromptTokens, CompletionTokens: usage.CompletionTokens, Tokens: usage.TotalTokens,
 	}
 	return td, nil
@@ -248,15 +250,42 @@ func (r *InProcessRunner) RunTrial(ctx context.Context, c AgentCase, trialIdx in
 	var lastAns string
 	var lastRes logic.RecommendResult
 	var lastErr error
+	var totalUsage llm.TokenUsage
+	totalModelCalls := 0
+	totalToolCalls := 0
+	totalDuplicateToolCalls := 0
+	toolNames := make([]string, 0)
+	observedSet := make(map[int64]struct{})
+	observedShopIDs := make([]int64, 0)
 	start := time.Now()
 	for _, turn := range c.Turns {
 		q := strings.TrimSpace(turn.User)
 		if q == "" {
 			continue
 		}
+		// Filter is a last-turn outcome. Reset the capture before each user
+		// turn so constraints absent from the final search are not accidentally
+		// carried over by the evaluation harness itself.
+		if r.Search != nil {
+			r.Search.lastFilter = nil
+			r.Search.degraded = false
+			r.Search.reason = ""
+		}
 		res, err := r.Logic.Recommend(ctx, r.UserID, sid, q, forceRoute, nil)
 		lastRes, lastErr = res, err
 		lastAns = res.Answer
+		totalModelCalls += res.ModelCalls
+		totalToolCalls += res.ToolCalls
+		totalDuplicateToolCalls += res.DuplicateToolCalls
+		toolNames = append(toolNames, res.ToolNames...)
+		addUsage(&totalUsage, res.Usage)
+		for _, shopID := range res.ObservedShopIDs {
+			if _, exists := observedSet[shopID]; exists {
+				continue
+			}
+			observedSet[shopID] = struct{}{}
+			observedShopIDs = append(observedShopIDs, shopID)
+		}
 		if err != nil && res.Answer == "" {
 			break
 		}
@@ -281,17 +310,19 @@ func (r *InProcessRunner) RunTrial(ctx context.Context, c AgentCase, trialIdx in
 	td.Actual = OutcomeActual{
 		Filter:             filter,
 		CitedShopIDs:       cited,
-		ObservedShopIDs:    lastRes.ObservedShopIDs,
+		ObservedShopIDs:    observedShopIDs,
 		ProfileAfter:       profileToMap(after),
 		Steps:              lastRes.Steps,
-		ModelCalls:         lastRes.ModelCalls,
-		ToolCalls:          lastRes.ToolCalls,
-		DuplicateToolCalls: lastRes.DuplicateToolCalls,
+		ModelCalls:         totalModelCalls,
+		ToolCalls:          totalToolCalls,
+		ToolNames:          toolNames,
+		ToolTraceAvailable: true,
+		DuplicateToolCalls: totalDuplicateToolCalls,
 		Answer:             lastAns,
 		LatencyMs:          latency,
-		PromptTokens:       lastRes.Usage.PromptTokens,
-		CompletionTokens:   lastRes.Usage.CompletionTokens,
-		Tokens:             lastRes.Usage.TotalTokens,
+		PromptTokens:       totalUsage.PromptTokens,
+		CompletionTokens:   totalUsage.CompletionTokens,
+		Tokens:             totalUsage.TotalTokens,
 	}
 	td.Route = lastRes.Route
 	td.TraceID = lastRes.TraceID

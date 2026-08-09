@@ -2,8 +2,15 @@ package agent
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
+
+type normalizedScoreSearch struct{}
+
+func (normalizedScoreSearch) SearchShops(context.Context, string, string, string, *int64, int) ([]ShopHit, error) {
+	return []ShopHit{{ShopID: 29, Name: "无界餐厅", Area: "东城区", TypeName: "美食", AvgPrice: 128, Score: 47}}, nil
+}
 
 func TestToolExecutor_Validation(t *testing.T) {
 	t.Parallel()
@@ -73,5 +80,17 @@ func TestTruncateUTF8(t *testing.T) {
 	s := truncateUTF8("你好世界测试", 2)
 	if s != "你好…[truncated]" {
 		t.Fatalf("got %q", s)
+	}
+}
+
+func TestToolExecutor_NormalizesShopScoreForModel(t *testing.T) {
+	t.Parallel()
+	exec := &ToolExecutor{Search: normalizedScoreSearch{}, Ledger: NewEvidenceLedger()}
+	out, err := exec.Execute(context.Background(), ToolSearchShops, `{"query":"无界餐厅"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, `"score":4.7`) || strings.Contains(out, `"score":47`) {
+		t.Fatalf("score should be user-facing 4.7: %s", out)
 	}
 }

@@ -1,15 +1,24 @@
 package main
 
-// Expected 场景期望（来自 agent.v1.json）
+// Expected 场景期望（来自版本化 agent golden 文件）。
 type Expected struct {
-	FilterContains     map[string]any `json:"filter_contains"`
-	AllowedShopIDs     []int64        `json:"allowed_shop_ids"`
-	ForbiddenShopIDs   []int64        `json:"forbidden_shop_ids"`
-	ProfileAfter       map[string]any `json:"profile_after"`
-	MaxSteps           int            `json:"max_steps"`
-	MaxToolCalls       int            `json:"max_tool_calls"`
-	ExpectNoResults    bool           `json:"expect_no_results"`
-	ExpectGroundedness *bool          `json:"expect_groundedness"`
+	FilterContains            map[string]any `json:"filter_contains"`
+	AllowedShopIDs            []int64        `json:"allowed_shop_ids"`
+	PermittedShopIDs          []int64        `json:"permitted_shop_ids,omitempty"`
+	ForbiddenShopIDs          []int64        `json:"forbidden_shop_ids"`
+	AllowedOnly               bool           `json:"allowed_only,omitempty"`
+	ProfileAfter              map[string]any `json:"profile_after"`
+	MaxSteps                  int            `json:"max_steps"`
+	MaxToolCalls              int            `json:"max_tool_calls"`
+	RequiredTools             []string       `json:"required_tools,omitempty"`
+	RequiredAnswerSubstrings  []string       `json:"required_answer_substrings,omitempty"`
+	ForbiddenAnswerSubstrings []string       `json:"forbidden_answer_substrings,omitempty"`
+	RequiredAnswerRegex       []string       `json:"required_answer_regex,omitempty"`
+	ForbiddenAnswerRegex      []string       `json:"forbidden_answer_regex,omitempty"`
+	RequiredClaimSubstrings   []string       `json:"required_claim_substrings,omitempty"`
+	RequiredClaimRegex        []string       `json:"required_claim_regex,omitempty"`
+	ExpectNoResults           bool           `json:"expect_no_results"`
+	ExpectGroundedness        *bool          `json:"expect_groundedness"`
 }
 
 // OutcomeActual 一次运行的可观测结果
@@ -22,6 +31,8 @@ type OutcomeActual struct {
 	ModelCalls         int
 	ToolCalls          int
 	DuplicateToolCalls int
+	ToolNames          []string `json:",omitempty"`
+	ToolTraceAvailable bool     `json:",omitempty"`
 	Answer             string
 	LatencyMs          int64
 	PromptTokens       int
@@ -31,9 +42,11 @@ type OutcomeActual struct {
 
 // GradeResult 单项评分
 type GradeResult struct {
-	Name    string   `json:"name"`
-	Pass    bool     `json:"pass"`
-	Reasons []string `json:"reasons,omitempty"`
+	Name       string            `json:"name"`
+	Pass       bool              `json:"pass"`
+	Reasons    []string          `json:"reasons,omitempty"`
+	Components map[string]string `json:"components,omitempty"`
+	Deferred   []string          `json:"deferred,omitempty"`
 }
 
 // TrialAggregate 多 trial 汇总

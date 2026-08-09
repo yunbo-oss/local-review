@@ -7,7 +7,9 @@ RUN CGO_ENABLED=0 go build -o /out/server ./cmd/server \
     && CGO_ENABLED=0 go build -o /out/seed-vector ./cmd/seed-vector \
     && CGO_ENABLED=0 go build -o /out/eval-rag ./cmd/eval-rag \
     && CGO_ENABLED=0 go build -o /out/eval-agent ./cmd/eval-agent \
-    && CGO_ENABLED=0 go build -o /out/generate-eval-data ./cmd/generate-eval-data
+    && CGO_ENABLED=0 go build -o /out/eval-router ./cmd/eval-router \
+    && CGO_ENABLED=0 go build -o /out/generate-eval-data ./cmd/generate-eval-data \
+    && CGO_ENABLED=0 go build -o /out/generate-challenge-data ./cmd/generate-challenge-data
 
 FROM alpine:latest
 RUN apk --no-cache add bash ca-certificates curl jq python3 redis tzdata

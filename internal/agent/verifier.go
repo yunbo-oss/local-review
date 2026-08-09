@@ -8,8 +8,11 @@ import (
 )
 
 var (
-	avgPriceRe = regexp.MustCompile(`人均\s*[约]?(\d{1,6})`)
-	scoreRe    = regexp.MustCompile(`(?:评分|打分)\s*[为是]?\s*(\d+(?:\.\d+)?)`)
+	avgPriceRe  = regexp.MustCompile(`人均\s*[约]?(\d{1,6})`)
+	scoreRe     = regexp.MustCompile(`(?:评分|打分)\s*[:：为是]?\s*[⭐*\s]*(\d+(?:\.\d+)?)`)
+	addressRe   = regexp.MustCompile(`地址\s*[:：]\s*([^\n；。]+)`)
+	openHoursRe = regexp.MustCompile(`(?:营业时间|营业时段)\s*[:：]\s*([0-2]?\d:\d{2}\s*[-–—至到]\s*[0-2]?\d:\d{2})`)
+	markdownRe  = regexp.MustCompile(`[*_` + "`" + `]+`)
 )
 
 // VerifyOptions 终答校验选项
@@ -93,8 +96,91 @@ func checkFactConflicts(answer string, cited []int64, ledger *EvidenceLedger) er
 				fmt.Sprintf("avg_price conflict: answer=%d not present in cited evidence", want))
 		}
 	}
-	_ = scoreRe // 预留评分冲突；首版以均价为主
+	if err := checkScoreConflicts(answer, cited, ledger); err != nil {
+		return err
+	}
+	if err := checkStringFieldConflicts(answer, cited, ledger, "address", addressRe, "address"); err != nil {
+		return err
+	}
+	if err := checkStringFieldConflicts(answer, cited, ledger, "open_hours", openHoursRe, "open_hours"); err != nil {
+		return err
+	}
 	return nil
+}
+
+func checkScoreConflicts(answer string, cited []int64, ledger *EvidenceLedger) error {
+	evidenceScores := map[string]struct{}{}
+	for _, id := range cited {
+		ev := ledger.Get(id)
+		if ev == nil {
+			continue
+		}
+		fv, ok := ev.Fields["score"]
+		if !ok {
+			continue
+		}
+		if raw, ok := asInt64(fv.Value); ok {
+			evidenceScores[strconv.FormatFloat(float64(raw)/10, 'f', 1, 64)] = struct{}{}
+		}
+	}
+	for _, m := range scoreRe.FindAllStringSubmatch(answer, -1) {
+		claimed, err := strconv.ParseFloat(m[1], 64)
+		if err != nil {
+			continue
+		}
+		key := strconv.FormatFloat(claimed, 'f', 1, 64)
+		if _, ok := evidenceScores[key]; !ok {
+			return NewPublicError(ErrGroundingFactConflict,
+				fmt.Sprintf("score conflict: answer=%s not present in cited evidence", m[1]))
+		}
+	}
+	return nil
+}
+
+func checkStringFieldConflicts(answer string, cited []int64, ledger *EvidenceLedger, field string, re *regexp.Regexp, label string) error {
+	claims := re.FindAllStringSubmatch(answer, -1)
+	if len(claims) == 0 {
+		return nil
+	}
+	evidence := map[string]struct{}{}
+	for _, id := range cited {
+		ev := ledger.Get(id)
+		if ev == nil {
+			continue
+		}
+		if fv, ok := ev.Fields[field]; ok {
+			value := normalizeClaim(fmt.Sprint(fv.Value))
+			if value != "" {
+				evidence[value] = struct{}{}
+			}
+		}
+	}
+	for _, m := range claims {
+		claim := normalizeClaim(m[1])
+		matched := false
+		for value := range evidence {
+			if claim == value || strings.Contains(claim, value) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return NewPublicError(ErrGroundingFactConflict,
+				fmt.Sprintf("%s conflict: answer=%q not present in cited evidence", label, claim))
+		}
+	}
+	return nil
+}
+
+func normalizeClaim(value string) string {
+	value = shopCiteRe.ReplaceAllString(value, "")
+	value = markdownRe.ReplaceAllString(value, "")
+	value = strings.ReplaceAll(value, " ", "")
+	value = strings.ReplaceAll(value, "–", "-")
+	value = strings.ReplaceAll(value, "—", "-")
+	value = strings.ReplaceAll(value, "至", "-")
+	value = strings.ReplaceAll(value, "到", "-")
+	return strings.TrimSpace(value)
 }
 
 func asInt64(v any) (int64, bool) {

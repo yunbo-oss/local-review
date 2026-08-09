@@ -82,3 +82,25 @@ func TestVerifyAnswer_OK(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestVerifyAnswer_StructuredFacts(t *testing.T) {
+	t.Parallel()
+	l := NewEvidenceLedger()
+	l.DiscoverFromSearch(29, "无界餐厅", map[string]any{
+		"avg_price": int64(128), "score": 47, "address": "东城区评测路103号", "open_hours": "18:00-02:00",
+	})
+	valid := "无界餐厅 [shop:29]\n- 评分：4.7\n- 地址：东城区评测路103号 [shop:29]\n- 营业时间：18:00–02:00"
+	if err := VerifyAnswer(valid, l, VerifyOptions{}); err != nil {
+		t.Fatalf("valid structured facts rejected: %v", err)
+	}
+	for _, answer := range []string{
+		"无界餐厅 [shop:29]，评分：47",
+		"无界餐厅 [shop:29]，地址：朝阳区虚构路1号",
+		"无界餐厅 [shop:29]，营业时间：09:00-18:00",
+	} {
+		err := VerifyAnswer(answer, l, VerifyOptions{})
+		if pe, ok := err.(*PublicError); !ok || pe.Code != ErrGroundingFactConflict {
+			t.Fatalf("want fact conflict for %q, got %v", answer, err)
+		}
+	}
+}

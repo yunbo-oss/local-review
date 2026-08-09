@@ -52,12 +52,51 @@ var multistepHints = []string{
 	"为什么推荐", "哪家更好", "看看评价", "口碑",
 }
 
+var sessionFollowupHints = []string{"还是", "上次", "那种", "那个", "这家", "那家", "继续", "沿用"}
+
+var bareAmbiguousQuestions = map[string]struct{}{
+	"那个": {}, "这个": {}, "那家": {}, "这家": {}, "还有吗": {},
+	"帮我看看": {}, "帮我找那个": {}, "推荐一下": {}, "随便": {},
+	"附近那家怎么样": {}, "这家呢": {},
+}
+
+// NeedsSessionHistory 表示这类问法的路由结果依赖当前 session 是否有上下文。
+// 调用方可据此避免为每个一次性 RAG 请求都额外访问记忆存储。
+func NeedsSessionHistory(question string) bool {
+	for _, hint := range sessionFollowupHints {
+		if strings.Contains(strings.TrimSpace(question), hint) {
+			return true
+		}
+	}
+	return false
+}
+
+func routingIntent(question string) string {
+	q := strings.TrimSpace(question)
+	// 当用户明确区分“引用的脏文本”和“实际需求”时，只使用后半段做路由，
+	// 避免评论中的“忘掉预算/比较所有店”劫持规则分类器。
+	for _, marker := range []string{"实际需求是", "真实需求是", "我真正要的是"} {
+		if idx := strings.LastIndex(q, marker); idx >= 0 {
+			if suffix := strings.TrimSpace(q[idx+len(marker):]); suffix != "" {
+				return suffix
+			}
+		}
+	}
+	return q
+}
+
+func isBareAmbiguousQuestion(question string) bool {
+	q := strings.Trim(strings.TrimSpace(question), "，。！？!?；;：: ")
+	_, ok := bareAmbiguousQuestions[q]
+	return ok
+}
+
 // Route 规则分流；force_route 合法则覆盖
 func (r *ruleRecommendRouter) Route(in RouteInput) RouteDecision {
 	if fr := normalizeForce(in.ForceRoute); fr != "" {
 		return RouteDecision{Route: fr, Reason: "force", Confidence: 1, Forced: true}
 	}
-	q := strings.TrimSpace(in.Question)
+	q := routingIntent(in.Question)
 	if q == "" {
 		return RouteDecision{Route: RouteClarify, Reason: "empty_question", Confidence: 1}
 	}
@@ -76,8 +115,16 @@ func (r *ruleRecommendRouter) Route(in RouteInput) RouteDecision {
 			return RouteDecision{Route: RouteAgentMultistep, Reason: "needs_detail", Confidence: 1}
 		}
 	}
-	if in.HasHistory && (strings.Contains(q, "还是") || strings.Contains(q, "上次") || strings.Contains(q, "那种")) {
-		return RouteDecision{Route: RouteAgentMemory, Reason: "session_followup", Confidence: 0.8}
+	if NeedsSessionHistory(q) {
+		if in.HasHistory {
+			return RouteDecision{Route: RouteAgentMemory, Reason: "session_followup", Confidence: 0.8}
+		}
+		if isBareAmbiguousQuestion(q) {
+			return RouteDecision{Route: RouteClarify, Reason: "missing_session_context", Confidence: 0.9}
+		}
+	}
+	if isBareAmbiguousQuestion(q) {
+		return RouteDecision{Route: RouteClarify, Reason: "underspecified", Confidence: 0.8}
 	}
 	return RouteDecision{Route: RouteRAGOneshot, Reason: "clear_oneshot", Confidence: 0.9}
 }

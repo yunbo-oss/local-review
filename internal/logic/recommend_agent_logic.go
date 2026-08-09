@@ -35,6 +35,7 @@ const agentSystemPrompt = `你是大众点评店铺推荐助手。你可以按�
 // RecommendAgentLogic 推荐 Agent 门面
 type RecommendAgentLogic interface {
 	Recommend(ctx context.Context, userID int64, sessionID, question, forceRoute string, onStatus func(agent.ToolStatus)) (RecommendResult, error)
+	HasSessionHistory(ctx context.Context, userID int64, sessionID string) (bool, error)
 }
 
 // RecommendResult 一次推荐结果
@@ -43,6 +44,7 @@ type RecommendResult struct {
 	Steps              int
 	ModelCalls         int
 	ToolCalls          int
+	ToolNames          []string
 	DuplicateToolCalls int
 	ObservedShopIDs    []int64
 	Usage              llm.TokenUsage
@@ -94,6 +96,19 @@ func NewRecommendAgentLogic(deps RecommendAgentLogicDeps) RecommendAgentLogic {
 		search: deps.Search, shop: deps.ShopRepo, blog: deps.BlogRepo,
 		runs: deps.RunRepo, router: router, cfg: cfg,
 	}
+}
+
+// HasSessionHistory 为统一推荐入口提供轻量路由信号；只取一条消息，
+// 不把 MemoryRepo 暴露给 Handler，也不加载完整上下文。
+func (l *recommendAgentLogic) HasSessionHistory(ctx context.Context, userID int64, sessionID string) (bool, error) {
+	if l.memory == nil || userID <= 0 || strings.TrimSpace(sessionID) == "" {
+		return false, nil
+	}
+	history, err := l.memory.LoadSession(ctx, userID, strings.TrimSpace(sessionID), 1)
+	if err != nil {
+		return false, fmt.Errorf("load session history: %w", err)
+	}
+	return len(history) > 0, nil
 }
 
 func (l *recommendAgentLogic) Recommend(ctx context.Context, userID int64, sessionID, question, forceRoute string, onStatus func(agent.ToolStatus)) (RecommendResult, error) {
@@ -200,6 +215,7 @@ func (l *recommendAgentLogic) Recommend(ctx context.Context, userID int64, sessi
 		Steps:              outcome.Steps,
 		ModelCalls:         loopRes.ModelCalls,
 		ToolCalls:          outcome.ToolCalls,
+		ToolNames:          append([]string(nil), loopRes.ToolNames...),
 		DuplicateToolCalls: loopRes.DuplicateRejected,
 		ObservedShopIDs:    outcome.ObservedShopIDs,
 		Usage:              outcome.Usage,

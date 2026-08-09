@@ -1,5 +1,7 @@
 package main
 
+import "local-review-go/internal/evalmeta"
+
 // FilterJSON 与评测 / oracle_filter JSON 对齐（camelCase）
 type FilterJSON struct {
 	Area        string `json:"area,omitempty"`
@@ -71,34 +73,49 @@ type CaseResult struct {
 
 // EvalReport 可复现评测报告
 type EvalReport struct {
-	DatasetVersion      string       `json:"dataset_version"`
-	DatasetSHA256       string       `json:"dataset_sha256"`
-	SeedVersion         string       `json:"seed_version"`
-	RedisImage          string       `json:"redis_image"`
-	IndexSchemaVersion  string       `json:"index_schema_version"`
-	Retriever           string       `json:"retriever"`
-	FilterMode          string       `json:"filter_mode"`
-	EmbeddingModel      string       `json:"embedding_model"`
-	EmbeddingDim        int          `json:"embedding_dim"`
-	FilterModel         string       `json:"filter_model,omitempty"`
-	TopK                int          `json:"top_k"`
-	RRFK                int          `json:"rrf_k,omitempty"`
-	CandidateK          int          `json:"candidate_k,omitempty"`
-	IsSmoke             bool         `json:"is_smoke"`
-	NTotal              int          `json:"n_total"`
-	NEvaluated          int          `json:"n_evaluated"`
-	NInfraError         int          `json:"n_infra_error"`
-	HitRateAtK          float64      `json:"hit_rate_at_k"`
-	RecallAtK           float64      `json:"recall_at_k"`
-	PrecisionAtK        float64      `json:"precision_at_k"`
-	MRR                 float64      `json:"mrr"`
-	NDCGAtK             float64      `json:"ndcg_at_k"`
-	TaskSuccessRate     float64      `json:"task_success_rate"`
-	NoResultAccuracy    float64      `json:"no_result_accuracy,omitempty"`
-	P50LatencyMs        int64        `json:"p50_latency_ms"`
-	P95LatencyMs        int64        `json:"p95_latency_ms"`
-	FilterFieldAccuracy float64      `json:"filter_field_accuracy,omitempty"`
-	FilterComplianceAtK float64      `json:"filter_compliance_at_k,omitempty"`
-	InfraErrorRate      float64      `json:"infra_error_rate"`
-	PerCase             []CaseResult `json:"per_case"`
+	Runtime             evalmeta.Runtime `json:"runtime"`
+	DatasetVersion      string           `json:"dataset_version"`
+	DatasetSHA256       string           `json:"dataset_sha256"`
+	SeedVersion         string           `json:"seed_version"`
+	RedisImage          string           `json:"redis_image"`
+	IndexSchemaVersion  string           `json:"index_schema_version"`
+	Retriever           string           `json:"retriever"`
+	Split               string           `json:"split"`
+	FilterMode          string           `json:"filter_mode"`
+	EmbeddingProvider   string           `json:"embedding_provider"`
+	EmbeddingModel      string           `json:"embedding_model"`
+	EmbeddingDim        int              `json:"embedding_dim"`
+	FilterModel         string           `json:"filter_model,omitempty"`
+	ChatTemperature     float32          `json:"chat_temperature,omitempty"`
+	ThinkingMode        string           `json:"thinking_mode,omitempty"`
+	TopK                int              `json:"top_k"`
+	RRFK                int              `json:"rrf_k,omitempty"`
+	CandidateK          int              `json:"candidate_k,omitempty"`
+	IsSmoke             bool             `json:"is_smoke"`
+	NTotal              int              `json:"n_total"`
+	NEvaluated          int              `json:"n_evaluated"`
+	NInfraError         int              `json:"n_infra_error"`
+	HitRateAtK          float64          `json:"hit_rate_at_k"`
+	RecallAtK           float64          `json:"recall_at_k"`
+	PrecisionAtK        float64          `json:"precision_at_k"`
+	MRR                 float64          `json:"mrr"`
+	NDCGAtK             float64          `json:"ndcg_at_k"`
+	TaskSuccessRate     float64          `json:"task_success_rate"`
+	TaskSuccessWilson95 WilsonInterval   `json:"task_success_wilson_95"`
+	NoResultAccuracy    float64          `json:"no_result_accuracy,omitempty"`
+	P50LatencyMs        int64            `json:"p50_latency_ms"`
+	P95LatencyMs        int64            `json:"p95_latency_ms"`
+	FilterFieldAccuracy float64          `json:"filter_field_accuracy,omitempty"`
+	FilterComplianceAtK float64          `json:"filter_compliance_at_k,omitempty"`
+	InfraErrorRate      float64          `json:"infra_error_rate"`
+	PerCase             []CaseResult     `json:"per_case"`
+}
+
+type WilsonInterval struct {
+	Method          string  `json:"method"`
+	ConfidenceLevel float64 `json:"confidence_level"`
+	Successes       int     `json:"successes"`
+	Trials          int     `json:"trials"`
+	Lower           float64 `json:"lower"`
+	Upper           float64 `json:"upper"`
 }

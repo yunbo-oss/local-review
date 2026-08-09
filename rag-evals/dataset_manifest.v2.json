@@ -16,14 +16,16 @@
     "categories": 8,
     "conflict_reviews": 1,
     "critical_agent_cases": 8,
+    "distinct_generated_review_contents": 635,
     "price_bands": 6,
     "prompt_injection_reviews": 2,
     "retrieval_dev": 8,
     "retrieval_test": 60,
+    "semantic_reviews": 350,
     "semantic_themes": 8
   },
-  "generated_sql_sha256": "sha256:85acc827ac594c83fbbea998eeb9355ebaddafbefe73218d43238bef4e724b95",
+  "generated_sql_sha256": "sha256:4fb3e688be5caf89291657f1965963e4efc436419c615795e69e69f7ad809530",
   "retrieval_sha256": "sha256:931269aa25234a91cf03e607c7c92e97c8464bf2a1c1dec7c91de642245ffee6",
-  "agent_sha256": "sha256:4a0d11891dad4d4e808aa0cc3cd8383d4d416fa39f4ed7b6509ed801f97f6e25",
+  "agent_sha256": "sha256:56b28ea0ac974652ce06204efef70c26341a7833b45b1c9e13e9efc9335dccf6",
   "generation_command": "go run ./cmd/generate-eval-data"
 }

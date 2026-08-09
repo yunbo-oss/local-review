@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
 	"local-review-go/internal/logic"
 	"local-review-go/internal/middleware"
 	"local-review-go/pkg/httpx"
@@ -43,7 +44,18 @@ func (h *RecommendHandler) Recommend(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, httpx.Fail[string](errMsg))
 		return
 	}
-	d := h.router.Route(logic.RouteInput{Question: req.Question, ForceRoute: req.ForceRoute})
+	hasHistory := false
+	if logic.NeedsSessionHistory(req.Question) && h.agent != nil && h.agent.logic != nil {
+		hasHistory, err = h.agent.logic.HasSessionHistory(c.Request.Context(), user.Id, req.SessionID)
+		if err != nil {
+			// 记忆是路由增强信号，读取失败时保留一次性 RAG 的降级能力。
+			logrus.Warnf("recommend route session lookup failed user=%d session=%s: %v", user.Id, req.SessionID, err)
+			hasHistory = false
+		}
+	}
+	d := h.router.Route(logic.RouteInput{
+		Question: req.Question, ForceRoute: req.ForceRoute, HasHistory: hasHistory,
+	})
 	// A 期 clarify → rag
 	route := d.Route
 	if route == logic.RouteClarify {

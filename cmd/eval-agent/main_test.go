@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -86,6 +87,9 @@ func TestFakeHarness_TrialIsolationAndReportShape(t *testing.T) {
 	if _, ok := loaded["summary"]; !ok {
 		t.Fatal("missing summary")
 	}
+	if loaded["n_cases"] != float64(len(reports)) || loaded["n_trials"] != float64(len(reports)*3) {
+		t.Fatalf("ambiguous case/trial counts: n_cases=%v n_trials=%v", loaded["n_cases"], loaded["n_trials"])
+	}
 	if strings.Contains(string(b), "pass_at_k") {
 		t.Fatal("misnamed pass_at_k must not appear")
 	}
@@ -93,16 +97,91 @@ func TestFakeHarness_TrialIsolationAndReportShape(t *testing.T) {
 	if _, ok := summary["all_trials_pass_rate"]; !ok {
 		t.Fatal("missing all_trials_pass_rate")
 	}
+	for _, key := range []string{
+		"trial_micro_task_success_rate", "scenario_macro_task_success_rate",
+		"outcome_wilson_95", "groundedness_wilson_95", "composite_pass_wilson_95",
+	} {
+		if _, ok := summary[key]; !ok {
+			t.Fatalf("missing explicit metric %q", key)
+		}
+	}
+}
+
+func TestBuildReportDistinguishesTrialMicroAndScenarioMacro(t *testing.T) {
+	passing := func(outcome, ground, composite bool) TrialDetail {
+		return TrialDetail{
+			Outcome: GradeResult{Pass: outcome},
+			Ground:  GradeResult{Pass: ground},
+			Traj:    GradeResult{Pass: composite},
+			Pass:    composite,
+		}
+	}
+	cases := []CaseReport{
+		{
+			ID: "three-trial-case", Trials: TrialAggregate{Trials: 3, Successes: 2, SuccessRate: 2.0 / 3.0},
+			TrialDetails: []TrialDetail{
+				passing(true, true, true),
+				passing(true, true, true),
+				passing(true, true, false),
+			},
+		},
+		{
+			ID: "one-trial-case", Trials: TrialAggregate{Trials: 1},
+			TrialDetails: []TrialDetail{passing(false, false, false)},
+		},
+	}
+	rep, err := buildReport("agent.test", "sha256:test", ExperimentMeta{System: "agent"}, cases, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.NCases != 2 || rep.NTrials != 4 || rep.NEvaluated != 4 {
+		t.Fatalf("counts=%+v", rep)
+	}
+	if rep.Summary.TrialMicroTaskSuccessRate != 0.75 || rep.Summary.OutcomeRate != 0.75 {
+		t.Fatalf("trial-micro task success=%v", rep.Summary.TrialMicroTaskSuccessRate)
+	}
+	if rep.Summary.ScenarioMacroTaskSuccess != 0.5 {
+		t.Fatalf("scenario-macro task success=%v, want 0.5", rep.Summary.ScenarioMacroTaskSuccess)
+	}
+	if rep.Summary.TrialMicroCompositeRate != 0.5 {
+		t.Fatalf("trial-micro composite=%v, want 0.5", rep.Summary.TrialMicroCompositeRate)
+	}
+	if diff := rep.Summary.ScenarioMacroCompositeRate - 1.0/3.0; diff < -1e-12 || diff > 1e-12 {
+		t.Fatalf("scenario-macro composite=%v, want 1/3", rep.Summary.ScenarioMacroCompositeRate)
+	}
+	assertWilson := func(name string, got WilsonInterval, successes int) {
+		t.Helper()
+		if got.Method != "wilson_score" || got.ConfidenceLevel != 0.95 || got.Successes != successes || got.Trials != 4 {
+			t.Fatalf("%s metadata=%+v", name, got)
+		}
+		if !(got.Lower < float64(successes)/4 && got.Upper > float64(successes)/4) {
+			t.Fatalf("%s interval does not contain point estimate: %+v", name, got)
+		}
+	}
+	assertWilson("outcome", rep.Summary.OutcomeWilson95, 3)
+	assertWilson("groundedness", rep.Summary.GroundednessWilson95, 3)
+	assertWilson("composite", rep.Summary.CompositePassWilson95, 2)
+	if math.Abs(rep.Summary.OutcomeWilson95.Lower-0.30064184258240184) > 1e-12 ||
+		math.Abs(rep.Summary.OutcomeWilson95.Upper-0.9544127391902995) > 1e-12 {
+		t.Fatalf("outcome is not a Wilson 95%% interval: %+v", rep.Summary.OutcomeWilson95)
+	}
 }
 
 func TestCompareBaseline_RequiresSameTasks(t *testing.T) {
-	cases := []CaseReport{{ID: "a", Trials: TrialAggregate{Trials: 3}}}
+	agentCases := []CaseReport{
+		{ID: "a", OutcomePass: 1, Trials: TrialAggregate{Trials: 3, Successes: 2, SuccessRate: 2.0 / 3.0}},
+		{ID: "b", OutcomePass: 0, Trials: TrialAggregate{Trials: 1}},
+	}
+	hybridCases := []CaseReport{
+		{ID: "a", OutcomePass: 1.0 / 3.0, Trials: TrialAggregate{Trials: 3, Successes: 1, SuccessRate: 1.0 / 3.0}},
+		{ID: "b", OutcomePass: 0, Trials: TrialAggregate{Trials: 1}},
+	}
 	rep := AgentEvalReport{
 		Version: reportVersion, DatasetHash: "sha256:abc", DatasetVer: "agent.v2",
 		Experiment:      ExperimentMeta{System: "agent"},
 		TagOutcomeRates: map[string]float64{"memory": 0.5, "search": 0.6},
 		Summary:         ReportSummary{OutcomeRate: 0.6, CompositePassRate: 0.5, P50LatencyMs: 100},
-		Cases:           cases,
+		Cases:           agentCases,
 	}
 	dir := t.TempDir()
 	basePath := filepath.Join(dir, "hybrid_task_v2.json")
@@ -111,7 +190,7 @@ func TestCompareBaseline_RequiresSameTasks(t *testing.T) {
 		Experiment:      ExperimentMeta{System: "hybrid_rag"},
 		TagOutcomeRates: map[string]float64{"memory": 0.4, "search": 0.3},
 		Summary:         ReportSummary{OutcomeRate: 0.4, CompositePassRate: 0.3, P50LatencyMs: 50},
-		Cases:           cases,
+		Cases:           hybridCases,
 	}
 	b, _ := json.Marshal(base)
 	_ = os.WriteFile(basePath, b, 0o644)
@@ -123,6 +202,9 @@ func TestCompareBaseline_RequiresSameTasks(t *testing.T) {
 	}
 	if rep.Comparison.TaskSuccessDelta != 0.2 || !rep.Comparison.SameCasesAndTrials {
 		t.Fatalf("%+v", rep.Comparison)
+	}
+	if rep.Comparison.ScenarioMacroTaskSuccessDelta != 0.3333 || rep.Comparison.ScenarioMacroCompositePassDelta != 0.1667 {
+		t.Fatalf("missing scenario-macro comparison deltas: %+v", rep.Comparison)
 	}
 	raw, _ := json.Marshal(rep.Comparison)
 	if strings.Contains(string(raw), "baseline_hit_rate") {

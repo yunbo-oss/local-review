@@ -1,6 +1,6 @@
 .PHONY: run build test tidy clean air test-api seed seed-redis seed-load-test seed-reset-load-test seed-vector load-test-seckill \
-	generate-eval-data eval-rag eval-rag-smoke eval-rag-oracle eval-rag-prod eval-rag-prod-baseline \
-	eval-hybrid-task eval-agent eval-agent-fake demo-agent docker-reset docker-up docker-verify docker-eval docker-demo
+	generate-eval-data generate-challenge-data eval-router eval-rag eval-rag-smoke eval-rag-oracle eval-rag-prod eval-rag-prod-baseline \
+	eval-hybrid-task eval-agent eval-agent-fake demo-agent docker-reset docker-up docker-verify docker-eval docker-challenge docker-demo
 
 run:
 	go run ./cmd/server
@@ -61,6 +61,15 @@ seed-vector:
 generate-eval-data:
 	go run ./cmd/generate-eval-data
 	go run ./cmd/generate-eval-data --check
+
+# 生成独立 v3 challenge；不调用 LLM，不修改 v2 regression goldens
+generate-challenge-data:
+	go run ./cmd/generate-challenge-data
+	go run ./cmd/generate-challenge-data --check
+
+# 生产规则 Router 的确定性分类评测（不调用 LLM）
+eval-router:
+	go run ./cmd/eval-router --split=test --out=rag-evals/reports/router_v1.json
 
 # RAG 检索评估（需 seed + seed-vector + LLM_API_KEY）
 # script/rag-eval.json = SMOKE ONLY，非正式 baseline；正式集见 rag-evals/golden/
@@ -128,6 +137,7 @@ docker-up:
 
 docker-verify:
 	docker compose --profile verify run --rm data-check
+	docker compose --profile verify run --rm router-eval
 	docker compose --profile verify run --rm api-smoke
 
 docker-eval:
@@ -135,6 +145,13 @@ docker-eval:
 	docker compose --profile eval run --rm rag-eval
 	docker compose --profile eval run --rm hybrid-task-eval
 	docker compose --profile eval run --rm --no-deps agent-eval
+
+# 代码与数据冻结后只运行一次；失败结果保留，不据此继续调 v3。
+docker-challenge:
+	@test -n "$$LLM_API_KEY" || (echo "LLM_API_KEY is required" >&2; exit 1)
+	docker compose --profile challenge run --rm challenge-rag-eval
+	docker compose --profile challenge run --rm challenge-hybrid-task-eval
+	docker compose --profile challenge run --rm --no-deps challenge-agent-eval
 
 docker-demo:
 	@test -n "$$LLM_API_KEY" || (echo "LLM_API_KEY is required" >&2; exit 1)

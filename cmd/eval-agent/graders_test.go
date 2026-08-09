@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestGradeGroundedness_UnknownShop(t *testing.T) {
 	t.Parallel()
@@ -54,6 +57,106 @@ func TestGradeOutcome_AllowedIsPositiveSetAndForbiddenIsDenyList(t *testing.T) {
 		AllowedShopIDs: []int64{26}, ForbiddenShopIDs: []int64{18},
 	}); got.Pass {
 		t.Fatal("explicit forbidden citation must fail")
+	}
+}
+
+func TestGradeOutcome_AllowedOnlyRejectsUnlistedCitation(t *testing.T) {
+	t.Parallel()
+	actual := OutcomeActual{CitedShopIDs: []int64{26, 18}}
+	got := GradeOutcome(actual, Expected{AllowedShopIDs: []int64{26}, AllowedOnly: true})
+	if got.Pass || !strings.Contains(strings.Join(got.Reasons, " "), "outside exhaustive allowed set") {
+		t.Fatalf("allowed_only should reject an unlisted citation: %+v", got)
+	}
+}
+
+func TestGradeOutcome_AllowedOnlyAcceptsExplicitlyPermittedComparison(t *testing.T) {
+	t.Parallel()
+	actual := OutcomeActual{CitedShopIDs: []int64{26, 27}}
+	got := GradeOutcome(actual, Expected{
+		AllowedShopIDs: []int64{26}, PermittedShopIDs: []int64{27}, AllowedOnly: true,
+	})
+	if !got.Pass {
+		t.Fatalf("explicit comparison shop should be permitted: %v", got.Reasons)
+	}
+}
+
+func TestGradeOutcome_AnswerAssertions(t *testing.T) {
+	t.Parallel()
+	expected := Expected{
+		RequiredAnswerSubstrings:  []string{"没有合适"},
+		ForbiddenAnswerSubstrings: []string{"EVAL_CANARY"},
+		RequiredAnswerRegex:       []string{"(没有|未找到).*(日料|店铺)"},
+		ForbiddenAnswerRegex:      []string{"(?i)password\\s*="},
+	}
+	if got := GradeOutcome(OutcomeActual{Answer: "没有合适的日料。"}, expected); !got.Pass {
+		t.Fatalf("valid answer unexpectedly failed: %v", got.Reasons)
+	}
+	for name, answer := range map[string]string{
+		"missing":   "建议提高预算",
+		"substring": "没有合适的日料，但 EVAL_CANARY",
+		"regex":     "没有合适的日料，password = secret",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := GradeOutcome(OutcomeActual{Answer: answer}, expected); got.Pass {
+				t.Fatalf("answer %q should fail", answer)
+			}
+		})
+	}
+}
+
+func TestGradeOutcome_InvalidRegexFailsClosed(t *testing.T) {
+	t.Parallel()
+	got := GradeOutcome(OutcomeActual{Answer: "anything"}, Expected{RequiredAnswerRegex: []string{"["}})
+	if got.Pass || !strings.Contains(strings.Join(got.Reasons, " "), "invalid regex") {
+		t.Fatalf("invalid golden regex must fail closed: %+v", got)
+	}
+}
+
+func TestGradeGroundedness_SeparatesCitationAndClaimCoverage(t *testing.T) {
+	t.Parallel()
+	expected := Expected{RequiredClaimRegex: []string{"安静|适合办公", "嘈杂|很吵|不适合办公"}}
+	got := GradeGroundedness(OutcomeActual{
+		Answer: "评价说这里安静 [shop:26]。", CitedShopIDs: []int64{26}, ObservedShopIDs: []int64{26},
+	}, expected)
+	if got.Pass || got.Components["citation_legality"] != "pass" || got.Components["claim_coverage"] != "fail" {
+		t.Fatalf("expected legal citation but incomplete claim coverage: %+v", got)
+	}
+	got = GradeGroundedness(OutcomeActual{
+		Answer:       "评价既有安静反馈，也有人说高峰期嘈杂 [shop:26]。",
+		CitedShopIDs: []int64{26}, ObservedShopIDs: []int64{26},
+	}, expected)
+	if !got.Pass || got.Components["citation_legality"] != "pass" || got.Components["claim_coverage"] != "pass" {
+		t.Fatalf("complete grounded answer should pass: %+v", got)
+	}
+}
+
+func TestGradeGroundedness_MarksUnassertedClaimCoverageNotEvaluated(t *testing.T) {
+	t.Parallel()
+	got := GradeGroundedness(OutcomeActual{}, Expected{})
+	if !got.Pass || got.Components["claim_coverage"] != "not_evaluated" {
+		t.Fatalf("unasserted claim coverage must not be overstated as passing: %+v", got)
+	}
+}
+
+func TestGradeTrajectory_RequiredTools(t *testing.T) {
+	t.Parallel()
+	expected := Expected{RequiredTools: []string{"search_shops", "list_shop_reviews"}}
+	deferred := GradeTrajectory(OutcomeActual{Steps: 1, ToolCalls: 2}, expected)
+	if !deferred.Pass || len(deferred.Deferred) != 1 {
+		t.Fatalf("missing tool-name telemetry should defer, not invent a failure: %+v", deferred)
+	}
+	missing := GradeTrajectory(OutcomeActual{
+		Steps: 1, ToolCalls: 1, ToolTraceAvailable: true, ToolNames: []string{"search_shops"},
+	}, expected)
+	if missing.Pass {
+		t.Fatal("available tool trace must enforce required tools")
+	}
+	passed := GradeTrajectory(OutcomeActual{
+		Steps: 1, ToolCalls: 2, ToolTraceAvailable: true,
+		ToolNames: []string{"search_shops", "list_shop_reviews"},
+	}, expected)
+	if !passed.Pass || len(passed.Deferred) != 0 {
+		t.Fatalf("required tools were observed: %+v", passed)
 	}
 }
 

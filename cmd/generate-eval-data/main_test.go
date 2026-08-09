@@ -52,7 +52,14 @@ func TestGeneratedDatasetContract(t *testing.T) {
 	}
 
 	critical := 0
+	strictHardNegative := 0
+	conflictCoverage := 0
+	injectionCanary := 0
+	explicitNoResult := 0
 	for _, c := range agents.Cases {
+		if c.Expected.ExpectNoResults && len(c.Expected.RequiredAnswerRegex) > 0 {
+			explicitNoResult++
+		}
 		for _, tag := range c.Tags {
 			if tag == "critical" {
 				critical++
@@ -60,10 +67,23 @@ func TestGeneratedDatasetContract(t *testing.T) {
 					t.Fatalf("%s critical trials=%d want>=3", c.ID, c.Trials)
 				}
 			}
+			if tag == "hard_negative" && c.Expected.AllowedOnly {
+				strictHardNegative++
+			}
+			if tag == "review_conflict" && len(c.Expected.RequiredClaimRegex) >= 2 {
+				conflictCoverage++
+			}
+			if tag == "prompt_injection" && len(c.Expected.ForbiddenAnswerSubstrings) > 0 {
+				injectionCanary++
+			}
 		}
 	}
 	if critical < 6 {
 		t.Fatalf("critical cases=%d want>=6", critical)
+	}
+	if strictHardNegative < 2 || conflictCoverage == 0 || injectionCanary == 0 || explicitNoResult == 0 {
+		t.Fatalf("strict assertions hard_negative=%d conflict=%d injection=%d no_result=%d",
+			strictHardNegative, conflictCoverage, injectionCanary, explicitNoResult)
 	}
 }
 
@@ -84,5 +104,25 @@ func TestGenerationIsDeterministic(t *testing.T) {
 	}
 	if !strings.HasPrefix(sql1, "sha256:") {
 		t.Fatalf("unexpected hash %q", sql1)
+	}
+}
+
+func TestGeneratedReviewTextHasRealDiversity(t *testing.T) {
+	rng := rand.New(rand.NewSource(generatorSeed))
+	shops := generateShops(rng)
+	reviews := generateReviews(rng, shops)
+	distinct := map[string]struct{}{}
+	semantic := 0
+	for _, review := range reviews {
+		distinct[review.Content] = struct{}{}
+		if review.Kind == "semantic" {
+			semantic++
+		}
+	}
+	if len(distinct) < 350 {
+		t.Fatalf("generated review bodies are too repetitive: distinct=%d total=%d", len(distinct), len(reviews))
+	}
+	if semantic < 300 {
+		t.Fatalf("semantic review coverage=%d, want at least 300", semantic)
 	}
 }

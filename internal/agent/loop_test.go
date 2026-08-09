@@ -2,7 +2,11 @@ package agent
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"sync"
 	"testing"
+	"time"
 
 	"local-review-go/internal/llm"
 )
@@ -30,6 +34,18 @@ func (s *scriptedClient) ChatCompleteTurn(ctx context.Context, messages []llm.Ch
 
 type fakeSearch struct {
 	ids []int64
+}
+
+type blockingClient struct{}
+
+func (blockingClient) ChatWithTools(ctx context.Context, _ []llm.ChatMessage, _ []llm.ToolDefinition) (llm.AssistantTurn, error) {
+	<-ctx.Done()
+	return llm.AssistantTurn{}, ctx.Err()
+}
+
+func (blockingClient) ChatCompleteTurn(ctx context.Context, _ []llm.ChatMessage) (llm.AssistantTurn, error) {
+	<-ctx.Done()
+	return llm.AssistantTurn{}, ctx.Err()
 }
 
 // minimal stubs via ToolExecutor with nil Search - we'll inject Observed manually in tests for groundedness
@@ -134,6 +150,23 @@ func TestRunLoop_RepairsUnknownShopWithoutNewTools(t *testing.T) {
 	}
 }
 
+func TestRunLoop_RepairsStructuredFactConflictWithoutNewTools(t *testing.T) {
+	t.Parallel()
+	client := &scriptedClient{turns: []llm.AssistantTurn{
+		{Message: llm.ChatMessage{Role: "assistant", Content: "推荐无界餐厅 [shop:29]，评分：47。"}},
+		{Message: llm.ChatMessage{Role: "assistant", Content: "推荐无界餐厅 [shop:29]，评分：4.7。"}},
+	}}
+	exec := &ToolExecutor{Ledger: NewEvidenceLedger(), Observed: map[int64]struct{}{}}
+	exec.Ledger.DiscoverFromSearch(29, "无界餐厅", map[string]any{"score": 47})
+	res := RunLoop(context.Background(), client, exec, DefaultRunConfig(), []llm.ChatMessage{{Role: "user", Content: "推荐一家店"}}, nil)
+	if !res.GroundingOK || res.GroundingCode != "" {
+		t.Fatalf("fact repair should pass full verifier: %+v", res)
+	}
+	if res.ModelCalls != 2 || res.ToolCalls != 0 {
+		t.Fatalf("repair must use one model call and no tools: %+v", res)
+	}
+}
+
 func TestRunLoop_PerTurnCapAndAttempts(t *testing.T) {
 	t.Parallel()
 	client := &scriptedClient{turns: []llm.AssistantTurn{
@@ -158,6 +191,9 @@ func TestRunLoop_PerTurnCapAndAttempts(t *testing.T) {
 	if res.ToolCalls > 2 {
 		t.Fatalf("per-turn cap: tool_calls=%d", res.ToolCalls)
 	}
+	if len(res.ToolNames) != res.ToolCalls {
+		t.Fatalf("tool telemetry names=%v calls=%d", res.ToolNames, res.ToolCalls)
+	}
 	if res.ToolAttempts < 4 {
 		t.Fatalf("skipped calls should count as attempts, attempts=%d", res.ToolAttempts)
 	}
@@ -181,5 +217,46 @@ func TestRunLoop_DuplicateConsumesAttempt(t *testing.T) {
 	}, []llm.ChatMessage{{Role: "user", Content: "x"}}, nil)
 	if res.DuplicateRejected < 1 || res.ToolAttempts < 2 {
 		t.Fatalf("dup should consume attempts: %+v", res)
+	}
+}
+
+func TestRunLoop_RunTimeoutBoundsModelFailure(t *testing.T) {
+	start := time.Now()
+	res := RunLoop(context.Background(), blockingClient{}, &ToolExecutor{}, RunConfig{
+		MaxSteps: 3, MaxToolCalls: 5, MaxToolAttempts: 8, MaxToolsPerTurn: 3,
+		RunTimeout: 25 * time.Millisecond, ToolTimeout: time.Second, MaxToolResultChars: 500,
+	}, []llm.ChatMessage{{Role: "user", Content: "x"}}, nil)
+	if !errors.Is(res.Err, context.DeadlineExceeded) {
+		t.Fatalf("error=%v want deadline exceeded", res.Err)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("run timeout was not bounded: %v", elapsed)
+	}
+}
+
+func TestRunLoop_ConcurrentRunsDoNotShareEvidence(t *testing.T) {
+	const runs = 20
+	var wg sync.WaitGroup
+	errs := make(chan error, runs)
+	for i := 1; i <= runs; i++ {
+		id := int64(i)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			client := &scriptedClient{turns: []llm.AssistantTurn{{
+				Message: llm.ChatMessage{Role: "assistant", Content: "推荐 [shop:" + fmt.Sprint(id) + "]"},
+			}}}
+			exec := &ToolExecutor{Ledger: NewEvidenceLedger(), Observed: map[int64]struct{}{}}
+			exec.Ledger.DiscoverFromSearch(id, "并发测试店", nil)
+			res := RunLoop(context.Background(), client, exec, DefaultRunConfig(), []llm.ChatMessage{{Role: "user", Content: "x"}}, nil)
+			if !res.GroundingOK || len(res.ObservedShopIDs) != 1 || res.ObservedShopIDs[0] != id {
+				errs <- fmt.Errorf("run %d leaked evidence: %+v", id, res)
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Error(err)
 	}
 }

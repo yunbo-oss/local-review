@@ -1,0 +1,43 @@
+{
+  "version": "challenge-data.v3",
+  "generator_seed": 20260808,
+  "source_dataset_version": "eval-data.v2",
+  "source_manifest_sha256": "sha256:0253c8793c8809896a0b891cee9e0633c259f96b36e1becda04d6a5319cfe4a8",
+  "catalog_shops": 200,
+  "catalog_reviews": 1000,
+  "retrieval_cases": 144,
+  "agent_cases": 36,
+  "retrieval_sha256": "sha256:08eae9b9603be0ea6d684635752bb8e14f346712960c8f51359054a8331b7da4",
+  "agent_sha256": "sha256:838593c7484e044f137d04e3ec45fbfa9c7edfa79049287011eab121e6432433",
+  "coverage": {
+    "agent_challenge": 28,
+    "agent_claim_level_grounding": 4,
+    "agent_coreference": 5,
+    "agent_dev": 8,
+    "agent_memory": 8,
+    "agent_no_result": 4,
+    "agent_prompt_injection": 5,
+    "agent_semantic_ood": 7,
+    "agent_session_isolation": 4,
+    "critical_agent_cases": 10,
+    "critical_agent_trials": 30,
+    "retrieval_challenge": 120,
+    "retrieval_dev": 24,
+    "retrieval_no_result": 20,
+    "retrieval_prompt_injection": 7,
+    "retrieval_semantic_ood": 32,
+    "retrieval_typo": 12
+  },
+  "freeze_policy": {
+    "dev": "dev split may be inspected, debugged and used for prompt or harness iteration",
+    "challenge": "challenge split is frozen after generation; run only after code freeze and never tune against its individual failures",
+    "on_failure": "promote diagnosed failures into the next regression suite, then create a newly seeded unseen challenge version"
+  },
+  "known_evaluation_gaps": [
+    "repository-visible sealed data is a reproducible holdout, not a secret benchmark",
+    "the current case schema isolates trials and sessions but does not switch application user IDs inside one case",
+    "infrastructure fault injection and production-traffic replay require separate runners"
+  ],
+  "generation_command": "go run ./cmd/generate-challenge-data",
+  "formal_evaluation_executed": false
+}

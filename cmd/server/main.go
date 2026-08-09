@@ -77,7 +77,12 @@ func main() {
 		OrderTimeoutProducer: orderTimeoutProducer,
 	})
 	voucherOrderHandler := handler.NewVoucherOrderHandler(voucherOrderLogic)
-	blogLogic := logic.NewBlogLogic(logic.BlogLogicDeps{BlogRepo: blogRepo, UserRepo: userRepo, FollowRepo: followRepo})
+	blogLogic := logic.NewBlogLogic(logic.BlogLogicDeps{
+		BlogRepo:           blogRepo,
+		UserRepo:           userRepo,
+		FollowRepo:         followRepo,
+		ShopUpdateProducer: shopUpdateProducer,
+	})
 	blogHandler := handler.NewBlogHandler(blogLogic)
 	followLogic := logic.NewFollowLogic(logic.FollowLogicDeps{UserRepo: userRepo, FollowRepo: followRepo})
 	followHandler := handler.NewFollowHandler(followLogic)

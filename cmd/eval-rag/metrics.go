@@ -231,6 +231,36 @@ func AggregateTaskSuccess(cases []CaseResult) (taskSuccess, noResultAccuracy flo
 	return taskSuccess, noResultAccuracy
 }
 
+func TaskSuccessCounts(cases []CaseResult) (successes, trials int) {
+	for _, c := range cases {
+		if c.InfraError != "" {
+			continue
+		}
+		trials++
+		if c.TaskSuccess {
+			successes++
+		}
+	}
+	return successes, trials
+}
+
+func wilson95(successes, trials int) WilsonInterval {
+	interval := WilsonInterval{Method: "wilson_score", ConfidenceLevel: 0.95, Successes: successes, Trials: trials}
+	if trials <= 0 {
+		return interval
+	}
+	const z = 1.959963984540054
+	n := float64(trials)
+	p := float64(successes) / n
+	z2 := z * z
+	denominator := 1 + z2/n
+	center := (p + z2/(2*n)) / denominator
+	margin := z * math.Sqrt((p*(1-p)+z2/(4*n))/n) / denominator
+	interval.Lower = math.Max(0, center-margin)
+	interval.Upper = math.Min(1, center+margin)
+	return interval
+}
+
 func AggregateLatency(cases []CaseResult) (p50, p95 int64) {
 	var values []int64
 	for _, c := range cases {
