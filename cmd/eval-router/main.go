@@ -16,7 +16,7 @@ import (
 	"local-review-go/internal/logic"
 )
 
-const reportVersion = "router-eval.v1"
+const reportVersion = "router-eval.v2"
 
 type caseFile struct {
 	Version string       `json:"version"`
@@ -120,7 +120,7 @@ func evaluate(file caseFile, raw []byte, split string, router logic.RecommendRou
 	report := routerReport{
 		Runtime: evalmeta.Capture(),
 		Version: reportVersion, DatasetVersion: file.Version, DatasetHash: sha256Hex(raw),
-		Split: split, PolicyVersion: "recommend-router-rules-v1",
+		Split: split, PolicyVersion: "recommend-router-rules-v2",
 		PerClass: map[string]classMetric{}, ConfusionMatrix: map[string]map[string]int{},
 		TagAccuracy: map[string]float64{}, Cases: []caseResult{}, Errors: []caseResult{},
 	}
