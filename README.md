@@ -11,18 +11,6 @@
 
 本仓库用固定种子生成 **200 家店、1000 条评价**。Retrieval v2 regression 有 60 题，冻结 v3 challenge 有 120 题；Agent v4 有 8 个 dev 场景和 28 个冻结 challenge 场景，关键场景运行 3 次，共 48 个 challenge trial。正式报告来自真实 DeepSeek API 与真实 MySQL/Redis 服务，不使用占位或模拟结果。
 
-```bash
-# API key 只临时注入 shell，不写入仓库
-make docker-reset
-LLM_API_KEY='你的密钥' make docker-up
-LLM_API_KEY='你的密钥' make docker-verify
-LLM_API_KEY='你的密钥' make docker-eval
-LLM_API_KEY='你的密钥' make docker-demo
-
-# 冻结 v4 同任务 Agent / Hybrid 对照
-LLM_API_KEY='你的密钥' make docker-challenge-v4
-```
-
 正式指标（2026-08-09，冻结代码/数据 commit `fb85084`）：
 
 - v2 Retrieval：HitRate@5 100%、Recall@5 81.63%、Precision@5 83.21%、MRR 0.9732、NDCG@5 0.9802、过滤准确率 100%、infra error 0%。
@@ -256,12 +244,12 @@ make eval-agent
 
 1. 合法 `force_route` 直接覆盖；非法值忽略。
 2. 从“实际需求是/我只想”等边界提取真实意图，避免引用的评论或注入文本误触发规则。
-3. 识别预算、区域、类别等偏好的删除/修改，进入 Memory Agent。
-4. 识别比较、详情、评价核验、冲突和证据解释，进入 Multi-step Agent。
-5. 历史指代在有 session 时进入 Memory Agent；缺少历史时要求澄清。
+3. 识别预算、区域、类别等偏好的删除/修改，加载或更新结构化记忆后进入推荐 Agent。
+4. 识别比较、详情、评价核验、冲突和证据解释，进入同一个推荐 Agent 的多步工具路径。
+5. 历史指代在有 session 时加载会话上下文后进入推荐 Agent；缺少历史时要求澄清。
 6. 其余自包含找店请求走 one-shot Hybrid RAG。
 
-Handler 仅在问题含历史指代时读取 session，普通 one-shot 不额外访问记忆存储。冻结 `router.v2` challenge 含四类各 13 题：旧策略 29/52（55.77%），v2 策略 52/52（100%），Accuracy 提升 44.23 个百分点且无模型调用。该集合是人工设计、类别平衡的 repository-visible challenge，不代表线上自然流量准确率。
+`agent_multistep` 与 `agent_memory` 是执行模式标签，不是两个独立 Agent；它们复用同一个有界推荐 Agent，后者只额外使用结构化画像或会话历史。Handler 仅在问题含历史指代时读取 session，普通 one-shot 不额外访问记忆存储。冻结 `router.v2` challenge 含四类各 13 题：旧策略 29/52（55.77%），v2 策略 52/52（100%），Accuracy 提升 44.23 个百分点且无模型调用。该集合是人工设计、类别平衡的 repository-visible challenge，不代表线上自然流量准确率。
 
 ---
 
