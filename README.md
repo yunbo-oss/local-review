@@ -29,7 +29,7 @@ LLM_API_KEY='你的密钥' make docker-challenge-v4
 - v3 challenge Retrieval：HitRate@5 70.54%、task success 64.17%、no-result accuracy 12.50%，如实暴露 OOD 同义表达、错别字和拒答弱点。
 - v4 同任务对照：Agent scenario-macro task success 96.43%，one-shot Hybrid RAG 为 46.43%，提升 **50.00 个百分点**；trial-micro 为 97.92% vs 52.08%。
 - v4 Agent：成功回答 groundedness 100%，trajectory 100%，关键场景全部 trial 通过率 100%，P50/P95 为 6.043s/10.049s，平均 2.56 次工具调用、5292 Token；infra error 0%。
-- Router test 48 题准确率 79.17%；三轮记忆 Demo 3/3 SSE、引用及 profile 纠正均通过。
+- Router v2 challenge 52 题 Accuracy / macro-F1 均为 100%，旧策略在同集为 55.77%；三轮记忆 Demo 3/3 SSE、引用及 profile 纠正均通过。
 
 v4 对照固定走 `agent_multistep`，目的是隔离 Agent 本体能力；Router 单独评测，不计入上述 50.00 个百分点。该任务集刻意覆盖多轮记忆、纠正、评价核验、无结果和提示注入，因此结果只代表冻结 v4 的复杂任务分布，不代表线上所有请求。
 
@@ -249,6 +249,19 @@ make eval-agent
 - 评价与检索摘要被标记为不可信数据；推荐只能引用本轮证据账本中的 `[shop:id]`。
 - task outcome、groundedness、trajectory 和 composite 分开统计，基础设施错误单列。
 - 简单单轮请求仍走 Hybrid RAG；Agent 用额外调用和 Token 换取复杂任务完成率，不是所有请求的默认路径。
+
+### 4.6 四路确定性 Router
+
+统一入口不调用模型做路由，而是按可解释的固定顺序输出 `rag_oneshot`、`agent_multistep`、`agent_memory` 或 `clarify`：
+
+1. 合法 `force_route` 直接覆盖；非法值忽略。
+2. 从“实际需求是/我只想”等边界提取真实意图，避免引用的评论或注入文本误触发规则。
+3. 识别预算、区域、类别等偏好的删除/修改，进入 Memory Agent。
+4. 识别比较、详情、评价核验、冲突和证据解释，进入 Multi-step Agent。
+5. 历史指代在有 session 时进入 Memory Agent；缺少历史时要求澄清。
+6. 其余自包含找店请求走 one-shot Hybrid RAG。
+
+Handler 仅在问题含历史指代时读取 session，普通 one-shot 不额外访问记忆存储。冻结 `router.v2` challenge 含四类各 13 题：旧策略 29/52（55.77%），v2 策略 52/52（100%），Accuracy 提升 44.23 个百分点且无模型调用。该集合是人工设计、类别平衡的 repository-visible challenge，不代表线上自然流量准确率。
 
 ---
 

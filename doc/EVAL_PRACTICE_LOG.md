@@ -417,7 +417,7 @@
 
 **修复**：冻结前仅补充明确 intent suffix、无历史歧义澄清和轻量 HasHistory；正式 test 后不再按个例补关键词。
 
-**验证**：test accuracy 79.17%、infra error 0；错误完整保存。后续方案是规则 fast path + 分类器 fallback，而不是调当前 holdout。
+**当时验证**：test accuracy 79.17%、infra error 0；错误完整保存。该 test 后续只作为 regression，不再称为未见集。
 
 ## 44. v3 challenge 推翻“回归集 100% 等于上线可用”
 
@@ -528,3 +528,33 @@
 **修复**：Agent smoke 改用精确店名和已知评价证据，只验证 SSE、引用和事实链路；订单的支付、核销、退款时间改为 `*time.Time`，未发生时写 SQL NULL；`docker-demo` 先幂等运行 `redis-seed`，再清理指定 demo 用户的 profile/session。
 
 **验证**：从空 volume 启动后，200 家店、1000 条评价和 200 个向量均正确；健康检查、登录、API、RAG、Agent、引用、秒杀和三轮记忆 Demo 全部通过；重复 seed 和重复 Demo 均可执行。
+
+## 55. Router v1 规则精度高但同义意图召回不足
+
+**现象**：v1 test 只有 38/48（79.17%）；`agent_multistep` recall 61.54%，`agent_memory` recall 72.73%。规则经常把“分别有什么优缺点”“开到几点”“把人均限制删掉”“上一轮第二家”等请求回落到 RAG，引用文本中的“忘掉预算”还会误触发 memory。
+
+**根因**：旧 Router 使用少量完整关键词，没有将请求抽象成比较、详情、证据核验、偏好变更和历史指代五类特征；真实意图后缀只支持少数固定连接词。
+
+**修复**：先提交并冻结 12 dev / 52 challenge 的 `router.v2`，再把 Router 改为分层规则：force override、真实意图边界、偏好字段×变更动作、多步意图族、session follow-up 和缺失上下文澄清。`NeedsSessionHistory` 使用同一历史指代规则，普通 RAG 请求不读取 session。
+
+**验证**：rules v2 在 v1 regression 为 48/48；在冻结 v2 challenge 首次运行 52/52，macro-F1 100%，相对隔离复跑的 rules v1 29/52 提升 44.23 个百分点。两份 v2 报告哈希均为 `sha256:4a04e1fd...b97fe9b92`，运行 commit 分别为 `a55f026` 与 `82cfe52`，Git 均 clean。
+
+**剩余限制**：v2 是人工设计、类别平衡且仓库可见的集合，规则和标签体系来自同一项目；高分不能替代真实流量、独立标注、混合意图与错别字评测，也不能宣称线上路由 100%。
+
+## 56. 临时 HTTP 冒烟没有 `set -e` 产生假通过
+
+**现象**：第一次宿主机 Router 冒烟中，本机缺少 `redis-cli`，登录与推荐请求依次返回 400/401，但命令最后仍打印 `Router HTTP clarify smoke passed`。
+
+**根因**：临时多行 shell 没有启用 fail-fast；每个 `grep` 失败后仍继续执行，最后一个 `printf` 以 0 退出，掩盖了前序错误。
+
+**修复**：验收命令使用 `set -euo pipefail`，通过 Compose Redis 容器读取验证码，并对验证码、token、SSE message/done、`route=clarify` 和澄清正文逐项断言；正式 `api-test.sh` 同步升级为 `set -euo pipefail`。
+
+**验证**：真实登录返回 200，`POST /api/recommend` 返回 200 SSE，包含确定性澄清消息和 `route=clarify`；服务日志同时保留了第一次 400/401 与第二次 200/200，便于确认假阳性已被推翻。
+
+## 57. Docker 缓存构建受本机代理与资源竞争阻塞
+
+**现象**：首次构建在通过 `docker.m.daocloud.io` 获取 `golang:1.24-alpine` 元数据时连接本机 `127.0.0.1:7897` 超时；禁止 pull 后成功进入 Go 编译，但 Docker Desktop 4GB 环境同时运行 App、RocketMQ 和三个分布式 Go 实例，构建层长期没有进度。
+
+**处理**：只停止本项目无状态容器释放资源，保留 MySQL/Redis volumes；在确认继续等待无收益后取消构建，再恢复原服务。Compose 全 profile 配置检查已通过，宿主机全量 Go 测试和真实 HTTP Router 冒烟通过。
+
+**剩余限制**：本轮没有把新镜像完整构建到结束，因此不能宣称此次 Router 改动完成了新的空卷 Docker 验收。阻塞点是本机 Docker 代理/资源，不是 Go 编译错误；在资源充足或代理正常的环境中仍应执行 `docker compose build app && make docker-verify`。

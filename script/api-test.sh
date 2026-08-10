@@ -6,7 +6,7 @@
 #
 # 前置: make seed && make seed-redis（测试用户 13800138000、验证码 123456、秒杀券 6/7/8）
 
-set -e
+set -euo pipefail
 BASE_URL="${1:-http://localhost:8088}"
 API="${BASE_URL}/api"
 
@@ -146,6 +146,17 @@ if [[ -n "$CODE" ]]; then
       # 关注状态
       resp=$(curl -sf "${API}/follow/or/not/1" -H "authorization: $TOKEN")
       [[ "$resp" == *"success"* ]] && pass "GET /api/follow/or/not/:id" || fail "GET /api/follow/or/not/:id"
+
+      # Router clarify 路径不调用模型；缺少历史的指代应直接要求补充信息。
+      clarify_sse=$(curl -sfS -N -X POST "${API}/recommend" \
+        -H "Authorization: Bearer $TOKEN" \
+        -H "Content-Type: application/json" \
+        -d '{"question":"还是上次那种","session_id":"api-smoke-missing-history"}')
+      [[ "$clarify_sse" == *'"route":"clarify"'* ]] \
+        && [[ "$clarify_sse" == *"event:message"* ]] \
+        && [[ "$clarify_sse" == *"event:done"* ]] \
+        && [[ "$clarify_sse" != *"event:error"* ]] \
+        && pass "POST /api/recommend (Router clarify)" || fail "POST /api/recommend 未执行 clarify"
 
       if [[ -n "${LLM_API_KEY:-}" ]]; then
         echo ""

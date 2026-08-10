@@ -56,11 +56,23 @@ func (h *RecommendHandler) Recommend(c *gin.Context) {
 	d := h.router.Route(logic.RouteInput{
 		Question: req.Question, ForceRoute: req.ForceRoute, HasHistory: hasHistory,
 	})
-	// A 期 clarify → rag
-	route := d.Route
-	if route == logic.RouteClarify {
-		route = logic.RouteRAGOneshot
+	if d.Route == logic.RouteClarify {
+		c.Header("Content-Type", "text/event-stream")
+		c.Header("Cache-Control", "no-cache")
+		c.Header("Connection", "keep-alive")
+		c.Header("X-Accel-Buffering", "no")
+		c.Status(http.StatusOK)
+		c.SSEvent("message", "请补充想找的区域、店铺类型或具体店名；如果是在追问上一轮，请在同一会话中提供可识别的对象。")
+		done, _ := json.Marshal(map[string]any{
+			"route":        string(d.Route),
+			"route_reason": d.Reason,
+			"forced":       d.Forced,
+		})
+		c.SSEvent("done", string(done))
+		c.Writer.Flush()
+		return
 	}
+	route := d.Route
 
 	if logic.IsAgentRoute(route) {
 		if h.agent == nil {

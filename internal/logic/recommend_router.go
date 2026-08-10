@@ -188,7 +188,7 @@ func (r *ruleRecommendRouter) Route(in RouteInput) RouteDecision {
 		}
 		return RouteDecision{Route: RouteClarify, Reason: "missing_session_context", Confidence: 0.9}
 	}
-	// 过短且无明确条件 → clarify（调用方当前会映射为一次性 RAG）
+	// 过短且无明确条件 → clarify
 	if utf8.RuneCountInString(q) < 4 {
 		return RouteDecision{Route: RouteClarify, Reason: "too_short", Confidence: 0.8}
 	}

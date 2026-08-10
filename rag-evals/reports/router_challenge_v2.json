@@ -1,26 +1,26 @@
 {
   "runtime": {
-    "started_at_utc": "2026-08-10T13:07:14Z",
+    "started_at_utc": "2026-08-10T13:06:58Z",
     "git_commit": "82cfe52d0d4b1b2c335c596d208eccc16e9e498c",
     "git_dirty": false,
     "git_state_known": true,
     "go_version": "go1.25.6"
   },
   "version": "router-eval.v2",
-  "dataset_version": "router.v1",
-  "dataset_hash": "sha256:560dd72ca2170318c40668d1793c281b717263148bcfcaa9ce3a5ec4930e022b",
-  "split": "test",
+  "dataset_version": "router.v2",
+  "dataset_hash": "sha256:4a04e1fd05dce45596854de144eba192c2e24fff1e6fe0ab486b932b97fe9b92",
+  "split": "challenge",
   "policy_version": "recommend-router-rules-v2",
-  "n_total": 48,
-  "n_correct": 48,
+  "n_total": 52,
+  "n_correct": 52,
   "accuracy": 1,
   "infrastructure_errors": 0,
   "infrastructure_error_rate": 0,
   "per_class": {
     "agent_memory": {
-      "support": 11,
-      "predicted": 11,
-      "true_positive": 11,
+      "support": 13,
+      "predicted": 13,
+      "true_positive": 13,
       "precision": 1,
       "recall": 1,
       "f1": 1
@@ -34,9 +34,9 @@
       "f1": 1
     },
     "clarify": {
-      "support": 11,
-      "predicted": 11,
-      "true_positive": 11,
+      "support": 13,
+      "predicted": 13,
+      "true_positive": 13,
       "precision": 1,
       "recall": 1,
       "f1": 1
@@ -52,37 +52,35 @@
   },
   "confusion_matrix": {
     "agent_memory": {
-      "agent_memory": 11
+      "agent_memory": 13
     },
     "agent_multistep": {
       "agent_multistep": 13
     },
     "clarify": {
-      "clarify": 11
+      "clarify": 13
     },
     "rag_oneshot": {
       "rag_oneshot": 13
     }
   },
   "tag_accuracy": {
-    "ambiguous_reference": 1,
     "area": 1,
-    "boundary": 1,
-    "category": 1,
     "clarify": 1,
     "compare": 1,
     "empty": 1,
+    "evidence": 1,
     "explanation": 1,
     "followup": 1,
     "force_route": 1,
     "history_independent": 1,
+    "intent_suffix": 1,
     "invalid_force": 1,
     "memory": 1,
     "missing_history": 1,
     "multistep": 1,
     "oneshot": 1,
     "override": 1,
-    "paraphrase": 1,
     "preference_delete": 1,
     "preference_update": 1,
     "price": 1,
@@ -95,26 +93,12 @@
     "shop_detail": 1,
     "too_short": 1,
     "underspecified": 1,
-    "whitespace": 1
+    "verification": 1
   },
   "errors": [],
   "cases": [
     {
-      "id": "rt-rag-01",
-      "tags": [
-        "oneshot",
-        "area",
-        "category"
-      ],
-      "expected_route": "rag_oneshot",
-      "actual_route": "rag_oneshot",
-      "expected_forced": false,
-      "actual_forced": false,
-      "reason": "clear_oneshot",
-      "pass": true
-    },
-    {
-      "id": "rt-rag-02",
+      "id": "rv2-rag-01",
       "tags": [
         "oneshot",
         "area",
@@ -128,7 +112,7 @@
       "pass": true
     },
     {
-      "id": "rt-rag-03",
+      "id": "rv2-rag-02",
       "tags": [
         "oneshot",
         "semantic_preference"
@@ -141,7 +125,33 @@
       "pass": true
     },
     {
-      "id": "rt-rag-04",
+      "id": "rv2-rag-03",
+      "tags": [
+        "oneshot",
+        "semantic_preference"
+      ],
+      "expected_route": "rag_oneshot",
+      "actual_route": "rag_oneshot",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "clear_oneshot",
+      "pass": true
+    },
+    {
+      "id": "rv2-rag-04",
+      "tags": [
+        "oneshot",
+        "price"
+      ],
+      "expected_route": "rag_oneshot",
+      "actual_route": "rag_oneshot",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "clear_oneshot",
+      "pass": true
+    },
+    {
+      "id": "rv2-rag-05",
       "tags": [
         "oneshot",
         "score"
@@ -154,7 +164,7 @@
       "pass": true
     },
     {
-      "id": "rt-rag-05",
+      "id": "rv2-rag-06",
       "tags": [
         "oneshot",
         "semantic_preference"
@@ -167,7 +177,7 @@
       "pass": true
     },
     {
-      "id": "rt-rag-06",
+      "id": "rv2-rag-07",
       "tags": [
         "oneshot",
         "semantic_preference"
@@ -180,7 +190,7 @@
       "pass": true
     },
     {
-      "id": "rt-rag-07",
+      "id": "rv2-rag-08",
       "tags": [
         "oneshot",
         "semantic_preference"
@@ -193,24 +203,9 @@
       "pass": true
     },
     {
-      "id": "rt-rag-08",
+      "id": "rv2-rag-09",
       "tags": [
         "oneshot",
-        "area",
-        "category"
-      ],
-      "expected_route": "rag_oneshot",
-      "actual_route": "rag_oneshot",
-      "expected_forced": false,
-      "actual_forced": false,
-      "reason": "clear_oneshot",
-      "pass": true
-    },
-    {
-      "id": "rt-rag-09",
-      "tags": [
-        "oneshot",
-        "price",
         "history_independent"
       ],
       "expected_route": "rag_oneshot",
@@ -221,21 +216,7 @@
       "pass": true
     },
     {
-      "id": "rt-rag-10",
-      "tags": [
-        "oneshot",
-        "invalid_force",
-        "boundary"
-      ],
-      "expected_route": "rag_oneshot",
-      "actual_route": "rag_oneshot",
-      "expected_forced": false,
-      "actual_forced": false,
-      "reason": "clear_oneshot",
-      "pass": true
-    },
-    {
-      "id": "rt-rag-11",
+      "id": "rv2-rag-10",
       "tags": [
         "oneshot",
         "prompt_injection",
@@ -249,10 +230,11 @@
       "pass": true
     },
     {
-      "id": "rt-rag-12",
+      "id": "rv2-rag-11",
       "tags": [
         "oneshot",
-        "prompt_injection"
+        "prompt_injection",
+        "intent_suffix"
       ],
       "expected_route": "rag_oneshot",
       "actual_route": "rag_oneshot",
@@ -262,7 +244,20 @@
       "pass": true
     },
     {
-      "id": "rt-agent-01",
+      "id": "rv2-rag-12",
+      "tags": [
+        "oneshot",
+        "invalid_force"
+      ],
+      "expected_route": "rag_oneshot",
+      "actual_route": "rag_oneshot",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "clear_oneshot",
+      "pass": true
+    },
+    {
+      "id": "rv2-agent-01",
       "tags": [
         "multistep",
         "compare"
@@ -275,10 +270,126 @@
       "pass": true
     },
     {
-      "id": "rt-agent-02",
+      "id": "rv2-agent-02",
       "tags": [
         "multistep",
-        "compare",
+        "compare"
+      ],
+      "expected_route": "agent_multistep",
+      "actual_route": "agent_multistep",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "needs_tools",
+      "pass": true
+    },
+    {
+      "id": "rv2-agent-03",
+      "tags": [
+        "multistep",
+        "compare"
+      ],
+      "expected_route": "agent_multistep",
+      "actual_route": "agent_multistep",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "needs_tools",
+      "pass": true
+    },
+    {
+      "id": "rv2-agent-04",
+      "tags": [
+        "multistep",
+        "compare"
+      ],
+      "expected_route": "agent_multistep",
+      "actual_route": "agent_multistep",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "needs_tools",
+      "pass": true
+    },
+    {
+      "id": "rv2-agent-05",
+      "tags": [
+        "multistep",
+        "review_check"
+      ],
+      "expected_route": "agent_multistep",
+      "actual_route": "agent_multistep",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "needs_tools",
+      "pass": true
+    },
+    {
+      "id": "rv2-agent-06",
+      "tags": [
+        "multistep",
+        "review_conflict"
+      ],
+      "expected_route": "agent_multistep",
+      "actual_route": "agent_multistep",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "needs_tools",
+      "pass": true
+    },
+    {
+      "id": "rv2-agent-07",
+      "tags": [
+        "multistep",
+        "evidence"
+      ],
+      "expected_route": "agent_multistep",
+      "actual_route": "agent_multistep",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "needs_tools",
+      "pass": true
+    },
+    {
+      "id": "rv2-agent-08",
+      "tags": [
+        "multistep",
+        "shop_detail"
+      ],
+      "expected_route": "agent_multistep",
+      "actual_route": "agent_multistep",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "needs_tools",
+      "pass": true
+    },
+    {
+      "id": "rv2-agent-09",
+      "tags": [
+        "multistep",
+        "shop_detail"
+      ],
+      "expected_route": "agent_multistep",
+      "actual_route": "agent_multistep",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "needs_tools",
+      "pass": true
+    },
+    {
+      "id": "rv2-agent-10",
+      "tags": [
+        "multistep",
+        "verification"
+      ],
+      "expected_route": "agent_multistep",
+      "actual_route": "agent_multistep",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "needs_tools",
+      "pass": true
+    },
+    {
+      "id": "rv2-agent-11",
+      "tags": [
+        "multistep",
         "explanation"
       ],
       "expected_route": "agent_multistep",
@@ -289,129 +400,7 @@
       "pass": true
     },
     {
-      "id": "rt-agent-03",
-      "tags": [
-        "multistep",
-        "review_check"
-      ],
-      "expected_route": "agent_multistep",
-      "actual_route": "agent_multistep",
-      "expected_forced": false,
-      "actual_forced": false,
-      "reason": "needs_tools",
-      "pass": true
-    },
-    {
-      "id": "rt-agent-04",
-      "tags": [
-        "multistep",
-        "shop_detail"
-      ],
-      "expected_route": "agent_multistep",
-      "actual_route": "agent_multistep",
-      "expected_forced": false,
-      "actual_forced": false,
-      "reason": "needs_tools",
-      "pass": true
-    },
-    {
-      "id": "rt-agent-05",
-      "tags": [
-        "multistep",
-        "shop_detail"
-      ],
-      "expected_route": "agent_multistep",
-      "actual_route": "agent_multistep",
-      "expected_forced": false,
-      "actual_forced": false,
-      "reason": "needs_tools",
-      "pass": true
-    },
-    {
-      "id": "rt-agent-06",
-      "tags": [
-        "multistep",
-        "review_check"
-      ],
-      "expected_route": "agent_multistep",
-      "actual_route": "agent_multistep",
-      "expected_forced": false,
-      "actual_forced": false,
-      "reason": "needs_tools",
-      "pass": true
-    },
-    {
-      "id": "rt-agent-07",
-      "tags": [
-        "multistep",
-        "compare",
-        "paraphrase"
-      ],
-      "expected_route": "agent_multistep",
-      "actual_route": "agent_multistep",
-      "expected_forced": false,
-      "actual_forced": false,
-      "reason": "needs_tools",
-      "pass": true
-    },
-    {
-      "id": "rt-agent-08",
-      "tags": [
-        "multistep",
-        "compare",
-        "paraphrase"
-      ],
-      "expected_route": "agent_multistep",
-      "actual_route": "agent_multistep",
-      "expected_forced": false,
-      "actual_forced": false,
-      "reason": "needs_tools",
-      "pass": true
-    },
-    {
-      "id": "rt-agent-09",
-      "tags": [
-        "multistep",
-        "shop_detail",
-        "paraphrase"
-      ],
-      "expected_route": "agent_multistep",
-      "actual_route": "agent_multistep",
-      "expected_forced": false,
-      "actual_forced": false,
-      "reason": "needs_tools",
-      "pass": true
-    },
-    {
-      "id": "rt-agent-10",
-      "tags": [
-        "multistep",
-        "review_conflict",
-        "paraphrase"
-      ],
-      "expected_route": "agent_multistep",
-      "actual_route": "agent_multistep",
-      "expected_forced": false,
-      "actual_forced": false,
-      "reason": "needs_tools",
-      "pass": true
-    },
-    {
-      "id": "rt-agent-11",
-      "tags": [
-        "multistep",
-        "explanation",
-        "paraphrase"
-      ],
-      "expected_route": "agent_multistep",
-      "actual_route": "agent_multistep",
-      "expected_forced": false,
-      "actual_forced": false,
-      "reason": "needs_tools",
-      "pass": true
-    },
-    {
-      "id": "rt-agent-12",
+      "id": "rv2-agent-12",
       "tags": [
         "multistep",
         "compare",
@@ -425,7 +414,7 @@
       "pass": true
     },
     {
-      "id": "rt-memory-01",
+      "id": "rv2-memory-01",
       "tags": [
         "memory",
         "preference_delete"
@@ -438,7 +427,7 @@
       "pass": true
     },
     {
-      "id": "rt-memory-02",
+      "id": "rv2-memory-02",
       "tags": [
         "memory",
         "preference_delete"
@@ -451,7 +440,20 @@
       "pass": true
     },
     {
-      "id": "rt-memory-03",
+      "id": "rv2-memory-03",
+      "tags": [
+        "memory",
+        "preference_delete"
+      ],
+      "expected_route": "agent_memory",
+      "actual_route": "agent_memory",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "preference_mutation",
+      "pass": true
+    },
+    {
+      "id": "rv2-memory-04",
       "tags": [
         "memory",
         "preference_update"
@@ -464,7 +466,7 @@
       "pass": true
     },
     {
-      "id": "rt-memory-04",
+      "id": "rv2-memory-05",
       "tags": [
         "memory",
         "preference_update"
@@ -477,50 +479,10 @@
       "pass": true
     },
     {
-      "id": "rt-memory-05",
+      "id": "rv2-memory-06",
       "tags": [
         "memory",
-        "followup"
-      ],
-      "expected_route": "agent_memory",
-      "actual_route": "agent_memory",
-      "expected_forced": false,
-      "actual_forced": false,
-      "reason": "session_followup",
-      "pass": true
-    },
-    {
-      "id": "rt-memory-06",
-      "tags": [
-        "memory",
-        "followup"
-      ],
-      "expected_route": "agent_memory",
-      "actual_route": "agent_memory",
-      "expected_forced": false,
-      "actual_forced": false,
-      "reason": "session_followup",
-      "pass": true
-    },
-    {
-      "id": "rt-memory-07",
-      "tags": [
-        "memory",
-        "followup"
-      ],
-      "expected_route": "agent_memory",
-      "actual_route": "agent_memory",
-      "expected_forced": false,
-      "actual_forced": false,
-      "reason": "session_followup",
-      "pass": true
-    },
-    {
-      "id": "rt-memory-08",
-      "tags": [
-        "memory",
-        "preference_delete",
-        "paraphrase"
+        "preference_update"
       ],
       "expected_route": "agent_memory",
       "actual_route": "agent_memory",
@@ -530,25 +492,10 @@
       "pass": true
     },
     {
-      "id": "rt-memory-09",
+      "id": "rv2-memory-07",
       "tags": [
         "memory",
-        "preference_update",
-        "paraphrase"
-      ],
-      "expected_route": "agent_memory",
-      "actual_route": "agent_memory",
-      "expected_forced": false,
-      "actual_forced": false,
-      "reason": "preference_mutation",
-      "pass": true
-    },
-    {
-      "id": "rt-memory-10",
-      "tags": [
-        "memory",
-        "followup",
-        "paraphrase"
+        "followup"
       ],
       "expected_route": "agent_memory",
       "actual_route": "agent_memory",
@@ -558,11 +505,75 @@
       "pass": true
     },
     {
-      "id": "rt-clarify-01",
+      "id": "rv2-memory-08",
+      "tags": [
+        "memory",
+        "followup"
+      ],
+      "expected_route": "agent_memory",
+      "actual_route": "agent_memory",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "session_followup",
+      "pass": true
+    },
+    {
+      "id": "rv2-memory-09",
+      "tags": [
+        "memory",
+        "followup"
+      ],
+      "expected_route": "agent_memory",
+      "actual_route": "agent_memory",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "session_followup",
+      "pass": true
+    },
+    {
+      "id": "rv2-memory-10",
+      "tags": [
+        "memory",
+        "followup"
+      ],
+      "expected_route": "agent_memory",
+      "actual_route": "agent_memory",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "session_followup",
+      "pass": true
+    },
+    {
+      "id": "rv2-memory-11",
+      "tags": [
+        "memory",
+        "followup"
+      ],
+      "expected_route": "agent_memory",
+      "actual_route": "agent_memory",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "session_followup",
+      "pass": true
+    },
+    {
+      "id": "rv2-memory-12",
+      "tags": [
+        "memory",
+        "followup"
+      ],
+      "expected_route": "agent_memory",
+      "actual_route": "agent_memory",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "session_followup",
+      "pass": true
+    },
+    {
+      "id": "rv2-clarify-01",
       "tags": [
         "clarify",
-        "empty",
-        "whitespace"
+        "empty"
       ],
       "expected_route": "clarify",
       "actual_route": "clarify",
@@ -572,7 +583,7 @@
       "pass": true
     },
     {
-      "id": "rt-clarify-02",
+      "id": "rv2-clarify-02",
       "tags": [
         "clarify",
         "too_short"
@@ -585,10 +596,23 @@
       "pass": true
     },
     {
-      "id": "rt-clarify-03",
+      "id": "rv2-clarify-03",
       "tags": [
         "clarify",
-        "ambiguous_reference"
+        "too_short"
+      ],
+      "expected_route": "clarify",
+      "actual_route": "clarify",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "too_short",
+      "pass": true
+    },
+    {
+      "id": "rv2-clarify-04",
+      "tags": [
+        "clarify",
+        "missing_history"
       ],
       "expected_route": "clarify",
       "actual_route": "clarify",
@@ -598,7 +622,46 @@
       "pass": true
     },
     {
-      "id": "rt-clarify-04",
+      "id": "rv2-clarify-05",
+      "tags": [
+        "clarify",
+        "missing_history"
+      ],
+      "expected_route": "clarify",
+      "actual_route": "clarify",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "missing_session_context",
+      "pass": true
+    },
+    {
+      "id": "rv2-clarify-06",
+      "tags": [
+        "clarify",
+        "missing_history"
+      ],
+      "expected_route": "clarify",
+      "actual_route": "clarify",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "missing_session_context",
+      "pass": true
+    },
+    {
+      "id": "rv2-clarify-07",
+      "tags": [
+        "clarify",
+        "missing_history"
+      ],
+      "expected_route": "clarify",
+      "actual_route": "clarify",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "missing_session_context",
+      "pass": true
+    },
+    {
+      "id": "rv2-clarify-08",
       "tags": [
         "clarify",
         "underspecified"
@@ -611,24 +674,10 @@
       "pass": true
     },
     {
-      "id": "rt-clarify-05",
+      "id": "rv2-clarify-09",
       "tags": [
         "clarify",
-        "underspecified",
-        "boundary"
-      ],
-      "expected_route": "clarify",
-      "actual_route": "clarify",
-      "expected_forced": false,
-      "actual_forced": false,
-      "reason": "underspecified",
-      "pass": true
-    },
-    {
-      "id": "rt-clarify-06",
-      "tags": [
-        "clarify",
-        "ambiguous_reference"
+        "underspecified"
       ],
       "expected_route": "clarify",
       "actual_route": "clarify",
@@ -638,11 +687,10 @@
       "pass": true
     },
     {
-      "id": "rt-clarify-07",
+      "id": "rv2-clarify-10",
       "tags": [
         "clarify",
-        "underspecified",
-        "boundary"
+        "underspecified"
       ],
       "expected_route": "clarify",
       "actual_route": "clarify",
@@ -652,11 +700,23 @@
       "pass": true
     },
     {
-      "id": "rt-clarify-08",
+      "id": "rv2-clarify-11",
       "tags": [
         "clarify",
-        "missing_history",
-        "boundary"
+        "underspecified"
+      ],
+      "expected_route": "clarify",
+      "actual_route": "clarify",
+      "expected_forced": false,
+      "actual_forced": false,
+      "reason": "underspecified",
+      "pass": true
+    },
+    {
+      "id": "rv2-clarify-12",
+      "tags": [
+        "clarify",
+        "missing_history"
       ],
       "expected_route": "clarify",
       "actual_route": "clarify",
@@ -666,47 +726,7 @@
       "pass": true
     },
     {
-      "id": "rt-clarify-09",
-      "tags": [
-        "clarify",
-        "ambiguous_reference"
-      ],
-      "expected_route": "clarify",
-      "actual_route": "clarify",
-      "expected_forced": false,
-      "actual_forced": false,
-      "reason": "missing_session_context",
-      "pass": true
-    },
-    {
-      "id": "rt-clarify-10",
-      "tags": [
-        "clarify",
-        "ambiguous_reference",
-        "too_short"
-      ],
-      "expected_route": "clarify",
-      "actual_route": "clarify",
-      "expected_forced": false,
-      "actual_forced": false,
-      "reason": "missing_session_context",
-      "pass": true
-    },
-    {
-      "id": "rt-force-01",
-      "tags": [
-        "force_route",
-        "override"
-      ],
-      "expected_route": "rag_oneshot",
-      "actual_route": "rag_oneshot",
-      "expected_forced": true,
-      "actual_forced": true,
-      "reason": "force",
-      "pass": true
-    },
-    {
-      "id": "rt-force-02",
+      "id": "rv2-force-01",
       "tags": [
         "force_route",
         "override"
@@ -719,11 +739,10 @@
       "pass": true
     },
     {
-      "id": "rt-force-03",
+      "id": "rv2-force-02",
       "tags": [
         "force_route",
-        "override",
-        "whitespace"
+        "override"
       ],
       "expected_route": "agent_memory",
       "actual_route": "agent_memory",
@@ -733,7 +752,20 @@
       "pass": true
     },
     {
-      "id": "rt-force-04",
+      "id": "rv2-force-03",
+      "tags": [
+        "force_route",
+        "override"
+      ],
+      "expected_route": "rag_oneshot",
+      "actual_route": "rag_oneshot",
+      "expected_forced": true,
+      "actual_forced": true,
+      "reason": "force",
+      "pass": true
+    },
+    {
+      "id": "rv2-force-04",
       "tags": [
         "force_route",
         "override"

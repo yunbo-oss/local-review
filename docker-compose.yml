@@ -216,7 +216,20 @@ services:
       - ./eval-router
       - --split=test
       - --test-set=rag-evals/golden/router.v1.json
-      - --out=rag-evals/reports/router_v1.json
+      - --out=rag-evals/reports/router_v1_latest.json
+    environment: *app-environment
+    volumes:
+      - ./rag-evals:/app/rag-evals
+    restart: "no"
+
+  router-challenge-eval:
+    <<: *app-image
+    profiles: ["verify"]
+    command:
+      - ./eval-router
+      - --split=challenge
+      - --test-set=rag-evals/challenge/router.v2.json
+      - --out=rag-evals/reports/router_challenge_v2_latest.json
     environment: *app-environment
     volumes:
       - ./rag-evals:/app/rag-evals

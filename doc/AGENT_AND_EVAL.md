@@ -135,7 +135,18 @@ task success 只比较 outcome，不因 Hybrid 没有工具而扣 trajectory 分
 
 ## 8. Router、记忆 Demo 与失败案例
 
-Router test 有 48 题，准确率 79.17%，infra error 0%。它是高精度规则 fast path，但多步/记忆请求的同义改写召回仍不足；Router 分数没有混入 v4 Agent 分数。
+Router 是不调用模型的四路确定性分类器：合法 force override → 注入/引用文本隔离 → 偏好变更 → 比较/详情/证据型多步意图 → 历史指代 → 澄清或 one-shot RAG。Handler 先用 `NeedsSessionHistory` 判断是否需要读取 session，避免普通请求增加一次记忆存储访问。
+
+| 数据集 | 策略 | Accuracy | Macro-F1 | 说明 |
+|---|---|---:|---:|---|
+| v1 test 48 | rules v1 | 79.17% | 80.50% | 首次冻结结果 |
+| v1 test 48 | rules v2 | 100.00% | 100.00% | 已查看旧失败后的 regression |
+| v2 challenge 52 | rules v1 | 55.77% | 57.88% | 数据先冻结，旧 commit 隔离复跑 |
+| v2 challenge 52 | rules v2 | 100.00% | 100.00% | 首次正式运行，+44.23 pp |
+
+v2 challenge 四类各 13 题，覆盖自包含请求、多步工具需求、偏好/历史记忆、缺失上下文、force override 和引用注入。数据 commit `a55f026` 早于策略 commit `82cfe52`；两份报告数据哈希相同。由于数据是同一项目内人工设计且规则标签边界明确，100% 只能证明当前规则覆盖这些意图族，不是线上准确率。Router 分数也没有混入冻结 Agent v4 的固定路由分数。
+
+报告：`rag-evals/reports/router_challenge_v2_policy_v1.json`、`rag-evals/reports/router_challenge_v2.json`。
 
 三轮记忆 Demo 验证：3/3 SSE 成功；推荐轮存在 grounded citation；预算被清空；区域从海淀纠正为丰台；最终 profile version 3。报告为 `rag-evals/reports/memory_demo_latest.json`。
 
@@ -148,7 +159,7 @@ v4 唯一失败是 `a4-20` 的一个非 critical trial：长多轮指代下，pr
 - Retrieval v3 no-result accuracy 只有 12.5%，仍需置信度校准、未知 taxonomy 检测和更完整的拒答测试。
 - 多店事实校验基于引用证据集合，尚未把每个自然语言 claim 精确绑定到 `(shop_id, field, value)`。
 - MQ 刷新向量缺少 outbox/reconciliation，数据库提交后可能短暂陈旧。
-- Router 只有 79.17%；上线前需要真实 query 标注、路由置信度、灰度与回退策略。
+- Router v2 在人工平衡 challenge 为 100%，但仍缺真实 query 分布、错别字/混合意图和人工双标；上线前需要路由置信度、灰度、回退及线上混淆矩阵。
 - v4 在仓库中可见且样本较小；后续应使用真实脱敏 query、独立标注和私有 holdout 验证泛化。
 
 完整工程问题、修复和验证过程见 `EVAL_PRACTICE_LOG.md`。

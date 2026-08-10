@@ -1,5 +1,5 @@
 .PHONY: run build test tidy clean air test-api seed seed-redis seed-load-test seed-reset-load-test seed-vector load-test-seckill \
-	generate-eval-data generate-challenge-data eval-router eval-rag eval-rag-smoke eval-rag-oracle eval-rag-prod eval-rag-prod-baseline \
+	generate-eval-data generate-challenge-data eval-router eval-router-challenge eval-rag eval-rag-smoke eval-rag-oracle eval-rag-prod eval-rag-prod-baseline \
 	eval-hybrid-task eval-agent eval-agent-fake demo-agent docker-reset docker-up docker-verify docker-eval docker-challenge docker-demo \
 	docker-challenge-v4
 
@@ -76,6 +76,11 @@ generate-challenge-data:
 eval-router:
 	go run ./cmd/eval-router --split=test --out=rag-evals/reports/router_v1.json
 
+# 冻结 Router v2 challenge（不调用 LLM）
+eval-router-challenge:
+	go run ./cmd/eval-router --test-set=rag-evals/challenge/router.v2.json --split=challenge \
+		--out=rag-evals/reports/router_challenge_v2.json
+
 # RAG 检索评估（需 seed + seed-vector + LLM_API_KEY）
 # script/rag-eval.json = SMOKE ONLY，非正式 baseline；正式集见 rag-evals/golden/
 eval-rag:
@@ -143,6 +148,7 @@ docker-up:
 docker-verify:
 	docker compose --profile verify run --rm data-check
 	docker compose --profile verify run --rm router-eval
+	docker compose --profile verify run --rm router-challenge-eval
 	docker compose --profile verify run --rm api-smoke
 
 docker-eval:

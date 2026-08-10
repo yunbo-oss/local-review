@@ -6,6 +6,7 @@
 
 - Retrieval v3：24 个 `dev`、120 个冻结 `challenge`。
 - Agent v3 / v3.1 / v4：每版 8 个 `dev`、28 个 `challenge`；10 个关键 challenge 场景各运行 3 次，共 48 个 challenge trial。
+- Router v2：12 个 `dev`、52 个冻结 `challenge`；四类路由各 13 题，并包含 force override、缺失历史和引用注入边界。
 - 底层使用固定 seed 的 200 家店铺、1000 条评价。挑战的是表达和任务分布，不代表生产流量或容量规模。
 - v4 按当前评测范围移除错别字题，保留语义偏好、难负样本、无结果、评论冲突、长上下文、记忆纠正和提示注入文本。
 - `dev` 可用于调试 harness、prompt 和评分规则；`challenge` 只在代码、prompt、grader 和数据冻结后运行。
@@ -18,6 +19,9 @@
 go run ./cmd/generate-challenge-data --check
 go run ./cmd/generate-challenge-data --suite=v31 --check
 go run ./cmd/generate-challenge-data --suite=v4 --check
+
+# Router v2 是人工标注文件，直接运行 schema/评测校验
+make eval-router-challenge
 ```
 
 ## 使用协议

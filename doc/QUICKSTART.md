@@ -108,6 +108,7 @@ LLM_API_KEY='你的密钥' make docker-challenge-v4
 | `make seed-reset-load-test` | 重置订单和库存 |
 | `make seed-vector` | RAG 店铺向量导入 |
 | `make generate-eval-data` | 固定种子生成/校验 v2 数据和 golden |
+| `make eval-router-challenge` | 运行冻结 Router v2 challenge（不调用模型） |
 | `make docker-verify` | 校验数据、登录、API、RAG/Agent SSE 和引用 |
 | `make docker-eval` | 运行三份正式 Retrieval/Hybrid/Agent 报告 |
 | `make docker-challenge-v4` | 运行冻结 v4 的 Agent / 同任务 Hybrid challenge |
