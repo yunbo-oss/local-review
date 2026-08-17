@@ -1,30 +1,8 @@
 # Local Review Go
 
-基于 **Gin + Nginx** 的分布式点评/电商应用，涵盖用户鉴权、优惠券秒杀、商户检索、AI 智能搜索等核心模块。
-项目在传统点评业务之上实现了 Hybrid Retrieval、有界多步推荐 Agent、结构化用户画像、证据校验和 Docker 可复现评测闭环。
+用 Go 实现的点评/电商后端，包含用户鉴权、店铺与博客、优惠券秒杀、缓存、消息队列、语义检索和推荐 Agent，并支持 Nginx 多实例部署。
 
 **启动与测试**：详见 [doc/QUICKSTART.md](doc/QUICKSTART.md)。
-
----
-
-## 可复现 Agent / RAG 评测闭环
-
-本仓库用固定种子生成 **200 家店、1000 条评价**。Retrieval v2 regression 有 60 题，冻结 v3 challenge 有 120 题；Agent v4 有 8 个 dev 场景和 28 个冻结 challenge 场景，关键场景运行 3 次，共 48 个 challenge trial。正式报告来自真实 DeepSeek API 与真实 MySQL/Redis 服务，不使用占位或模拟结果。
-
-正式指标（2026-08-09，冻结代码/数据 commit `fb85084`）：
-
-- v2 Retrieval：HitRate@5 100%、Recall@5 81.63%、Precision@5 83.21%、MRR 0.9732、NDCG@5 0.9802、过滤准确率 100%、infra error 0%。
-- v3 challenge Retrieval：HitRate@5 70.54%、task success 64.17%、no-result accuracy 12.50%，如实暴露 OOD 同义表达、错别字和拒答弱点。
-- v4 同任务对照：Agent scenario-macro task success 96.43%，one-shot Hybrid RAG 为 46.43%，提升 **50.00 个百分点**；trial-micro 为 97.92% vs 52.08%。
-- v4 Agent：成功回答 groundedness 100%，trajectory 100%，关键场景全部 trial 通过率 100%，P50/P95 为 6.043s/10.049s，平均 2.56 次工具调用、5292 Token；infra error 0%。
-- Router v2 challenge 52 题 Accuracy / macro-F1 均为 100%，旧策略在同集为 55.77%；三轮记忆 Demo 3/3 SSE、引用及 profile 纠正均通过。
-
-v4 对照固定走 `agent_multistep`，目的是隔离 Agent 本体能力；Router 单独评测，不计入上述 50.00 个百分点。该任务集刻意覆盖多轮记忆、纠正、评价核验、无结果和提示注入，因此结果只代表冻结 v4 的复杂任务分布，不代表线上所有请求。
-
-完整口径、实验条件、失败分析和诚实限制：
-
-- [Agent 与评测说明](doc/AGENT_AND_EVAL.md)
-- [实践问题与修复日志](doc/EVAL_PRACTICE_LOG.md)
 
 ---
 
@@ -250,6 +228,20 @@ make eval-agent
 6. 其余自包含找店请求走 one-shot Hybrid RAG。
 
 `agent_multistep` 与 `agent_memory` 是执行模式标签，不是两个独立 Agent；它们复用同一个有界推荐 Agent，后者只额外使用结构化画像或会话历史。Handler 仅在问题含历史指代时读取 session，普通 one-shot 不额外访问记忆存储。冻结 `router.v2` challenge 含四类各 13 题：旧策略 29/52（55.77%），v2 策略 52/52（100%），Accuracy 提升 44.23 个百分点且无模型调用。该集合是人工设计、类别平衡的 repository-visible challenge，不代表线上自然流量准确率。
+
+### 4.7 评测结果
+
+评测使用固定种子生成的 200 家店和 1000 条评价，并连接真实的 DeepSeek API、MySQL 与 Redis。正式结果记录于 2026-08-09，对应代码和数据版本 `fb85084`。
+
+| 数据集 | 结果 |
+|--------|------|
+| Retrieval v2（60 题） | HitRate@5 100%，Recall@5 81.63%，Precision@5 83.21%，MRR 0.9732，NDCG@5 0.9802，过滤准确率 100%，基础设施错误率 0% |
+| Retrieval v3 challenge（120 题） | HitRate@5 70.54%，task success 64.17%，no-result accuracy 12.50% |
+| Agent v4 与 one-shot Hybrid RAG 同任务对照 | scenario-macro task success 96.43% vs 46.43%，相差 50.00 个百分点；trial-micro 97.92% vs 52.08% |
+| Agent v4 | 成功回答 groundedness 100%，trajectory 100%，P50/P95 6.043s/10.049s，平均 2.56 次工具调用、5292 Token，基础设施错误率 0% |
+| Router v2 challenge（52 题） | Accuracy 和 macro-F1 均为 100%；旧策略为 55.77% |
+
+Agent v4 对照固定使用 `agent_multistep`，不包含 Router 的收益。场景主要覆盖多轮记忆、纠正、评价核验、无结果和提示注入，因此结果只反映这组冻结任务，不代表线上整体效果。详细口径和失败记录见 [Agent 与评测说明](doc/AGENT_AND_EVAL.md) 与 [实践问题与修复日志](doc/EVAL_PRACTICE_LOG.md)。
 
 ---
 
