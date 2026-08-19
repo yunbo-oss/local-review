@@ -144,7 +144,7 @@ func GradeGroundedness(actual OutcomeActual, expected Expected) GradeResult {
 func GradeTrajectory(actual OutcomeActual, expected Expected) GradeResult {
 	r := GradeResult{Name: "trajectory", Pass: true}
 	route := strings.TrimSpace(actual.Route)
-	if route != "" && route != "agent_multistep" && route != "agent_memory" {
+	if route != "" && route != "agent" {
 		r.Deferred = append(r.Deferred, fmt.Sprintf("agent trajectory contract not applicable to route %s", route))
 		return r
 	}

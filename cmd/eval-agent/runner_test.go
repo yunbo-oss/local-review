@@ -145,14 +145,14 @@ func TestInProcessRunnerRouterE2EClarifiesWithoutCallingAgent(t *testing.T) {
 
 func TestInProcessRunnerRouterE2EForwardsIntentToSelectedAgentRoute(t *testing.T) {
 	spec := agent.IntentSpec{
-		Intent: "compare", Route: string(logic.RouteAgentMultistep), Confidence: 0.91,
+		Intent: "compare", Route: string(logic.RouteAgent), Confidence: 0.91,
 		RewrittenQueries: []string{"海淀 咖啡 对比"}, Source: "llm",
 	}
 	var gotRoute string
 	var gotSpec agent.IntentSpec
 	logicStub := &sequenceRecommendLogic{
 		results: []logic.RecommendResult{{
-			Answer: "推荐结果：[shop:7]", Intent: spec, Route: string(logic.RouteAgentMultistep),
+			Answer: "推荐结果：[shop:7]", Intent: spec, Route: string(logic.RouteAgent),
 			ObservedShopIDs: []int64{7}, ModelCalls: 3,
 		}},
 		onRecommend: func(ctx context.Context, route string) {
@@ -163,7 +163,7 @@ func TestInProcessRunnerRouterE2EForwardsIntentToSelectedAgentRoute(t *testing.T
 	runner := &InProcessRunner{
 		Logic: logicStub, Memory: &runnerMemoryStub{}, UserID: 42,
 		Router: staticContextRouter{
-			decision: logic.RouteDecision{Route: logic.RouteAgentMultistep, Reason: "comparison"},
+			decision: logic.RouteDecision{Route: logic.RouteAgent, Reason: "comparison"},
 			spec:     spec, usage: llm.TokenUsage{PromptTokens: 8, CompletionTokens: 2, TotalTokens: 10},
 		},
 	}
@@ -176,7 +176,7 @@ func TestInProcessRunnerRouterE2EForwardsIntentToSelectedAgentRoute(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if gotRoute != string(logic.RouteAgentMultistep) || gotSpec.Intent != spec.Intent {
+	if gotRoute != string(logic.RouteAgent) || gotSpec.Intent != spec.Intent {
 		t.Fatalf("router output was not forwarded: route=%q spec=%+v", gotRoute, gotSpec)
 	}
 	// The production Agent result includes the shared Query Understanding call;

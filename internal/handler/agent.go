@@ -26,7 +26,7 @@ func NewAgentHandler(l logic.RecommendAgentLogic) *AgentHandler {
 type RecommendReq struct {
 	Question   string `json:"question" binding:"required"`
 	SessionID  string `json:"session_id" binding:"required"`
-	ForceRoute string `json:"force_route"` // 可选：rag_oneshot|agent_multistep|agent_memory|clarify
+	ForceRoute string `json:"force_route"` // 可选：rag_oneshot|agent|clarify
 }
 
 // Recommend POST /api/agent/recommend
@@ -109,13 +109,8 @@ func validateRecommendReq(req RecommendReq) string {
 	if req.Question == "" || req.SessionID == "" {
 		return "question 与 session_id 不能为空"
 	}
-	if fr := strings.TrimSpace(req.ForceRoute); fr != "" {
-		switch fr {
-		case string(logic.RouteRAGOneshot), string(logic.RouteAgentMultistep),
-			string(logic.RouteAgentMemory), string(logic.RouteClarify):
-		default:
-			return "force_route 非法"
-		}
+	if fr := strings.TrimSpace(req.ForceRoute); !logic.IsSupportedForceRoute(fr) {
+		return "force_route 非法"
 	}
 	return ""
 }

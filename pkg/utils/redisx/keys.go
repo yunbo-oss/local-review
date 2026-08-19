@@ -20,8 +20,6 @@ const (
 	UVKeyPrefix               = "uv:"
 
 	// RAG 向量检索
-	VEC_SHOP_KEY_PREFIX = "vec:shop:" // Hash 前缀，用于 RediSearch 索引
-	VEC_SHOP_INDEX      = "idx:shop:vector"
 
 	// Agent 记忆（002）
 	AGENT_SESSION_PREFIX         = "agent:sess:" // List：agent:sess:{userId}:{sessionId}
@@ -48,7 +46,7 @@ func AgentProfileKey(userID int64) string {
 	return AGENT_PROFILE_PREFIX + strconv.FormatInt(userID, 10)
 }
 
-// AgentProfileCacheKey MySQL profile 的 Redis 缓存 key
+// AgentProfileCacheKey PostgreSQL profile 的 Redis 缓存 key
 func AgentProfileCacheKey(userID int64) string {
 	return AGENT_PROFILE_CACHE_PREFIX + strconv.FormatInt(userID, 10)
 }

@@ -607,7 +607,7 @@
         "expect_groundedness": true
       },
       "tags": [
-        "memory_correction",
+        "preference_correction",
         "negation",
         "multi_turn"
       ],
@@ -676,7 +676,7 @@
         "expect_groundedness": true
       },
       "tags": [
-        "memory_correction",
+        "preference_correction",
         "negation",
         "multi_turn",
         "critical"
@@ -744,7 +744,7 @@
         "expect_groundedness": true
       },
       "tags": [
-        "memory_correction",
+        "preference_correction",
         "negation",
         "multi_turn"
       ],
@@ -810,7 +810,7 @@
         "expect_groundedness": true
       },
       "tags": [
-        "memory_correction",
+        "preference_correction",
         "negation",
         "multi_turn"
       ],
@@ -877,7 +877,7 @@
         "expect_groundedness": true
       },
       "tags": [
-        "memory_correction",
+        "preference_correction",
         "negation",
         "multi_turn"
       ],
@@ -945,7 +945,7 @@
         "expect_groundedness": true
       },
       "tags": [
-        "memory_correction",
+        "preference_correction",
         "negation",
         "multi_turn"
       ],
@@ -1013,7 +1013,7 @@
         "expect_groundedness": true
       },
       "tags": [
-        "memory_correction",
+        "preference_correction",
         "negation",
         "multi_turn"
       ],
@@ -1080,7 +1080,7 @@
       },
       "tags": [
         "coreference",
-        "memory",
+        "context",
         "multi_turn",
         "long_context"
       ],
@@ -1144,7 +1144,7 @@
       },
       "tags": [
         "coreference",
-        "memory",
+        "context",
         "multi_turn",
         "long_context",
         "critical"
@@ -1208,7 +1208,7 @@
       },
       "tags": [
         "coreference",
-        "memory",
+        "context",
         "multi_turn",
         "long_context"
       ],
@@ -1276,7 +1276,7 @@
       },
       "tags": [
         "coreference",
-        "memory",
+        "context",
         "multi_turn",
         "long_context"
       ],
@@ -1340,7 +1340,7 @@
       },
       "tags": [
         "coreference",
-        "memory",
+        "context",
         "multi_turn",
         "long_context"
       ],
@@ -1405,7 +1405,7 @@
       },
       "tags": [
         "coreference",
-        "memory",
+        "context",
         "multi_turn",
         "long_context"
       ],
@@ -1476,7 +1476,7 @@
       },
       "tags": [
         "coreference",
-        "memory",
+        "context",
         "multi_turn",
         "long_context"
       ],
@@ -1541,7 +1541,7 @@
       },
       "tags": [
         "coreference",
-        "memory",
+        "context",
         "multi_turn",
         "long_context"
       ],
@@ -2341,7 +2341,7 @@
       "tags": [
         "session_isolation",
         "isolation_pair_1",
-        "memory"
+        "context"
       ],
       "trials": 1,
       "evidence": "相邻 case 使用互斥 setup_profile；任何跨 case/trial 状态泄漏都会命中 forbidden 或 profile 断言。"
@@ -2400,7 +2400,7 @@
       "tags": [
         "session_isolation",
         "isolation_pair_1",
-        "memory"
+        "context"
       ],
       "trials": 1,
       "evidence": "相邻 case 使用互斥 setup_profile；任何跨 case/trial 状态泄漏都会命中 forbidden 或 profile 断言。"
@@ -2459,7 +2459,7 @@
       "tags": [
         "session_isolation",
         "isolation_pair_2",
-        "memory",
+        "context",
         "critical"
       ],
       "trials": 3,
@@ -2522,7 +2522,7 @@
       "tags": [
         "session_isolation",
         "isolation_pair_2",
-        "memory"
+        "context"
       ],
       "trials": 1,
       "evidence": "相邻 case 使用互斥 setup_profile；任何跨 case/trial 状态泄漏都会命中 forbidden 或 profile 断言。"

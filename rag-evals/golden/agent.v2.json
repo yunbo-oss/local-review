@@ -103,7 +103,7 @@
         "expect_groundedness": true
       },
       "tags": [
-        "memory",
+        "context",
         "multi_turn",
         "critical"
       ],
@@ -138,7 +138,7 @@
         "expect_groundedness": true
       },
       "tags": [
-        "memory_correction",
+        "preference_correction",
         "multi_turn",
         "critical"
       ],

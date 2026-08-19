@@ -69,7 +69,7 @@ const queryUnderstandingPrompt = `你是本地生活推荐系统的 Query Unders
 
 约束：
 1. intent 只能是 search、compare、inspect、followup、preference_update、clarify。
-2. route 只能是 rag_oneshot、agent_multistep、agent_memory、clarify。简单且自包含的找店请求走 rag_oneshot；比较、详情、评价核验或多跳请求走 agent_multistep；需要历史/长期偏好的请求走 agent_memory。
+2. route 只能是 rag_oneshot、agent、clarify。简单且自包含的找店请求走 rag_oneshot；比较、详情、评价核验、多跳请求以及需要历史上下文的追问都走同一个 agent。记忆是上下文策略，不是独立路由。
 3. hard_filters 只保留用户本轮明确表达的区域、类型、价格、评分和评论数，不得从常识或软偏好推断。例如“商务宴请”不能自动变成“美食”。
 4. soft_preferences 保留需要评价或语义证据判断的自然语言偏好，每项不超过 24 字。
 5. rewritten_queries 输出 1~3 个适合检索的中文查询，保留原始硬条件，不得放宽或改写预算、区域和否定条件；可为口语、指代或复合需求补充无歧义的同义表达。
@@ -137,10 +137,13 @@ func sanitizeIntentSpec(spec *IntentSpec) error {
 		return fmt.Errorf("invalid intent %q", spec.Intent)
 	}
 	allowedRoute := map[string]bool{
-		"rag_oneshot": true, "agent_multistep": true,
-		"agent_memory": true, "clarify": true,
+		"rag_oneshot": true, "agent": true, "clarify": true,
 	}
 	spec.Route = strings.ToLower(strings.TrimSpace(spec.Route))
+	// 历史模型输出可继续读取，但生产结果统一收敛为 agent。
+	if spec.Route == "agent_multistep" || spec.Route == "agent_memory" {
+		spec.Route = "agent"
+	}
 	if !allowedRoute[spec.Route] {
 		return fmt.Errorf("invalid route %q", spec.Route)
 	}
@@ -224,7 +227,7 @@ func (s IntentSpec) RetrievalQueries() []string {
 func FallbackIntentSpec(question, route string) IntentSpec {
 	intent := "search"
 	switch route {
-	case "agent_multistep":
+	case "agent", "agent_multistep":
 		intent = "inspect"
 	case "agent_memory":
 		intent = "followup"

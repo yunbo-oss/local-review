@@ -9,13 +9,13 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// hybridMemoryRepo：会话仍 Redis；偏好走 MySQL AgentProfileRepo
+// hybridMemoryRepo：会话仍 Redis；偏好走 PostgreSQL AgentProfileRepo
 type hybridMemoryRepo struct {
 	session *memoryRepo
 	profile repoInterfaces.AgentProfileRepo
 }
 
-// NewHybridMemoryRepo 生产推荐路径用：profile=MySQL，session=Redis
+// NewHybridMemoryRepo 生产推荐路径用：profile=PostgreSQL，session=Redis
 func NewHybridMemoryRepo(rdb *redis.Client, profile repoInterfaces.AgentProfileRepo) repoInterfaces.MemoryRepo {
 	return &hybridMemoryRepo{
 		session: &memoryRepo{rdb: rdb},

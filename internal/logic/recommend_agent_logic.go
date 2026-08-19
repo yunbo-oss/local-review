@@ -95,7 +95,7 @@ type RecommendAgentLogicDeps struct {
 	BlogRepo       repoInterfaces.BlogRepo
 	RunRepo        repoInterfaces.AgentRunRepo // 可选；nil 则不落库
 	Config         agent.RunConfig
-	Router         RecommendRouter        // 可选；nil 则默认 agent_multistep
+	Router         RecommendRouter        // 可选；nil 则默认完整 Agent
 	AdaptiveRouter ContextRecommendRouter // 可选；统一 LLM Query Understanding + 规则回退
 	Reranker       CandidateReranker
 	Planner        agent.Planner

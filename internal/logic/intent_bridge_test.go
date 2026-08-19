@@ -14,7 +14,7 @@ func TestIntentEvidenceToolsRequiresReviewsForSoftPreference(t *testing.T) {
 }
 
 func TestEnsureIntentEvidenceRequirementsAppliesSafetyFloor(t *testing.T) {
-	spec := agent.FallbackIntentSpec("引用实际评价", "agent_multistep")
+	spec := agent.FallbackIntentSpec("引用实际评价", "agent")
 	got := ensureIntentEvidenceRequirements(spec, []string{agent.ToolSearchShops, agent.ToolListShopBlogs})
 	if len(got.EvidenceRequirements) != 1 || got.EvidenceRequirements[0] != "reviews" {
 		t.Fatalf("requirements=%v", got.EvidenceRequirements)

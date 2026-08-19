@@ -55,7 +55,7 @@ type RecommendRunOutcome struct {
 	Loop              LoopResult
 }
 
-// Run 执行有界推荐循环（不写 MySQL/Redis；由 RecommendAgentLogic 负责持久化）
+// Run 执行有界推荐循环（不写 PostgreSQL/Redis；由 RecommendAgentLogic 负责持久化）
 func (h *RecommendAgentHarness) Run(ctx context.Context, in HarnessInput) RecommendRunOutcome {
 	start := time.Now()
 	out := RecommendRunOutcome{TraceID: strings.TrimSpace(in.TraceID)}

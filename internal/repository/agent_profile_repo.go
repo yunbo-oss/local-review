@@ -24,7 +24,7 @@ type agentProfileRepo struct {
 	rdb *redis.Client
 }
 
-// NewAgentProfileRepo MySQL 事实源 + Redis 缓存 + 遗留 Hash 回填
+// NewAgentProfileRepo PostgreSQL 事实源 + Redis 缓存 + 遗留 Hash 回填
 func NewAgentProfileRepo(db *gorm.DB, rdb *redis.Client) repoInterfaces.AgentProfileRepo {
 	return &agentProfileRepo{db: db, rdb: rdb}
 }
@@ -33,7 +33,7 @@ func (r *agentProfileRepo) LoadProfile(ctx context.Context, userID int64) (memor
 	if p, ok := r.loadCache(ctx, userID); ok {
 		return p, nil
 	}
-	row, err := r.loadMySQL(ctx, userID)
+	row, err := r.loadPostgres(ctx, userID)
 	if err != nil {
 		return memory.Profile{}, err
 	}
@@ -45,7 +45,7 @@ func (r *agentProfileRepo) LoadProfile(ctx context.Context, userID int64) (memor
 		_ = r.writeCache(ctx, userID, p)
 		return p, nil
 	}
-	// 遗留 Redis Hash → 校验后写入 MySQL
+	// 遗留 Redis Hash → 校验后写入 PostgreSQL
 	legacy, err := r.loadLegacyHash(ctx, userID)
 	if err != nil {
 		return memory.Profile{}, err
@@ -57,7 +57,7 @@ func (r *agentProfileRepo) LoadProfile(ctx context.Context, userID int64) (memor
 	if legacy.Version <= 0 {
 		legacy.Version = 1
 	}
-	if err := r.persistMySQL(ctx, userID, legacy); err != nil {
+	if err := r.persistPostgres(ctx, userID, legacy); err != nil {
 		return memory.Profile{}, err
 	}
 	_ = r.writeCache(ctx, userID, legacy)
@@ -156,14 +156,14 @@ func (r *agentProfileRepo) ReplaceProfile(ctx context.Context, userID int64, pro
 	if profile.UpdatedAt == 0 {
 		profile.UpdatedAt = memory.NowUnix()
 	}
-	if err := r.persistMySQL(ctx, userID, profile); err != nil {
+	if err := r.persistPostgres(ctx, userID, profile); err != nil {
 		return err
 	}
 	_ = r.invalidateCache(ctx, userID)
 	return r.writeCache(ctx, userID, profile)
 }
 
-func (r *agentProfileRepo) persistMySQL(ctx context.Context, userID int64, p memory.Profile) error {
+func (r *agentProfileRepo) persistPostgres(ctx context.Context, userID int64, p memory.Profile) error {
 	raw, err := json.Marshal(p)
 	if err != nil {
 		return err
@@ -177,7 +177,7 @@ func (r *agentProfileRepo) persistMySQL(ctx context.Context, userID int64, p mem
 	}).Create(&row).Error
 }
 
-func (r *agentProfileRepo) loadMySQL(ctx context.Context, userID int64) (*model.UserAgentProfile, error) {
+func (r *agentProfileRepo) loadPostgres(ctx context.Context, userID int64) (*model.UserAgentProfile, error) {
 	var row model.UserAgentProfile
 	err := r.db.WithContext(ctx).Where("user_id = ?", userID).First(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {

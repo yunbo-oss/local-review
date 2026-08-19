@@ -21,7 +21,7 @@ func TestRedisAgentCheckpointerRoundTripRevisionAndTTL(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	t.Cleanup(func() { _ = rdb.Close() })
 	checkpoint := &RedisAgentCheckpointer{rdb: rdb, ttl: time.Minute}
-	intent := agent.FallbackIntentSpec("海淀咖啡", "agent_multistep")
+	intent := agent.FallbackIntentSpec("海淀咖啡", "agent")
 	state, err := agent.NewAgentState(
 		"redis-run-1", "trace-1", intent.OriginalQuestion, intent,
 		agent.MemorySnapshot{Policy: agent.MemoryReadOnly}, agent.DefaultRuntimeBudget(),

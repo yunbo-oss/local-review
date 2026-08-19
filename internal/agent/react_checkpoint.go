@@ -11,7 +11,7 @@ import (
 var ErrAgentCheckpointNotFound = errors.New("agent checkpoint not found")
 
 // AgentCheckpointer is intentionally storage-agnostic. Production adapters can
-// use MySQL/Redis while tests and local replay use MemoryAgentCheckpointer.
+// use PostgreSQL/Redis while tests and local replay use MemoryAgentCheckpointer.
 type AgentCheckpointer interface {
 	Save(ctx context.Context, state *AgentState) error
 	Load(ctx context.Context, runID string) (*AgentState, error)

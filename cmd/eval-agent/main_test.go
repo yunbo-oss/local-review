@@ -41,7 +41,7 @@ func TestFakeHarness_TrialIsolationAndReportShape(t *testing.T) {
 		cr := CaseReport{ID: c.ID, Tags: c.Tags}
 		var passes []bool
 		for tIdx := 0; tIdx < 3; tIdx++ {
-			td, err := runner.RunTrial(ctx, c, tIdx, "agent_multistep")
+			td, err := runner.RunTrial(ctx, c, tIdx, "agent")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -173,7 +173,7 @@ func TestBuildReportAggregatesAdaptiveArchitectureMetrics(t *testing.T) {
 		TrialDetails: []TrialDetail{{
 			Outcome: GradeResult{Pass: true}, Ground: GradeResult{Pass: true}, Traj: GradeResult{Pass: true}, Pass: true,
 			Actual: OutcomeActual{
-				Route: "agent_multistep", RuntimeStatus: "COMPLETED", AnswerVerified: true,
+				Route: "agent", RuntimeStatus: "COMPLETED", AnswerVerified: true,
 				IntentConfidence: 0.8, RewriteCount: 2, PlanVersions: 2, Replans: 1,
 				PlanFallback: true, ClaimFallback: true, ClaimCount: 4, ClaimsWithEvidence: 3,
 				RetrievalConfidence: 0.7, RetrievalDecision: "abstain",
@@ -189,7 +189,7 @@ func TestBuildReportAggregatesAdaptiveArchitectureMetrics(t *testing.T) {
 		got.AvgReplans != 1 || got.PlanFallbackRate != 1 || got.ClaimEvidenceCoverage != 0.75 ||
 		got.ClaimFallbackRate != 1 || got.AnswerVerifiedRate != 1 ||
 		got.AvgRetrievalConfidence != 0.7 || got.RetrievalAbstentionRate != 1 ||
-		got.RouteCounts["agent_multistep"] != 1 || got.RouteTaskSuccessRates["agent_multistep"] != 1 ||
+		got.RouteCounts["agent"] != 1 || got.RouteTaskSuccessRates["agent"] != 1 ||
 		got.RuntimeStatusCounts["COMPLETED"] != 1 {
 		t.Fatalf("adaptive summary metrics=%+v", got)
 	}

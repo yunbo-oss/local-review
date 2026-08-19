@@ -45,7 +45,7 @@ func TestRunPlannedReplansAfterEmptyObservation(t *testing.T) {
 		Usage:   llm.TokenUsage{TotalTokens: 30},
 	}}}
 	exec := &ToolExecutor{Search: queryPlanSearch{}, Ledger: NewEvidenceLedger(), Observed: map[int64]struct{}{}}
-	intent := FallbackIntentSpec("海淀咖啡", "agent_multistep")
+	intent := FallbackIntentSpec("海淀咖啡", "agent")
 	res := RunPlanned(context.Background(), client, planner, exec, DefaultRunConfig(),
 		[]llm.ChatMessage{{Role: "user", Content: "海淀咖啡"}}, PlanInput{Intent: intent})
 	if !res.GroundingOK || res.Replans != 1 || planner.replans != 1 {
@@ -57,7 +57,7 @@ func TestRunPlannedReplansAfterEmptyObservation(t *testing.T) {
 }
 
 func TestParseExecutionPlanAddsRequiredBoundarySteps(t *testing.T) {
-	intent := IntentSpec{Intent: "compare", Route: "agent_multistep", OriginalQuestion: "比较两家"}
+	intent := IntentSpec{Intent: "compare", Route: "agent", OriginalQuestion: "比较两家"}
 	plan, err := ParseExecutionPlan(`{"version":1,"goal":"比较","steps":[{"id":"reviews","action":"list_shop_blogs","depends_on":[],"parallel_group":"e","target_count":9,"query":"","rationale":"核验"}],"stop_conditions":[]}`, intent)
 	if err != nil {
 		t.Fatal(err)

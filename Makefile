@@ -37,24 +37,24 @@ init-rag:
 rocketmq-topic:
 	./script/rocketmq-init-topic.sh
 
-# 压测前：插入 MySQL 种子数据（需 Docker 中 MySQL 运行）
+# 压测前：插入 PostgreSQL 种子数据（需 Docker 中 PostgreSQL 运行）
 seed:
-	docker exec -i local-review-mysql mysql -uroot -p8888.216 local_review_go < script/seed.sql
+	docker exec -e PGPASSWORD=8888.216 -i local-review-postgres psql -U postgres -d local_review_go -v ON_ERROR_STOP=1 < script/seed.sql
 
 # 压测前：多用户 + 多秒杀券（需先 make seed）
 seed-load-test:
-	docker exec -i local-review-mysql mysql -uroot -p8888.216 local_review_go < script/seed-load-test.sql
+	docker exec -e PGPASSWORD=8888.216 -i local-review-postgres psql -U postgres -d local_review_go -v ON_ERROR_STOP=1 < script/seed-load-test.sql
 
-# 压测前：重置订单和库存（清空 tb_voucher_order，恢复 MySQL/Redis 库存）
+# 压测前：重置订单和库存（清空 tb_voucher_order，恢复 PostgreSQL/Redis 库存）
 seed-reset-load-test:
-	docker exec -i local-review-mysql mysql -uroot -p8888.216 local_review_go < script/seed-reset-load-test.sql
+	docker exec -e PGPASSWORD=8888.216 -i local-review-postgres psql -U postgres -d local_review_go -v ON_ERROR_STOP=1 < script/seed-reset-load-test.sql
 	$(MAKE) seed-redis
 
 # 压测前：初始化 Redis 秒杀库存 + 测试用户验证码（需 Docker 中 Redis 运行）
 seed-redis:
 	chmod +x script/seed-redis.sh && ./script/seed-redis.sh
 
-# RAG 智能点评：确定性本地向量导入（需 Redis Stack + MySQL seed）
+# RAG 智能点评：生成检索文档并持久化到 PostgreSQL + pgvector
 seed-vector:
 	go run ./cmd/seed-vector --reset --expected-count=200
 
@@ -116,28 +116,24 @@ eval-hybrid-task:
 		--test-set=rag-evals/golden/agent.v2.json \
 		--out=rag-evals/baseline/hybrid_task_v2.json
 
-# Agent 正式评测（需 LLM_API_KEY + Redis Stack + MySQL + seed-vector）
+# Agent 正式评测（需 LLM_API_KEY + PostgreSQL/pgvector + Redis + seed-vector）
 eval-agent:
 	go run ./cmd/eval-agent --mode=inprocess --system=agent --split=test \
 		--test-set=rag-evals/golden/agent.v2.json \
 		--out=rag-evals/baseline/agent_prod_v2.json \
 		--compare-baseline=rag-evals/baseline/hybrid_task_v2.json \
-		--force-route=agent_multistep
+		--force-route=agent
 
 # Agent harness 冒烟（不调 LLM；验证报告非 stub / trial 隔离）
 eval-agent-fake:
 	go run ./cmd/eval-agent --mode=fake --split=test --trials=3 \
 		--test-set=rag-evals/golden/agent.v2.json \
 		--out=rag-evals/reports/agent_latest.json \
-		--force-route=agent_multistep
+		--force-route=agent
 
 # 三轮记忆演示（需服务已启动 + seed-redis 验证码）
 demo-agent:
 	chmod +x script/agent-demo.sh && ./script/agent-demo.sh
-
-# RAG 索引 schema 变更后：删除旧索引，再 make seed-vector 重新导入
-drop-vector-index:
-	chmod +x script/rag.sh && ./script/rag.sh --drop-index
 
 # 测试 LLM API 是否可用（Embedding + Chat，仅需 LLM_API_KEY）
 test-llm:
@@ -176,7 +172,7 @@ docker-challenge-v4:
 	docker compose --profile challenge-v4 run --rm challenge-v4-hybrid-task-eval
 	docker compose --profile challenge-v4 run --rm --no-deps challenge-v4-agent-eval
 
-# v5：统一 Query Understanding + Plan/Execute/Replan + claim grounding + layered memory。
+# v5：统一请求理解、规划执行、事实校验与分层上下文。
 docker-challenge-v5:
 	@test -n "$$LLM_API_KEY" || (echo "LLM_API_KEY is required" >&2; exit 1)
 	docker compose --profile challenge-v5 run --rm challenge-v5-hybrid-task-eval
@@ -196,8 +192,8 @@ docker-agent-e2e-v61:
 docker-demo:
 	@test -n "$$LLM_API_KEY" || (echo "LLM_API_KEY is required" >&2; exit 1)
 	docker compose --profile demo run --rm --no-deps redis-seed
-	docker compose --profile demo run --rm --no-deps memory-demo-reset
-	docker compose --profile demo run --rm --no-deps memory-demo
+	docker compose --profile demo run --rm --no-deps context-demo-reset
+	docker compose --profile demo run --rm --no-deps context-demo
 
 # 秒杀压测（多用户+多券，8G 内存推荐限流 50 QPS/实例）
 load-test-seckill:

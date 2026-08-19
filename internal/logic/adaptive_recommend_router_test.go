@@ -20,20 +20,20 @@ func (s understanderStub) Understand(context.Context, agent.QueryUnderstandingIn
 
 func TestAdaptiveRouterUsesStructuredIntent(t *testing.T) {
 	router := NewAdaptiveRecommendRouter(NewRecommendRouter(), understanderStub{spec: agent.IntentSpec{
-		Intent: "compare", Route: "agent_multistep", Confidence: 0.94, Source: "llm",
+		Intent: "compare", Route: "agent", Confidence: 0.94, Source: "llm",
 	}})
 	decision, spec, _, err := router.RouteContext(context.Background(), RouteInput{Question: "两家逐项比较"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decision.Route != RouteAgentMultistep || spec.Intent != "compare" || decision.Reason != "query_understanding:compare" {
+	if decision.Route != RouteAgent || spec.Intent != "compare" || decision.Reason != "query_understanding:compare" {
 		t.Fatalf("decision=%+v spec=%+v", decision, spec)
 	}
 }
 
 func TestAdaptiveRouterClarifiesMissingHistoryAndFallsBack(t *testing.T) {
 	router := NewAdaptiveRecommendRouter(NewRecommendRouter(), understanderStub{spec: agent.IntentSpec{
-		Intent: "followup", Route: "agent_memory", Confidence: 0.9, Source: "llm",
+		Intent: "followup", Route: "agent", Confidence: 0.9, Source: "llm",
 	}})
 	decision, spec, _, err := router.RouteContext(context.Background(), RouteInput{Question: "还是那家"})
 	if err != nil {
@@ -59,7 +59,7 @@ func TestAdaptiveRouterEnforcesMemoryIntentCompatibility(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if decision.Route != RouteAgentMemory || spec.Route != string(RouteAgentMemory) {
+		if decision.Route != RouteAgent || spec.Route != string(RouteAgent) {
 			t.Fatalf("memory update escaped to stateless route: decision=%+v spec=%+v", decision, spec)
 		}
 	})
@@ -72,14 +72,14 @@ func TestAdaptiveRouterEnforcesMemoryIntentCompatibility(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if decision.Route != RouteAgentMemory || spec.Intent != "preference_update" {
+		if decision.Route != RouteAgent || spec.Intent != "preference_update" {
 			t.Fatalf("explicit preference escaped the stateful path: decision=%+v spec=%+v", decision, spec)
 		}
 	})
 
 	t.Run("resume request is not another preference update", func(t *testing.T) {
 		router := NewAdaptiveRecommendRouter(NewRecommendRouter(), understanderStub{spec: agent.IntentSpec{
-			Intent: "preference_update", Route: "agent_memory", Confidence: 0.88, Source: "llm",
+			Intent: "preference_update", Route: "agent", Confidence: 0.88, Source: "llm",
 		}})
 		decision, spec, _, err := router.RouteContext(context.Background(), RouteInput{
 			Question: "好了，就按前面那个地点和价位，给出带引用的结论", HasHistory: true,
@@ -87,7 +87,7 @@ func TestAdaptiveRouterEnforcesMemoryIntentCompatibility(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if decision.Route != RouteAgentMemory || spec.Intent != "followup" || spec.NeedClarification {
+		if decision.Route != RouteAgent || spec.Intent != "followup" || spec.NeedClarification {
 			t.Fatalf("resume request was not normalized: decision=%+v spec=%+v", decision, spec)
 		}
 	})

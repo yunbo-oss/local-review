@@ -1,6 +1,9 @@
 package repository
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestExtractCornerQuoted(t *testing.T) {
 	t.Parallel()
@@ -15,10 +18,15 @@ func TestExtractCornerQuoted(t *testing.T) {
 	}
 }
 
-func TestEscapeRediSearchPhrase(t *testing.T) {
+func TestLexicalTokenization(t *testing.T) {
 	t.Parallel()
-	if got := escapeRediSearchPhrase(`a"b\c`); got != `a\"b\\c` {
-		t.Fatalf("escapeRediSearchPhrase() = %q", got)
+	got := lexicalTokens("海淀安静 Coffee")
+	want := map[string]bool{"海淀安静": true, "海淀": true, "安静": true, "coffee": true}
+	for _, token := range got {
+		delete(want, token)
+	}
+	if len(want) != 0 {
+		t.Fatalf("lexicalTokens() missing %v; got=%v", want, got)
 	}
 }
 
@@ -32,14 +40,10 @@ func TestExtractNameHintAndNormalize(t *testing.T) {
 	}
 }
 
-func TestExtractSemanticPrefixes(t *testing.T) {
+func TestLexicalQueryUsesSafeTerms(t *testing.T) {
 	t.Parallel()
-	got := extractSemanticPrefixes("丰台区找无障碍且预算120元以内的店")
-	if len(got) != 1 || got[0] != "无障*" {
-		t.Fatalf("semantic prefixes=%v", got)
-	}
-	got = extractSemanticPrefixes("适合安静办公和商务接待")
-	if len(got) != 2 || got[0] != "安静*" || got[1] != "商务*" {
-		t.Fatalf("multi semantic prefixes=%v", got)
+	got := lexicalQuery("安静 & 办公")
+	if got == "" || strings.Contains(got, "&") {
+		t.Fatalf("lexicalQuery()=%q", got)
 	}
 }

@@ -485,7 +485,7 @@ func (r *InProcessRunner) RunTrial(ctx context.Context, c AgentCase, trialIdx in
 				res.TraceID = turnTraceID
 				res.ModelCalls++
 				addUsage(&res.Usage, routeUsage)
-			case logic.RouteAgentMultistep, logic.RouteAgentMemory:
+			case logic.RouteAgent:
 				res, err = r.Logic.Recommend(turnCtx, r.UserID, sid, q, string(decision.Route), nil)
 			default:
 				err = fmt.Errorf("unsupported routed decision %q", decision.Route)
@@ -606,7 +606,7 @@ func isInfraErr(msg string) bool {
 	// Bounded controller/tool/run timeouts are part of Agent reliability and
 	// must remain evaluated failures. Only dependencies/configuration outside
 	// the task execution are excluded as infrastructure errors.
-	for _, s := range []string{"未完整配置", "connection refused", "api key", "429", "redis", "mysql"} {
+	for _, s := range []string{"未完整配置", "connection refused", "api key", "429", "redis", "postgres"} {
 		if strings.Contains(low, s) {
 			return true
 		}

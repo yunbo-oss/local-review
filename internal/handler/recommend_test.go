@@ -22,7 +22,7 @@ func (r *capturingRecommendRouter) Route(in logic.RouteInput) logic.RouteDecisio
 	if r.decision.Route != "" {
 		return r.decision
 	}
-	return logic.RouteDecision{Route: logic.RouteAgentMemory, Reason: "session_followup"}
+	return logic.RouteDecision{Route: logic.RouteAgent, Reason: "session_followup"}
 }
 
 type routedRAGStub struct {
@@ -66,7 +66,7 @@ func TestRecommendHandlerPassesSessionHistoryToRouter(t *testing.T) {
 	if !router.input.HasHistory {
 		t.Fatalf("router input did not receive existing session history: %+v", router.input)
 	}
-	if !strings.Contains(w.Body.String(), `"route":"agent_memory"`) {
+	if !strings.Contains(w.Body.String(), `"route":"agent"`) {
 		t.Fatalf("response did not execute memory agent route: %s", w.Body.String())
 	}
 }

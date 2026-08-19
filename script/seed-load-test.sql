@@ -1,11 +1,9 @@
 -- 压测用：多用户 + 多秒杀券
--- 用法: make seed-load-test 或 docker exec -i local-review-mysql mysql -uroot -p8888.216 local_review_go < script/seed-load-test.sql
+-- 用法: make seed-load-test
 -- 前置: 需先执行 make seed（基础数据）
 
-SET NAMES utf8mb4;
-
 -- 1. 多用户（50 个，手机号 13800138001-13800138050，id 2-51）
-INSERT IGNORE INTO tb_user (id, phone, password, nick_name, icon, create_time, update_time) VALUES
+INSERT INTO tb_user (id, phone, password, nick_name, icon, create_time, update_time) VALUES
 (2, '13800138001', '', 'user_01', '', NOW(), NOW()),
 (3, '13800138002', '', 'user_02', '', NOW(), NOW()),
 (4, '13800138003', '', 'user_03', '', NOW(), NOW()),
@@ -155,10 +153,11 @@ INSERT IGNORE INTO tb_user (id, phone, password, nick_name, icon, create_time, u
 (148, '13800138147', '', 'user_147', '', NOW(), NOW()),
 (149, '13800138148', '', 'user_148', '', NOW(), NOW()),
 (150, '13800138149', '', 'user_149', '', NOW(), NOW()),
-(151, '13800138150', '', 'user_150', '', NOW(), NOW());
+(151, '13800138150', '', 'user_150', '', NOW(), NOW())
+ON CONFLICT DO NOTHING;
 
 -- 2. 多秒杀券（10 个 9-18 + 12 个 19-30，每券库存 100）
-INSERT IGNORE INTO tb_voucher (id, shop_id, title, sub_title, rules, pay_value, actual_value, type, status, create_time, update_time) VALUES
+INSERT INTO tb_voucher (id, shop_id, title, sub_title, rules, pay_value, actual_value, type, status, create_time, update_time) VALUES
 (9, 1, '秒杀-炸酱面5元', '限时秒杀', '每人限1份', 500, 3500, 1, 0, NOW(), NOW()),
 (10, 2, '秒杀-川味小厨', '限时秒杀', '每人限1份', 800, 5000, 1, 0, NOW(), NOW()),
 (11, 3, '秒杀-星巴克', '限时秒杀', '每人限1份', 1500, 6000, 1, 0, NOW(), NOW()),
@@ -180,28 +179,33 @@ INSERT IGNORE INTO tb_voucher (id, shop_id, title, sub_title, rules, pay_value, 
 (27, 9, '秒杀-全聚德B', '限时秒杀', '每人限1份', 5100, 16000, 1, 0, NOW(), NOW()),
 (28, 10, '秒杀-汉庭B', '限时秒杀', '每人限1份', 3100, 19000, 1, 0, NOW(), NOW()),
 (29, 1, '秒杀-炸酱面C', '限时秒杀', '每人限1份', 700, 3700, 1, 0, NOW(), NOW()),
-(30, 2, '秒杀-川味C', '限时秒杀', '每人限1份', 1000, 6000, 1, 0, NOW(), NOW());
+(30, 2, '秒杀-川味C', '限时秒杀', '每人限1份', 1000, 6000, 1, 0, NOW(), NOW())
+ON CONFLICT DO NOTHING;
 
-INSERT IGNORE INTO tb_seckill_voucher (voucher_id, stock, create_time, begin_time, end_time, update_time) VALUES
-(9, 100, NOW(), DATE_SUB(NOW(), INTERVAL 1 HOUR), DATE_ADD(NOW(), INTERVAL 24 HOUR), NOW()),
-(10, 100, NOW(), DATE_SUB(NOW(), INTERVAL 1 HOUR), DATE_ADD(NOW(), INTERVAL 24 HOUR), NOW()),
-(11, 100, NOW(), DATE_SUB(NOW(), INTERVAL 1 HOUR), DATE_ADD(NOW(), INTERVAL 24 HOUR), NOW()),
-(12, 100, NOW(), DATE_SUB(NOW(), INTERVAL 1 HOUR), DATE_ADD(NOW(), INTERVAL 24 HOUR), NOW()),
-(13, 100, NOW(), DATE_SUB(NOW(), INTERVAL 1 HOUR), DATE_ADD(NOW(), INTERVAL 24 HOUR), NOW()),
-(14, 100, NOW(), DATE_SUB(NOW(), INTERVAL 1 HOUR), DATE_ADD(NOW(), INTERVAL 24 HOUR), NOW()),
-(15, 100, NOW(), DATE_SUB(NOW(), INTERVAL 1 HOUR), DATE_ADD(NOW(), INTERVAL 24 HOUR), NOW()),
-(16, 100, NOW(), DATE_SUB(NOW(), INTERVAL 1 HOUR), DATE_ADD(NOW(), INTERVAL 24 HOUR), NOW()),
-(17, 100, NOW(), DATE_SUB(NOW(), INTERVAL 1 HOUR), DATE_ADD(NOW(), INTERVAL 24 HOUR), NOW()),
-(18, 100, NOW(), DATE_SUB(NOW(), INTERVAL 1 HOUR), DATE_ADD(NOW(), INTERVAL 24 HOUR), NOW()),
-(19, 100, NOW(), DATE_SUB(NOW(), INTERVAL 1 HOUR), DATE_ADD(NOW(), INTERVAL 24 HOUR), NOW()),
-(20, 100, NOW(), DATE_SUB(NOW(), INTERVAL 1 HOUR), DATE_ADD(NOW(), INTERVAL 24 HOUR), NOW()),
-(21, 100, NOW(), DATE_SUB(NOW(), INTERVAL 1 HOUR), DATE_ADD(NOW(), INTERVAL 24 HOUR), NOW()),
-(22, 100, NOW(), DATE_SUB(NOW(), INTERVAL 1 HOUR), DATE_ADD(NOW(), INTERVAL 24 HOUR), NOW()),
-(23, 100, NOW(), DATE_SUB(NOW(), INTERVAL 1 HOUR), DATE_ADD(NOW(), INTERVAL 24 HOUR), NOW()),
-(24, 100, NOW(), DATE_SUB(NOW(), INTERVAL 1 HOUR), DATE_ADD(NOW(), INTERVAL 24 HOUR), NOW()),
-(25, 100, NOW(), DATE_SUB(NOW(), INTERVAL 1 HOUR), DATE_ADD(NOW(), INTERVAL 24 HOUR), NOW()),
-(26, 100, NOW(), DATE_SUB(NOW(), INTERVAL 1 HOUR), DATE_ADD(NOW(), INTERVAL 24 HOUR), NOW()),
-(27, 100, NOW(), DATE_SUB(NOW(), INTERVAL 1 HOUR), DATE_ADD(NOW(), INTERVAL 24 HOUR), NOW()),
-(28, 100, NOW(), DATE_SUB(NOW(), INTERVAL 1 HOUR), DATE_ADD(NOW(), INTERVAL 24 HOUR), NOW()),
-(29, 100, NOW(), DATE_SUB(NOW(), INTERVAL 1 HOUR), DATE_ADD(NOW(), INTERVAL 24 HOUR), NOW()),
-(30, 100, NOW(), DATE_SUB(NOW(), INTERVAL 1 HOUR), DATE_ADD(NOW(), INTERVAL 24 HOUR), NOW());
+INSERT INTO tb_seckill_voucher (voucher_id, stock, create_time, begin_time, end_time, update_time) VALUES
+(9, 100, NOW(), NOW() - INTERVAL '1 hour', NOW() + INTERVAL '24 hours', NOW()),
+(10, 100, NOW(), NOW() - INTERVAL '1 hour', NOW() + INTERVAL '24 hours', NOW()),
+(11, 100, NOW(), NOW() - INTERVAL '1 hour', NOW() + INTERVAL '24 hours', NOW()),
+(12, 100, NOW(), NOW() - INTERVAL '1 hour', NOW() + INTERVAL '24 hours', NOW()),
+(13, 100, NOW(), NOW() - INTERVAL '1 hour', NOW() + INTERVAL '24 hours', NOW()),
+(14, 100, NOW(), NOW() - INTERVAL '1 hour', NOW() + INTERVAL '24 hours', NOW()),
+(15, 100, NOW(), NOW() - INTERVAL '1 hour', NOW() + INTERVAL '24 hours', NOW()),
+(16, 100, NOW(), NOW() - INTERVAL '1 hour', NOW() + INTERVAL '24 hours', NOW()),
+(17, 100, NOW(), NOW() - INTERVAL '1 hour', NOW() + INTERVAL '24 hours', NOW()),
+(18, 100, NOW(), NOW() - INTERVAL '1 hour', NOW() + INTERVAL '24 hours', NOW()),
+(19, 100, NOW(), NOW() - INTERVAL '1 hour', NOW() + INTERVAL '24 hours', NOW()),
+(20, 100, NOW(), NOW() - INTERVAL '1 hour', NOW() + INTERVAL '24 hours', NOW()),
+(21, 100, NOW(), NOW() - INTERVAL '1 hour', NOW() + INTERVAL '24 hours', NOW()),
+(22, 100, NOW(), NOW() - INTERVAL '1 hour', NOW() + INTERVAL '24 hours', NOW()),
+(23, 100, NOW(), NOW() - INTERVAL '1 hour', NOW() + INTERVAL '24 hours', NOW()),
+(24, 100, NOW(), NOW() - INTERVAL '1 hour', NOW() + INTERVAL '24 hours', NOW()),
+(25, 100, NOW(), NOW() - INTERVAL '1 hour', NOW() + INTERVAL '24 hours', NOW()),
+(26, 100, NOW(), NOW() - INTERVAL '1 hour', NOW() + INTERVAL '24 hours', NOW()),
+(27, 100, NOW(), NOW() - INTERVAL '1 hour', NOW() + INTERVAL '24 hours', NOW()),
+(28, 100, NOW(), NOW() - INTERVAL '1 hour', NOW() + INTERVAL '24 hours', NOW()),
+(29, 100, NOW(), NOW() - INTERVAL '1 hour', NOW() + INTERVAL '24 hours', NOW()),
+(30, 100, NOW(), NOW() - INTERVAL '1 hour', NOW() + INTERVAL '24 hours', NOW())
+ON CONFLICT DO NOTHING;
+
+SELECT setval(pg_get_serial_sequence('tb_user', 'id'), GREATEST((SELECT MAX(id) FROM tb_user), 1));
+SELECT setval(pg_get_serial_sequence('tb_voucher', 'id'), GREATEST((SELECT MAX(id) FROM tb_voucher), 1));

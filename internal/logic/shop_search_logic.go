@@ -369,6 +369,7 @@ func (l *shopSearchLogic) searchHybridMeta(ctx context.Context, query string, fi
 	denseIDs := shopIDs(denseArm.res)
 	textIDs := shopIDs(textArm.res)
 	fused := rag.FuseRRF([][]int64{denseIDs, textIDs}, l.rrfK, topK)
+	fused = pinExactNameMatch(fused, textArm.res, topK)
 	byID := mergeShopMeta(denseArm.res, textArm.res)
 	res := make([]repoInterfaces.ShopSearchResult, 0, len(fused))
 	for _, id := range fused {
@@ -378,6 +379,30 @@ func (l *shopSearchLogic) searchHybridMeta(ctx context.Context, query string, fi
 	}
 	out.Results = res
 	return out, nil
+}
+
+func pinExactNameMatch(fused []int64, textResults []repoInterfaces.ShopSearchResult, topK int) []int64 {
+	var exactID int64
+	for _, item := range textResults {
+		if item.ExactNameMatch {
+			exactID = item.ShopID
+			break
+		}
+	}
+	if exactID == 0 {
+		return fused
+	}
+	ordered := make([]int64, 0, len(fused)+1)
+	ordered = append(ordered, exactID)
+	for _, id := range fused {
+		if id != exactID {
+			ordered = append(ordered, id)
+		}
+	}
+	if topK > 0 && len(ordered) > topK {
+		ordered = ordered[:topK]
+	}
+	return ordered
 }
 
 func truncateShopResults(in []repoInterfaces.ShopSearchResult, topK int) []repoInterfaces.ShopSearchResult {
@@ -424,6 +449,9 @@ func mergeShopMeta(lists ...[]repoInterfaces.ShopSearchResult) map[int64]repoInt
 				}
 				if s.Sold != 0 {
 					prev.Sold = s.Sold
+				}
+				if s.ExactNameMatch {
+					prev.ExactNameMatch = true
 				}
 				m[s.ShopID] = prev
 			} else {

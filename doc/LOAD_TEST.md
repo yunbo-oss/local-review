@@ -7,7 +7,7 @@
 | 步骤 | 命令 | 说明 |
 |------|------|------|
 | 1 | `docker compose up -d` 或 `docker compose -f docker-compose.yml -f docker-compose.distributed.yml up -d` | 单机依赖 / 分布式+Jaeger |
-| 2 | `make seed` | 插入 MySQL 基础数据 |
+| 2 | `make seed` | 插入 PostgreSQL 基础数据 |
 | 3 | `make seed-load-test` | 151 用户 + 25 秒杀券 |
 | 4 | `make seed-redis` | 初始化 Redis 库存 + 验证码 |
 | 5 | `make seed-reset-load-test` | （重复压测）清空订单、恢复库存 |
@@ -39,6 +39,6 @@ make load-test-seckill-max
 | 耗时 | ~65s |
 | p(95) | 88ms ✓ |
 
-**结论**：系统稳定；成功抢购走完整 Lua 预减 → 事务消息 → 消费者写 MySQL 流程。
+**结论**：系统稳定；成功抢购走完整 Lua 预减 → 事务消息 → 消费者写 PostgreSQL 流程。
 
 ---

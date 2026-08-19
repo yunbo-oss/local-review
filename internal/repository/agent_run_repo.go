@@ -39,7 +39,7 @@ func (r *agentRunRepo) Begin(ctx context.Context, in repoInterfaces.AgentRunBegi
 		PolicyVersion: in.PolicyVersion,
 		Route:         in.Route,
 		RouteReason:   in.RouteReason,
-		// MySQL JSON columns reject the Go zero-value empty string.
+		// JSONB columns reject the Go zero-value empty string.
 		EvidenceSummaryJSON: "{}",
 	}
 	if err := r.db.WithContext(ctx).Create(&row).Error; err != nil {

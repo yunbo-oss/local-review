@@ -46,7 +46,7 @@ info "========== 1. 基础检查 =========="
 # 健康检查（分布式部署有）
 if curl -sf "${BASE_URL}/health" > /dev/null 2>&1; then
   resp=$(curl -sf "${BASE_URL}/health")
-  [[ "$resp" == *"mysql"* ]] && [[ "$resp" == *"redis"* ]] && pass "GET /health" || fail "GET /health"
+  [[ "$resp" == *"postgres"* ]] && [[ "$resp" == *"redis"* ]] && pass "GET /health" || fail "GET /health"
 fi
 
 echo ""

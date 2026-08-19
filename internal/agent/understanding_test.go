@@ -25,12 +25,12 @@ func (s *understandingChatStub) ChatCompleteWithUsage(context.Context, []openai.
 }
 
 func TestParseIntentSpecAndRetainOriginalQuery(t *testing.T) {
-	raw := `{"intent":"compare","route":"agent_multistep","hard_filters":{"area":"海淀区","type_name":"咖啡","max_price":100,"min_price":0,"min_score":0,"min_comments":0},"soft_preferences":["安静办公","有插座","安静办公"],"entities":["上一轮两家"],"evidence_requirements":["reviews","shop_detail","reviews","invalid"],"rewritten_queries":["海淀安静办公咖啡","海淀有插座咖啡"],"need_clarification":false,"clarification_question":"","confidence":0.93}`
+	raw := `{"intent":"compare","route":"agent","hard_filters":{"area":"海淀区","type_name":"咖啡","max_price":100,"min_price":0,"min_score":0,"min_comments":0},"soft_preferences":["安静办公","有插座","安静办公"],"entities":["上一轮两家"],"evidence_requirements":["reviews","shop_detail","reviews","invalid"],"rewritten_queries":["海淀安静办公咖啡","海淀有插座咖啡"],"need_clarification":false,"clarification_question":"","confidence":0.93}`
 	spec, err := ParseIntentSpec(raw, "比较上一轮两家，预算100以内")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if spec.Intent != "compare" || spec.Route != "agent_multistep" || spec.HardFilters.MaxPrice != 100 {
+	if spec.Intent != "compare" || spec.Route != "agent" || spec.HardFilters.MaxPrice != 100 {
 		t.Fatalf("spec=%+v", spec)
 	}
 	if len(spec.SoftPreferences) != 2 || len(spec.EvidenceRequirements) != 2 {

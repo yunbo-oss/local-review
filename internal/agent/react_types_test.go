@@ -8,7 +8,7 @@ import (
 
 func newRuntimeTestState(t *testing.T) *AgentState {
 	t.Helper()
-	intent := FallbackIntentSpec("海淀区安静办公咖啡", "agent_multistep")
+	intent := FallbackIntentSpec("海淀区安静办公咖啡", "agent")
 	state, err := NewAgentState(
 		"run-1", "otel-trace-1", "海淀区安静办公咖啡", intent,
 		MemorySnapshot{Policy: MemoryReadOnly, ProfileSummary: "常在海淀"},

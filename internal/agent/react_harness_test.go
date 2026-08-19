@@ -24,7 +24,7 @@ func TestRunReactBridgesRuntimeToVerifiedClaimAnswer(t *testing.T) {
 		Search: queryPlanSearch{}, Ledger: NewEvidenceLedger(), Observed: map[int64]struct{}{},
 	}
 	checkpoint := NewMemoryAgentCheckpointer()
-	intent := FallbackIntentSpec("海淀咖啡 retry", "agent_multistep")
+	intent := FallbackIntentSpec("海淀咖啡 retry", "agent")
 	res := RunReact(
 		context.Background(), client, controller, exec, checkpoint,
 		DefaultRunConfig(), DefaultReactRuntimeConfig(),
@@ -65,7 +65,7 @@ func TestRunReactFallsBackToTypedEvidenceWhenClaimJSONCannotBeRepaired(t *testin
 	}}
 	exec := &ToolExecutor{Search: queryPlanSearch{}, Ledger: NewEvidenceLedger(), Observed: map[int64]struct{}{}}
 	checkpoint := NewMemoryAgentCheckpointer()
-	intent := FallbackIntentSpec("海淀咖啡 retry", "agent_multistep")
+	intent := FallbackIntentSpec("海淀咖啡 retry", "agent")
 	res := RunReact(
 		context.Background(), client, controller, exec, checkpoint,
 		DefaultRunConfig(), DefaultReactRuntimeConfig(),

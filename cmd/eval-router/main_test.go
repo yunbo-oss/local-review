@@ -13,7 +13,7 @@ func (f fixedRouter) Route(logic.RouteInput) logic.RouteDecision { return f.deci
 func TestEvaluateMetrics(t *testing.T) {
 	file := caseFile{Version: "router.v1", Cases: []routerCase{
 		{ID: "1", Split: "test", ExpectedRoute: "rag_oneshot", Tags: []string{"one"}},
-		{ID: "2", Split: "test", ExpectedRoute: "agent_multistep", Tags: []string{"two"}},
+		{ID: "2", Split: "test", ExpectedRoute: "agent", Tags: []string{"two"}},
 		{ID: "3", Split: "dev", ExpectedRoute: "rag_oneshot"},
 	}}
 	report, err := evaluate(file, []byte("dataset"), "test", fixedRouter{logic.RouteDecision{Route: logic.RouteRAGOneshot}})
@@ -26,7 +26,7 @@ func TestEvaluateMetrics(t *testing.T) {
 	if got := report.PerClass["rag_oneshot"]; got.Precision != 0.5 || got.Recall != 1 {
 		t.Fatalf("rag metric=%+v", got)
 	}
-	if got := report.PerClass["agent_multistep"]; got.Recall != 0 || got.Support != 1 {
+	if got := report.PerClass["agent"]; got.Recall != 0 || got.Support != 1 {
 		t.Fatalf("agent metric=%+v", got)
 	}
 	if len(report.Errors) != 1 || report.Errors[0].ID != "2" {

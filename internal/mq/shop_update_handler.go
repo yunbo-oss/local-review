@@ -27,9 +27,10 @@ func NewShopUpdateCacheHandler(rdb *redis.Client) ShopUpdateCacheHandler {
 	}
 }
 
-// NewShopUpdateRAGHandler 创建 RAG 向量消费者：异步更新 Redis 向量
+// NewShopUpdateRAGHandler 创建检索文档消费者：异步更新 PostgreSQL 全文索引与向量。
 func NewShopUpdateRAGHandler(
 	embClient llm.EmbeddingClient,
+	embeddingModel string,
 	vecRepo repoInterfaces.VectorRepo,
 	shopRepo repoInterfaces.ShopRepo,
 	shopTypeRepo repoInterfaces.ShopTypeRepo,
@@ -68,16 +69,10 @@ func NewShopUpdateRAGHandler(
 			return fmt.Errorf("embedding empty for shop %d", msg.ShopID)
 		}
 		doc := &repoInterfaces.ShopVectorDoc{
-			ShopID:      shop.Id,
-			Name:        shop.Name,
-			TypeName:    typeName,
-			Area:        shop.Area,
-			TextContent: textContent,
-			AvgPrice:    shop.AvgPrice,
-			Score:       shop.Score,
-			Comments:    shop.Comments,
-			Sold:        shop.Sold,
-			Embedding:   vecs[0],
+			ShopID: shop.Id, Name: shop.Name, TypeName: typeName, Area: shop.Area,
+			TextContent: textContent, AvgPrice: shop.AvgPrice, Score: shop.Score,
+			Comments: shop.Comments, Sold: shop.Sold, Embedding: vecs[0],
+			EmbeddingModel: embeddingModel, SourceVersion: shop.UpdateTime.UnixMilli(),
 		}
 		if err := vecRepo.StoreShop(ctx, doc); err != nil {
 			return fmt.Errorf("store vector shop %d: %w", msg.ShopID, err)

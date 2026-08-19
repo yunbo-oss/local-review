@@ -3,23 +3,15 @@
 ## 一、本地开发（单实例）
 
 ```bash
-# 1. 启动依赖（MySQL、Redis、RocketMQ）
-docker compose up -d
-
-# 2. 创建 .env 并安装依赖
+# 1. 创建 .env 并安装依赖
 cp .env.example .env
 go mod tidy
 
-# 3. 可选：预创建 RocketMQ Topic
-./script/rocketmq-init-topic.sh
+# 2. 启动 PostgreSQL/pgvector、Redis、RocketMQ、迁移、种子和服务
+docker compose up -d --build
 
-# 4. 可选：种子数据（功能测试/压测需执行）
-make seed
-make seed-redis
-
-# 5. 启动服务
+# 3. 若只启动依赖并在宿主机调试服务
 make run
-# 或 go run ./cmd/server
 
 # 访问 http://localhost:8088
 ```
@@ -72,14 +64,15 @@ make load-test-seckill-max
 
 ## 五、RAG 智能点评
 
-- **依赖**：Redis Stack（docker-compose 已替换为 `redis-stack-server`）、`LLM_API_KEY`
-- **向量导入**：`make seed-vector`（正式评测应先生成 v2 数据并保证 MySQL 共 200 家店）
+- **检索存储**：PostgreSQL 17 + pgvector；全文 GIN 与向量 HNSW 索引由迁移任务创建
+- **向量导入**：`make seed-vector`（正式评测应先生成 v2 数据并保证 PostgreSQL 共 200 家店）
+- **模型**：本地向量化不需要 API key；生成回答和 Agent 需要 `LLM_API_KEY`
 - **接口**：`POST /api/rag/chat` 需登录，支持 SSE 流式输出
 - **展示**：`make demo-rag`（3 问题流式）
 
 ## 六、从空环境复现正式评测
 
-不要把 API key 写入 `.env`。下面的命令会清空本项目 Compose volumes，自动完成迁移、固定数据、Redis、200 条向量和 RocketMQ topic 初始化，再执行 API 校验、正式评测和三轮记忆 Demo。
+不要把 API key 写入 `.env`。下面的命令会清空本项目 Compose volumes，自动完成迁移、固定数据、Redis、200 条 PostgreSQL 向量和 RocketMQ topic 初始化，再执行 API 校验、正式评测和三轮偏好 Demo。
 
 ```bash
 make docker-reset
@@ -102,17 +95,17 @@ LLM_API_KEY='你的密钥' make docker-challenge-v4
 | `make build` | 构建二进制 |
 | `make test` | 运行单元测试 |
 | `make test-api` | 接口冒烟测试 |
-| `make seed` | 插入 MySQL 种子数据 |
+| `make seed` | 插入 PostgreSQL 种子数据 |
 | `make seed-load-test` | 151 用户 + 25 秒杀券 |
 | `make seed-redis` | 初始化 Redis 秒杀库存 + 验证码 |
 | `make seed-reset-load-test` | 重置订单和库存 |
-| `make seed-vector` | RAG 店铺向量导入 |
+| `make seed-vector` | 生成并持久化 PostgreSQL 检索文档/向量 |
 | `make generate-eval-data` | 固定种子生成/校验 v2 数据和 golden |
 | `make eval-router-challenge` | 运行冻结 Router v2 challenge（不调用模型） |
 | `make docker-verify` | 校验数据、登录、API、RAG/Agent SSE 和引用 |
 | `make docker-eval` | 运行三份正式 Retrieval/Hybrid/Agent 报告 |
 | `make docker-challenge-v4` | 运行冻结 v4 的 Agent / 同任务 Hybrid challenge |
-| `make docker-demo` | 运行三轮长期记忆 Demo |
+| `make docker-demo` | 运行三轮长期偏好 Demo |
 | `make init-rag` | RAG 一键初始化 |
 | `make demo-rag` | RAG 展示（流式） |
 | `make load-test-seckill` | 秒杀压测 |

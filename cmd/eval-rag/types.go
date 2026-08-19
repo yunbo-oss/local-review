@@ -77,7 +77,8 @@ type EvalReport struct {
 	DatasetVersion      string           `json:"dataset_version"`
 	DatasetSHA256       string           `json:"dataset_sha256"`
 	SeedVersion         string           `json:"seed_version"`
-	RedisImage          string           `json:"redis_image"`
+	SearchStore         string           `json:"search_store"`
+	CacheStore          string           `json:"cache_store"`
 	IndexSchemaVersion  string           `json:"index_schema_version"`
 	Retriever           string           `json:"retriever"`
 	Split               string           `json:"split"`

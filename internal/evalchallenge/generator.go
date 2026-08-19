@@ -664,7 +664,7 @@ func generateAgentsWithConfig(rng *rand.Rand, shops []catalogShop, cfg agentGene
 			"人工规范化错别字后，对应明确 area/type/maxPrice 条件。")
 	}
 
-	// 8 explicit memory corrections; stale locations and budgets are hard
+	// 8 explicit preference corrections; stale locations and budgets are hard
 	// negatives and the final profile is graded.
 	for i := 0; i < 8; i++ {
 		oldArea := areas[(i+cfg.variant)%len(areas)]
@@ -692,7 +692,7 @@ func generateAgentsWithConfig(rng *rand.Rand, shops []catalogShop, cfg agentGene
 			fmt.Sprintf("刚才说错了，删掉%s，改成%s；预算也覆盖成%d", oldArea, newArea, newBudget),
 			fmt.Sprintf("按更新后的条件来，%s，给一个有依据的", semanticSurfaces[theme][i%4]),
 		}
-		add(turns, nil, expected, []string{"memory_correction", "negation", "multi_turn"}, i < 2,
+		add(turns, nil, expected, []string{"preference_correction", "negation", "multi_turn"}, i < 2,
 			"最终 profile 只能保留新区域/新预算；旧区域候选均列为 forbidden。")
 	}
 
@@ -721,7 +721,7 @@ func generateAgentsWithConfig(rng *rand.Rand, shops []catalogShop, cfg agentGene
 		if i%3 == 0 {
 			turns = append(turns, "上句就是最终需求，给出带引用的结论")
 		}
-		add(turns, nil, expected, []string{"coreference", "memory", "multi_turn", "long_context"}, i < 2,
+		add(turns, nil, expected, []string{"coreference", "context", "multi_turn", "long_context"}, i < 2,
 			"最后一轮的“前面那个”应解析为同会话首两轮区域与预算。")
 	}
 
@@ -844,7 +844,7 @@ func generateAgentsWithConfig(rng *rand.Rand, shops []catalogShop, cfg agentGene
 	for i, spec := range isolation {
 		expected := makeExpected(agentIntent{area: spec.area, typeName: map[bool]string{true: "咖啡", false: "美食"}[i >= 2], maxPrice: spec.budget})
 		expected.ProfileAfter = spec.setup
-		add([]string{spec.q}, spec.setup, expected, []string{"session_isolation", spec.pair, "memory"}, i == 0,
+		add([]string{spec.q}, spec.setup, expected, []string{"session_isolation", spec.pair, "context"}, i == 0,
 			"相邻 case 使用互斥 setup_profile；任何跨 case/trial 状态泄漏都会命中 forbidden 或 profile 断言。")
 	}
 
@@ -925,7 +925,7 @@ func selectAgentCases(pool []AgentCase, cfg agentGenerationConfig) []AgentCase {
 	selectedPoolIndexes := []int{
 		0, 1, 2, 3, 4, 5, 6, // semantic OOD
 		10, 11, 12, // typo
-		16, 17, 18, 19, 20, 21, // memory correction
+		16, 17, 18, 19, 20, 21, // preference correction
 		24, 25, 26, 27, 28, // coreference
 		34, 35, 36, 37, // injection
 		40, 41, 42, 43, // no result
@@ -939,7 +939,7 @@ func selectAgentCases(pool []AgentCase, cfg agentGenerationConfig) []AgentCase {
 		selectedPoolIndexes = []int{
 			0, 1, 2, 3, 4, 5, 6, // semantic OOD
 			38, 44, 55, // injection, clarification, session isolation
-			16, 17, 18, 19, 20, 21, // memory correction
+			16, 17, 18, 19, 20, 21, // preference correction
 			24, 25, 26, 27, 28, // coreference
 			34, 35, 36, 37, // injection
 			40, 41, 42, 43, // no result
@@ -951,7 +951,7 @@ func selectAgentCases(pool []AgentCase, cfg agentGenerationConfig) []AgentCase {
 		selectedPoolIndexes = []int{
 			0, 1, 2, 3, 4, 5, 6, // unseen semantic paraphrases
 			10, 11, 12, 13, // typo + omitted subject
-			16, 17, 18, 19, 20, 21, 22, // memory correction
+			16, 17, 18, 19, 20, 21, 22, // preference correction
 			24, 25, 26, 27, 28, 29, 30, 31, // long coreference
 			34, 35, 36, 37, 38, 39, // prompt injection
 			40, 41, 42, 43, 44, 45, // no-result / clarification
@@ -1046,7 +1046,7 @@ func coverage(retrieval []RetrievalCase, agents []AgentCase) map[string]int {
 		"retrieval_no_result": 0, "retrieval_semantic_ood": 0,
 		"retrieval_prompt_injection": 0, "retrieval_typo": 0,
 		"agent_no_result": 0, "agent_semantic_ood": 0,
-		"agent_prompt_injection": 0, "agent_memory": 0,
+		"agent_prompt_injection": 0, "agent_context": 0,
 		"agent_coreference": 0, "agent_session_isolation": 0,
 		"agent_claim_level_grounding": 0, "critical_agent_cases": 0,
 		"critical_agent_trials": 0,

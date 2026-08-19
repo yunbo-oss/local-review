@@ -182,7 +182,7 @@ func (s *architectureSummarizer) Summarize(_ context.Context, previous memory.Se
 
 func architectureIntent() agent.IntentSpec {
 	return agent.IntentSpec{
-		Intent: "search", Route: "agent_multistep", Source: "llm", Confidence: 0.94,
+		Intent: "search", Route: "agent", Source: "llm", Confidence: 0.94,
 		OriginalQuestion:     "海淀区找能安静写材料的咖啡，人均100以内",
 		HardFilters:          agent.HardFilterSpec{Area: "海淀区", TypeName: "咖啡", MaxPrice: 100},
 		SoftPreferences:      []string{"能安静写材料"},

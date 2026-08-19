@@ -9,7 +9,7 @@ const (
 )
 
 type BlogComments struct {
-	Id         int64     `gorm:"primary;AUTO_INCREMENT;column:id" json:"id"`
+	Id         int64     `gorm:"primaryKey;autoIncrement;column:id" json:"id"`
 	UserId     int64     `gorm:"column:user_id" json:"userId"`
 	BlogId     int64     `gorm:"column:blog_id" json:"blogId"`
 	ParentId   int64     `gorm:"column:parent_id" json:"parentId"`

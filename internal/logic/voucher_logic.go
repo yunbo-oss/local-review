@@ -3,7 +3,7 @@ package logic
 import (
 	"context"
 	"fmt"
-	"local-review-go/internal/config/mysql"
+	"local-review-go/internal/config/postgres"
 	"local-review-go/internal/config/redis"
 	"local-review-go/internal/model"
 	"local-review-go/internal/repository"
@@ -39,11 +39,11 @@ type VoucherLogicDeps struct {
 func NewVoucherLogic(deps VoucherLogicDeps) VoucherLogic {
 	voucherRepo := deps.VoucherRepo
 	if voucherRepo == nil {
-		voucherRepo = repository.NewVoucherRepo(mysql.GetMysqlDB())
+		voucherRepo = repository.NewVoucherRepo(postgres.GetPostgresDB())
 	}
 	seckillVoucherRepo := deps.SeckillVoucherRepo
 	if seckillVoucherRepo == nil {
-		seckillVoucherRepo = repository.NewSeckillVoucherRepo(mysql.GetMysqlDB())
+		seckillVoucherRepo = repository.NewSeckillVoucherRepo(postgres.GetPostgresDB())
 	}
 	return &voucherLogic{
 		voucherRepo:               voucherRepo,
@@ -64,7 +64,7 @@ func (l *voucherLogic) AddVoucher(ctx context.Context, voucher *model.Voucher) e
 }
 
 func (l *voucherLogic) AddSeckillVoucher(ctx context.Context, voucher *model.Voucher) error {
-	err := mysql.GetMysqlDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := postgres.GetPostgresDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := l.voucherRepo.Create(ctx, voucher, tx); err != nil {
 			return fmt.Errorf("写入主表失败: %w", err)
 		}

@@ -29,7 +29,7 @@ func TestAgentRunRepo_BeginFinalize(t *testing.T) {
 
 	id, err := repo.Begin(ctx, repoInterfaces.AgentRunBegin{
 		RunKey: "run-1", TraceID: "tr-1", SpanID: "span-1", UserID: 1, SessionID: "s1",
-		Model: "m", PolicyVersion: "p1", Route: "agent_multistep", RouteReason: "needs_detail",
+		Model: "m", PolicyVersion: "p1", Route: "agent", RouteReason: "needs_detail",
 	})
 	if err != nil || id == 0 {
 		t.Fatalf("begin: %v id=%d", err, id)

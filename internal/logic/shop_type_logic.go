@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"local-review-go/internal/config/mysql"
+	"local-review-go/internal/config/postgres"
 	redisClient "local-review-go/internal/config/redis"
 	"local-review-go/internal/model"
 	"local-review-go/internal/repository"
@@ -29,7 +29,7 @@ type ShopTypeLogicDeps struct {
 func NewShopTypeLogic(deps ShopTypeLogicDeps) ShopTypeLogic {
 	shopTypeRepo := deps.ShopTypeRepo
 	if shopTypeRepo == nil {
-		shopTypeRepo = repository.NewShopTypeRepo(mysql.GetMysqlDB())
+		shopTypeRepo = repository.NewShopTypeRepo(postgres.GetPostgresDB())
 	}
 	return &shopTypeLogic{shopTypeRepo: shopTypeRepo}
 }

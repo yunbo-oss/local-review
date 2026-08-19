@@ -12,7 +12,7 @@ import (
 
 	"local-review-go/internal/agent"
 	"local-review-go/internal/config"
-	"local-review-go/internal/config/mysql"
+	"local-review-go/internal/config/postgres"
 	"local-review-go/internal/config/redis"
 	"local-review-go/internal/evalmeta"
 	"local-review-go/internal/llm"
@@ -110,7 +110,7 @@ func main() {
 		exp.EmbeddingDim = cfg.EmbeddingDim
 		baseSearch := logic.NewShopSearchLogic(logic.ShopSearchLogicDeps{
 			EmbeddingClient: emb,
-			VectorRepo:      repository.NewVectorRepo(redis.GetRedisClient()),
+			VectorRepo:      repository.NewVectorRepo(postgres.GetPostgresDB()),
 		})
 		switch *system {
 		case "hybrid_rag":
@@ -126,9 +126,9 @@ func main() {
 			}
 			capSearch := &capturingSearch{inner: baseSearch}
 			mem := repository.NewHybridMemoryRepo(redis.GetRedisClient(),
-				repository.NewAgentProfileRepo(mysql.GetMysqlDB(), redis.GetRedisClient()))
-			shopRepo := repository.NewShopRepo(mysql.GetMysqlDB())
-			blogRepo := repository.NewBlogRepo(mysql.GetMysqlDB())
+				repository.NewAgentProfileRepo(postgres.GetPostgresDB(), redis.GetRedisClient()))
+			shopRepo := repository.NewShopRepo(postgres.GetPostgresDB())
+			blogRepo := repository.NewBlogRepo(postgres.GetPostgresDB())
 			runCfg := agent.DefaultRunConfig()
 			runtimeVersion := agent.RuntimeVersionFromEnv()
 			baseRouter := logic.NewRecommendRouter()
@@ -155,7 +155,7 @@ func main() {
 			agentLogic := logic.NewRecommendAgentLogic(logic.RecommendAgentLogicDeps{
 				ToolChat: toolChat, ChatClient: chat, Memory: mem,
 				Search: capSearch, ShopRepo: shopRepo, BlogRepo: blogRepo,
-				RunRepo:        repository.NewAgentRunRepo(mysql.GetMysqlDB()),
+				RunRepo:        repository.NewAgentRunRepo(postgres.GetPostgresDB()),
 				Router:         baseRouter,
 				AdaptiveRouter: adaptiveRouter,
 				Reranker:       logic.NewLLMCandidateReranker(chat),

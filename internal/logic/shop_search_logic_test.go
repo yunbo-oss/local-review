@@ -152,7 +152,7 @@ func TestShopSearchLogic_HybridTextFailureNoSilentDense(t *testing.T) {
 		EmbeddingClient: &stubEmbed{vec: []float32{0.1}},
 		VectorRepo: &stubVector{
 			dense: []repoInterfaces.ShopSearchResult{{ShopID: 1}},
-			tErr:  errors.New("redis text down"),
+			tErr:  errors.New("text index down"),
 		},
 	})
 	_, err := l.Search(context.Background(), "火锅", nil, RetrieverHybrid, 5)
@@ -167,7 +167,7 @@ func TestShopSearchLogic_HybridDegradedExplicit(t *testing.T) {
 		EmbeddingClient: &stubEmbed{vec: []float32{0.1}},
 		VectorRepo: &stubVector{
 			dense: []repoInterfaces.ShopSearchResult{{ShopID: 1, Name: "A"}},
-			tErr:  errors.New("redis text down"),
+			tErr:  errors.New("text index down"),
 		},
 	})
 	out, err := l.SearchWithMeta(context.Background(), "火锅", nil, RetrieverHybrid, 5, SearchModeDegraded)
@@ -205,6 +205,26 @@ func TestShopSearchLogic_OrderedIDsConsistency(t *testing.T) {
 		if a[i].ShopID != b[i].ShopID {
 			t.Fatalf("order mismatch at %d: %d vs %d", i, a[i].ShopID, b[i].ShopID)
 		}
+	}
+}
+
+func TestShopSearchLogic_PinsExactNameMatchAheadOfRRF(t *testing.T) {
+	t.Parallel()
+	l := NewShopSearchLogic(ShopSearchLogicDeps{
+		EmbeddingClient: &stubEmbed{vec: []float32{0.1}},
+		VectorRepo: &stubVector{
+			dense: []repoInterfaces.ShopSearchResult{{ShopID: 2}, {ShopID: 3}, {ShopID: 4}},
+			text: []repoInterfaces.ShopSearchResult{
+				{ShopID: 9, ExactNameMatch: true}, {ShopID: 2}, {ShopID: 3},
+			},
+		},
+	})
+	got, err := l.Search(context.Background(), "找「精确店名」", nil, RetrieverHybrid, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 || got[0].ShopID != 9 {
+		t.Fatalf("exact match was not pinned: %+v", got)
 	}
 }
 

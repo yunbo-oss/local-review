@@ -79,7 +79,7 @@ func TestBuildDeterministicClaimFallbackUsesOnlySupportedTypedEvidence(t *testin
 	ledger := claimLedgerForTest()
 	state, err := NewAgentState(
 		"fallback-supported", "trace", "海淀区咖啡",
-		FallbackIntentSpec("海淀区咖啡", "agent_multistep"), MemorySnapshot{}, DefaultRuntimeBudget(),
+		FallbackIntentSpec("海淀区咖啡", "agent"), MemorySnapshot{}, DefaultRuntimeBudget(),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -110,7 +110,7 @@ func TestBuildDeterministicClaimFallbackReturnsSafeNoResultForUnresolvedGaps(t *
 	ledger := claimLedgerForTest()
 	state, err := NewAgentState(
 		"fallback-unknown", "trace", "适合陌生软偏好的店",
-		FallbackIntentSpec("适合陌生软偏好的店", "agent_multistep"), MemorySnapshot{}, DefaultRuntimeBudget(),
+		FallbackIntentSpec("适合陌生软偏好的店", "agent"), MemorySnapshot{}, DefaultRuntimeBudget(),
 	)
 	if err != nil {
 		t.Fatal(err)

@@ -5,7 +5,7 @@ import "time"
 const SHOP_TABLE_NAME = "tb_shop"
 
 type Shop struct {
-	Id         int64     `gorm:"primary;AUTO_INCREMENT;column:id" json:"id"`
+	Id         int64     `gorm:"primaryKey;autoIncrement;column:id" json:"id"`
 	Name       string    `gorm:"column:name" json:"name"`
 	TypeId     int64     `gorm:"column:type_id" json:"typeId"`
 	Images     string    `gorm:"column:images" json:"images"`

@@ -69,18 +69,24 @@ func (r *blogRepo) ListByIDs(ctx context.Context, ids []int64) ([]model.Blog, er
 	if len(ids) == 0 {
 		return []model.Blog{}, nil
 	}
-	idStrs := make([]string, len(ids))
-	for i, id := range ids {
-		idStrs[i] = fmt.Sprintf("%d", id)
-	}
-	order := fmt.Sprintf("FIELD(id , %s)", strings.Join(idStrs, ","))
-
 	var blogs []model.Blog
 	err := r.db.WithContext(ctx).
 		Where("id IN ?", ids).
-		Order(order).
 		Find(&blogs).Error
-	return blogs, err
+	if err != nil {
+		return nil, err
+	}
+	byID := make(map[int64]model.Blog, len(blogs))
+	for _, blog := range blogs {
+		byID[blog.Id] = blog
+	}
+	ordered := make([]model.Blog, 0, len(blogs))
+	for _, id := range ids {
+		if blog, ok := byID[id]; ok {
+			ordered = append(ordered, blog)
+		}
+	}
+	return ordered, nil
 }
 
 // ListByShopID 按店铺 ID 查询探店笔记（按点赞数排序，取前 limit 条）

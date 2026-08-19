@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"local-review-go/internal/config"
-	"local-review-go/internal/config/redis"
+	"local-review-go/internal/config/postgres"
 	"local-review-go/internal/evalmeta"
 	"local-review-go/internal/llm"
 	"local-review-go/internal/logic"
@@ -72,7 +72,7 @@ func main() {
 	if embClient == nil {
 		log.Fatal("Embedding 客户端初始化失败")
 	}
-	vecRepo := repository.NewVectorRepo(redis.GetRedisClient())
+	vecRepo := repository.NewVectorRepo(postgres.GetPostgresDB())
 	shopSearch := logic.NewShopSearchLogic(logic.ShopSearchLogicDeps{
 		EmbeddingClient: embClient,
 		VectorRepo:      vecRepo,
@@ -87,8 +87,9 @@ func main() {
 		DatasetVersion:     version,
 		DatasetSHA256:      datasetSHA,
 		SeedVersion:        "seed.sql",
-		RedisImage:         "redis/redis-stack-server:7.4.0-v8",
-		IndexSchemaVersion: "idx:shop:vector",
+		SearchStore:        "PostgreSQL 17 + pgvector 0.8.1",
+		CacheStore:         "Redis 7.4 (cache/session/checkpoint only)",
+		IndexSchemaVersion: "postgres-pgvector-hnsw-v1",
 		Retriever:          string(strategy),
 		Split:              *split,
 		FilterMode:         *filterMode,

@@ -72,24 +72,24 @@ func (r *adaptiveRecommendRouter) RouteContext(ctx context.Context, in RouteInpu
 	// must still reach the stateful path so the deterministic patch can commit.
 	if isPreferenceOnlyUtterance(in.Question) {
 		spec.Intent = "preference_update"
-		spec.Route = string(RouteAgentMemory)
+		spec.Route = string(RouteAgent)
 		spec.NeedClarification = false
 	}
-	// Query Understanding is probabilistic, but side-effecting memory intents
+	// Query Understanding is probabilistic, but side-effecting preference intents
 	// and conversation-resume turns have deterministic routing invariants.
 	// Without this guard a valid preference update can be sent to stateless RAG,
 	// or “好了，就按前面的条件” can be misread as another update and reach the
 	// ReAct controller without a recommendation goal.
 	if spec.Intent == "preference_update" && isRecommendationResume(in.Question) {
 		spec.Intent = "followup"
-		spec.Route = string(RouteAgentMemory)
+		spec.Route = string(RouteAgent)
 		spec.NeedClarification = false
 	}
 	if spec.Intent == "preference_update" {
-		spec.Route = string(RouteAgentMemory)
+		spec.Route = string(RouteAgent)
 	}
 	if spec.Intent == "followup" && in.HasHistory {
-		spec.Route = string(RouteAgentMemory)
+		spec.Route = string(RouteAgent)
 	}
 	if spec.Confidence < r.threshold {
 		// Low confidence is actionable ambiguity, not permission to silently pick
@@ -114,8 +114,8 @@ func (r *adaptiveRecommendRouter) RouteContext(ctx context.Context, in RouteInpu
 	if spec.NeedClarification {
 		route = RouteClarify
 	}
-	// A historical follow-up without history must not be guessed even if the
-	// model accidentally selected the memory path.
+	// A historical follow-up without context must not be guessed even if the
+	// model accidentally selected the full Agent route.
 	if spec.Intent == "followup" && !in.HasHistory {
 		route = RouteClarify
 		spec.NeedClarification = true
@@ -151,10 +151,8 @@ func parseIntentRoute(raw string) (RecommendRoute, bool) {
 	switch strings.TrimSpace(raw) {
 	case string(RouteRAGOneshot):
 		return RouteRAGOneshot, true
-	case string(RouteAgentMultistep):
-		return RouteAgentMultistep, true
-	case string(RouteAgentMemory):
-		return RouteAgentMemory, true
+	case string(RouteAgent), legacyRouteAgentMultistep, legacyRouteAgentMemory:
+		return RouteAgent, true
 	case string(RouteClarify):
 		return RouteClarify, true
 	default:

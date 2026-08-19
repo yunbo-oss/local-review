@@ -6,7 +6,7 @@ BASE_URL="${BASE_URL:-http://localhost:8088}"
 PHONE="${DEMO_PHONE:-13800138000}"
 CODE="${DEMO_CODE:-123456}"
 SESSION_ID="${DEMO_SESSION_ID:-demo-$(date +%s)}"
-REPORT_PATH="${DEMO_REPORT_PATH:-rag-evals/reports/memory_demo_latest.json}"
+REPORT_PATH="${DEMO_REPORT_PATH:-rag-evals/reports/context_demo_latest.json}"
 TMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_DIR"' EXIT
 
@@ -43,7 +43,7 @@ ME=$(curl -fsS "$BASE_URL/api/user/me" -H "Authorization: Bearer $TOKEN")
 USER_ID=$(echo "$ME" | python3 -c 'import json,sys; d=json.load(sys.stdin); v=d.get("data") or {}; print(v.get("id") or v.get("Id") or "")')
 [[ -n "$USER_ID" ]] || { echo "无法读取 demo user id" >&2; exit 1; }
 
-# Compose 已清理该 demo 用户的 MySQL profile；这里同步清理 Redis cache、
+# Compose 已清理该 demo 用户的 PostgreSQL profile；这里同步清理 Redis cache、
 # 固定 session 和限流窗口，使重复执行仍从同一初始状态开始。
 redis-cli -h "${REDIS_ADDR:-redis}" -p "${REDIS_PORT:-6379}" \
   -a "${REDIS_PASSWORD:-8888.216}" --no-auth-warning DEL \
@@ -95,7 +95,7 @@ PY
   echo "    trace_id=$trace route=$route citations=$cites"
 }
 
-# 1) 写偏好（与正式 memory golden 使用同一可满足约束）
+# 1) 写偏好（与正式多轮上下文用例使用同一可满足约束）
 recommend "我以后优先海淀区、预算80元以内" 1 no
 # 2) 同 session 追问（应自动补全区域/预算）
 recommend "按我的偏好推荐一家适合学生的店" 2 yes
@@ -132,7 +132,7 @@ for i in range(1, 4):
     })
 p = json.loads(os.environ["PROFILE_JSON"])
 report = {
-    "version": "memory-demo.v2",
+    "version": "context-demo.v2",
     "session_id": os.environ["SESSION_ID"],
     "user_id": int(os.environ["USER_ID"]),
     "rounds": rounds,

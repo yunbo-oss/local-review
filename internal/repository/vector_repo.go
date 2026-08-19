@@ -2,78 +2,135 @@ package repository
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
-	"local-review-go/internal/llm"
-	repoInterfaces "local-review-go/internal/repository/interface"
-	"local-review-go/pkg/utils/redisx"
 	"sort"
-	"strconv"
 	"strings"
 	"unicode"
-	"unicode/utf8"
 
-	"github.com/redis/go-redis/v9"
+	pgvector "github.com/pgvector/pgvector-go"
+	"gorm.io/gorm"
+
+	repoInterfaces "local-review-go/internal/repository/interface"
 )
 
+const shopSearchDocumentTable = "shop_search_documents"
+
 type vectorRepo struct {
-	client *redis.Client
+	db *gorm.DB
 }
 
-// NewVectorRepo 创建向量 Repository
-func NewVectorRepo(client *redis.Client) repoInterfaces.VectorRepo {
-	return &vectorRepo{client: client}
+// NewVectorRepo uses PostgreSQL as the durable source for both search metadata
+// and embeddings. Redis is deliberately not part of this repository.
+func NewVectorRepo(db *gorm.DB) repoInterfaces.VectorRepo {
+	return &vectorRepo{db: db}
 }
 
-// StoreShop 存储店铺向量到 Redis Hash
 func (r *vectorRepo) StoreShop(ctx context.Context, doc *repoInterfaces.ShopVectorDoc) error {
-	key := redisx.VEC_SHOP_KEY_PREFIX + strconv.FormatInt(doc.ShopID, 10)
-	embedBytes := llm.Float32ToBytes(doc.Embedding)
-	return r.client.HSet(ctx, key,
-		"name", doc.Name,
-		"type_name", doc.TypeName,
-		"area", doc.Area,
-		"text_content", doc.TextContent,
-		"avg_price", doc.AvgPrice,
-		"score", doc.Score,
-		"comments", doc.Comments,
-		"sold", doc.Sold,
-		"embedding", embedBytes,
-	).Err()
+	if r == nil || r.db == nil {
+		return fmt.Errorf("postgres vector repository is not configured")
+	}
+	if doc == nil || doc.ShopID <= 0 || len(doc.Embedding) == 0 {
+		return fmt.Errorf("invalid shop vector document")
+	}
+	contentHash := strings.TrimSpace(doc.ContentHash)
+	if contentHash == "" {
+		sum := sha256.Sum256([]byte(doc.TextContent))
+		contentHash = fmt.Sprintf("%x", sum[:])
+	}
+	model := strings.TrimSpace(doc.EmbeddingModel)
+	if model == "" {
+		model = "unknown"
+	}
+	version := doc.SourceVersion
+	if version <= 0 {
+		version = 1
+	}
+
+	// source_version prevents an older asynchronous embedding job from
+	// overwriting a document generated from newer shop/review data.
+	return r.db.WithContext(ctx).Exec(`
+		INSERT INTO shop_search_documents (
+			shop_id, name, name_normalized, type_name, area, text_content,
+			avg_price, score, comments, sold, search_vector, embedding,
+			embedding_model, content_hash, source_version, updated_at
+		) VALUES (
+			?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+			setweight(to_tsvector('simple', ?), 'A') || setweight(to_tsvector('simple', ?), 'B'),
+			?::vector, ?, ?, ?, NOW()
+		)
+		ON CONFLICT (shop_id) DO UPDATE SET
+			name = EXCLUDED.name,
+			name_normalized = EXCLUDED.name_normalized,
+			type_name = EXCLUDED.type_name,
+			area = EXCLUDED.area,
+			text_content = EXCLUDED.text_content,
+			avg_price = EXCLUDED.avg_price,
+			score = EXCLUDED.score,
+			comments = EXCLUDED.comments,
+			sold = EXCLUDED.sold,
+			search_vector = EXCLUDED.search_vector,
+			embedding = EXCLUDED.embedding,
+			embedding_model = EXCLUDED.embedding_model,
+			content_hash = EXCLUDED.content_hash,
+			source_version = EXCLUDED.source_version,
+			updated_at = NOW()
+		WHERE shop_search_documents.source_version <= EXCLUDED.source_version`,
+		doc.ShopID, doc.Name, normalizeNameForMatch(doc.Name), doc.TypeName, doc.Area, doc.TextContent,
+		doc.AvgPrice, doc.Score, doc.Comments, doc.Sold,
+		lexicalDocument(doc.Name), lexicalDocument(doc.TextContent),
+		pgvector.NewVector(doc.Embedding), model, contentHash, version,
+	).Error
 }
 
-// DeleteShop 删除店铺向量
 func (r *vectorRepo) DeleteShop(ctx context.Context, shopID int64) error {
-	key := redisx.VEC_SHOP_KEY_PREFIX + strconv.FormatInt(shopID, 10)
-	return r.client.Del(ctx, key).Err()
+	if r == nil || r.db == nil {
+		return fmt.Errorf("postgres vector repository is not configured")
+	}
+	return r.db.WithContext(ctx).Exec(
+		"DELETE FROM "+shopSearchDocumentTable+" WHERE shop_id = ?", shopID,
+	).Error
 }
 
-// SearchShops 带预过滤的 KNN 向量检索（Filtered Vector Search）
+type postgresSearchRow struct {
+	ShopID         int64   `gorm:"column:shop_id"`
+	Name           string  `gorm:"column:name"`
+	TypeName       string  `gorm:"column:type_name"`
+	Area           string  `gorm:"column:area"`
+	TextContent    string  `gorm:"column:text_content"`
+	AvgPrice       int64   `gorm:"column:avg_price"`
+	ShopScore      int     `gorm:"column:shop_score"`
+	Comments       int     `gorm:"column:comments"`
+	Sold           int     `gorm:"column:sold"`
+	RankScore      float64 `gorm:"column:rank_score"`
+	ExactNameMatch bool    `gorm:"column:exact_name_match"`
+}
+
 func (r *vectorRepo) SearchShops(ctx context.Context, queryEmbedding []float32, filter *repoInterfaces.VectorSearchFilter, k int) ([]repoInterfaces.ShopSearchResult, error) {
+	if r == nil || r.db == nil {
+		return nil, fmt.Errorf("postgres vector repository is not configured")
+	}
+	if len(queryEmbedding) == 0 {
+		return nil, fmt.Errorf("query embedding is empty")
+	}
 	if k <= 0 {
 		k = 5
 	}
-	vecBytes := llm.Float32ToBytes(queryEmbedding)
-
-	preFilter := buildPreFilter(filter)
-	query := fmt.Sprintf("(%s)=>[KNN %d @embedding $vec AS vector_score]", preFilter, k)
-
-	args := []interface{}{
-		"FT.SEARCH", redisx.VEC_SHOP_INDEX,
-		query,
-		"PARAMS", "2", "vec", vecBytes,
-		"DIALECT", "2",
-		"SORTBY", "vector_score", "ASC",
-		"RETURN", "9", "name", "type_name", "area", "text_content", "avg_price", "score", "comments", "sold", "vector_score",
+	where, filterArgs := postgresFilter(filter)
+	queryVector := pgvector.NewVector(queryEmbedding)
+	args := []any{queryVector}
+	args = append(args, filterArgs...)
+	args = append(args, queryVector, k)
+	query := `SELECT shop_id, name, type_name, area, text_content, avg_price,
+		score AS shop_score, comments, sold, (embedding <=> ?::vector) AS rank_score
+		FROM shop_search_documents` + where + `
+		ORDER BY embedding <=> ?::vector
+		LIMIT ?`
+	var rows []postgresSearchRow
+	if err := r.db.WithContext(ctx).Raw(query, args...).Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("pgvector cosine search: %w", err)
 	}
-	cmd := r.client.Do(ctx, args...)
-	res, err := cmd.Slice()
-	if err != nil {
-		return nil, fmt.Errorf("FT.SEARCH KNN: %w", err)
-	}
-	results, err := parseSearchResult(res, k)
-	if err != nil {
-		return nil, err
-	}
+	results := mapPostgresRows(rows)
 	if filter != nil && filter.MaxDistance > 0 {
 		filtered := results[:0]
 		for _, item := range results {
@@ -86,77 +143,173 @@ func (r *vectorRepo) SearchShops(ctx context.Context, queryEmbedding []float32, 
 	return results, nil
 }
 
-// SearchText 带预过滤的全文检索（name WEIGHT 高 + text_content，SCORER BM25）
-func (r *vectorRepo) SearchText(ctx context.Context, query string, filter *repoInterfaces.VectorSearchFilter, k int) ([]repoInterfaces.ShopSearchResult, error) {
+func (r *vectorRepo) SearchText(ctx context.Context, queryText string, filter *repoInterfaces.VectorSearchFilter, k int) ([]repoInterfaces.ShopSearchResult, error) {
+	if r == nil || r.db == nil {
+		return nil, fmt.Errorf("postgres vector repository is not configured")
+	}
+	queryText = strings.TrimSpace(queryText)
+	if queryText == "" {
+		return nil, fmt.Errorf("text search query is empty")
+	}
 	if k <= 0 {
 		k = 5
 	}
-	q := strings.TrimSpace(query)
-	if q == "" {
-		return nil, fmt.Errorf("text search query is empty")
+	queryExpression := lexicalQuery(queryText)
+	if queryExpression == "" {
+		return nil, nil
 	}
-	preFilter := buildPreFilter(filter)
-	// 文本查询：转义后在 name|text_content 上检索，并与预过滤 AND；显式 BM25（避免依赖模块默认 TFIDF）
-	escaped := escapeTextQuery(q)
-	// RediSearch requires each field in an OR expression to have its own
-	// parenthesized query. "@name|@text_content:(...)" is parsed as an
-	// invalid field name and makes every hybrid retrieval fail.
-	textClause := fmt.Sprintf("(@name:(%s) | @text_content:(%s))", escaped, escaped)
-	// 「...」 is an explicit exact-name intent in the evaluation and API.
-	// RediSearch phrase matching also handles punctuation inside Chinese shop
-	// names (for example "静巷咖啡·国贸店"), unlike an unquoted token query.
-	if phrase := extractCornerQuoted(q); phrase != "" {
-		textClause = fmt.Sprintf("(@name:\"%s\" | @text_content:(%s))",
-			escapeRediSearchPhrase(phrase), escaped)
-	} else if hint := extractNameHint(q); hint != "" {
-		runes := []rune(hint)
-		prefixLen := 2
-		if len(runes) < prefixLen {
-			prefixLen = len(runes)
-		}
-		prefix := escapeRediSearchToken(string(runes[:prefixLen]))
-		textClause = fmt.Sprintf("(@name:(%s*) | @name:(%s) | @text_content:(%s))",
-			prefix, escaped, escaped)
+	nameHint := extractCornerQuoted(queryText)
+	if nameHint == "" {
+		nameHint = extractNameHint(queryText)
 	}
-	if semanticPrefixes := extractSemanticPrefixes(q); len(semanticPrefixes) > 0 {
-		// Redis's default Chinese tokenizer does not reliably match a complete
-		// compound such as "无障碍". Prefix terms ("无障*") provide a stable
-		// lexical arm for the finite semantic dimensions used by the catalog.
-		textClause = fmt.Sprintf("(@text_content:(%s))", strings.Join(semanticPrefixes, " | "))
-	}
-	var fullQuery string
-	if preFilter == "*" {
-		fullQuery = textClause
+	hintNormalized := normalizeNameForMatch(nameHint)
+	where, filterArgs := postgresFilter(filter)
+	if where == "" {
+		where = " WHERE "
 	} else {
-		fullQuery = fmt.Sprintf("(%s %s)", preFilter, textClause)
+		where += " AND "
 	}
+	where += "search_vector @@ to_tsquery('simple', ?)"
+	query := `SELECT shop_id, name, type_name, area, text_content, avg_price,
+		score AS shop_score, comments, sold,
+		(ts_rank_cd(search_vector, to_tsquery('simple', ?)) +
+		 CASE WHEN ? <> '' AND name_normalized = ? THEN 10 ELSE 0 END) AS rank_score,
+		(? <> '' AND name_normalized = ?) AS exact_name_match
+		FROM shop_search_documents` + where + `
+		ORDER BY rank_score DESC, shop_id ASC
+		LIMIT ?`
+	// The rank expression appears before WHERE in SQL, so place its tsquery and
+	// exact-name arguments before filter/WHERE arguments.
+	orderedArgs := []any{queryExpression, hintNormalized, hintNormalized, hintNormalized, hintNormalized}
+	orderedArgs = append(orderedArgs, filterArgs...)
+	orderedArgs = append(orderedArgs, queryExpression, k)
+	var rows []postgresSearchRow
+	if err := r.db.WithContext(ctx).Raw(query, orderedArgs...).Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("postgres full-text search: %w", err)
+	}
+	return mapPostgresRows(rows), nil
+}
 
-	args := []interface{}{
-		"FT.SEARCH", redisx.VEC_SHOP_INDEX,
-		fullQuery,
-		"SCORER", "BM25",
-		"LIMIT", "0", strconv.Itoa(k),
-		"RETURN", "8", "name", "type_name", "area", "text_content", "avg_price", "score", "comments", "sold",
+func postgresFilter(filter *repoInterfaces.VectorSearchFilter) (string, []any) {
+	if filter == nil {
+		return "", nil
 	}
-	cmd := r.client.Do(ctx, args...)
-	res, err := cmd.Slice()
-	if err != nil {
-		return nil, fmt.Errorf("FT.SEARCH TEXT: %w", err)
+	var clauses []string
+	var args []any
+	if value := strings.TrimSpace(filter.Area); value != "" {
+		clauses = append(clauses, "area = ?")
+		args = append(args, value)
 	}
-	results, err := parseSearchResult(res, k)
-	if err != nil {
-		return nil, err
+	if value := strings.TrimSpace(filter.TypeName); value != "" {
+		clauses = append(clauses, "type_name = ?")
+		args = append(args, value)
 	}
-	// Exact normalized shop names outrank broad prefix candidates. This makes
-	// punctuation-tolerant natural queries such as "静巷咖啡望京店" resolve the
-	// corresponding "静巷咖啡·望京店" instead of a lexical neighbour.
-	qNorm := normalizeNameForMatch(q)
-	sort.SliceStable(results, func(i, j int) bool {
-		iExact := strings.Contains(qNorm, normalizeNameForMatch(results[i].Name))
-		jExact := strings.Contains(qNorm, normalizeNameForMatch(results[j].Name))
-		return iExact && !jExact
-	})
-	return results, nil
+	if filter.MaxPrice > 0 {
+		clauses = append(clauses, "avg_price <= ?")
+		args = append(args, filter.MaxPrice)
+	}
+	if filter.MinPrice > 0 {
+		clauses = append(clauses, "avg_price >= ?")
+		args = append(args, filter.MinPrice)
+	}
+	if filter.MinScore > 0 {
+		clauses = append(clauses, "score >= ?")
+		args = append(args, filter.MinScore)
+	}
+	if filter.MinComments > 0 {
+		clauses = append(clauses, "comments >= ?")
+		args = append(args, filter.MinComments)
+	}
+	if len(clauses) == 0 {
+		return "", nil
+	}
+	return " WHERE " + strings.Join(clauses, " AND "), args
+}
+
+func mapPostgresRows(rows []postgresSearchRow) []repoInterfaces.ShopSearchResult {
+	results := make([]repoInterfaces.ShopSearchResult, 0, len(rows))
+	for _, row := range rows {
+		results = append(results, repoInterfaces.ShopSearchResult{
+			ShopID: row.ShopID, Name: row.Name, TypeName: row.TypeName, Area: row.Area,
+			TextContent: row.TextContent, AvgPrice: row.AvgPrice, ShopScore: row.ShopScore,
+			Comments: row.Comments, Sold: row.Sold, Score: row.RankScore,
+			ExactNameMatch: row.ExactNameMatch,
+		})
+	}
+	return results
+}
+
+// lexicalDocument performs deterministic language-independent tokenization.
+// Chinese sequences produce unigrams, bigrams and the complete term; Latin
+// sequences produce lowercase words. Both indexing and querying use it.
+func lexicalDocument(value string) string {
+	return strings.Join(lexicalTokens(value), " ")
+}
+
+func lexicalQuery(value string) string {
+	tokens := lexicalTokens(value)
+	quoted := make([]string, 0, len(tokens))
+	for _, token := range tokens {
+		// Tokens contain letters/numbers only; quoting still makes the tsquery
+		// construction explicit and independent from operator characters.
+		quoted = append(quoted, "'"+strings.ReplaceAll(token, "'", "''")+"'")
+	}
+	return strings.Join(quoted, " | ")
+}
+
+func lexicalTokens(value string) []string {
+	var groups []string
+	var current []rune
+	flush := func() {
+		if len(current) == 0 {
+			return
+		}
+		groups = append(groups, strings.ToLower(string(current)))
+		current = nil
+	}
+	for _, r := range value {
+		if unicode.IsLetter(r) || unicode.IsNumber(r) {
+			current = append(current, r)
+		} else {
+			flush()
+		}
+	}
+	flush()
+	seen := map[string]struct{}{}
+	var tokens []string
+	add := func(token string) {
+		if token == "" {
+			return
+		}
+		if _, exists := seen[token]; exists {
+			return
+		}
+		seen[token] = struct{}{}
+		tokens = append(tokens, token)
+	}
+	for _, group := range groups {
+		runes := []rune(group)
+		add(group)
+		if containsHan(runes) {
+			for _, r := range runes {
+				add(string(r))
+			}
+			for i := 0; i+1 < len(runes); i++ {
+				add(string(runes[i : i+2]))
+			}
+		}
+	}
+	sort.Strings(tokens)
+	return tokens
+}
+
+func containsHan(value []rune) bool {
+	for _, r := range value {
+		if unicode.In(r, unicode.Han) {
+			return true
+		}
+	}
+	return false
 }
 
 func extractCornerQuoted(s string) string {
@@ -164,31 +317,27 @@ func extractCornerQuoted(s string) string {
 	if start < 0 {
 		return ""
 	}
-	rest := s[start+utf8.RuneLen('「'):]
-	end := strings.Index(rest, "」")
-	if end < 0 {
-		return ""
+	rest := []rune(s[start+len("「"):])
+	for index, r := range rest {
+		if r == '」' {
+			return strings.TrimSpace(string(rest[:index]))
+		}
 	}
-	return strings.TrimSpace(rest[:end])
-}
-
-func escapeRediSearchPhrase(s string) string {
-	s = strings.ReplaceAll(s, `\`, `\\`)
-	return strings.ReplaceAll(s, `"`, `\"`)
+	return ""
 }
 
 func extractNameHint(s string) string {
 	s = strings.TrimSpace(s)
 	for _, marker := range []string{"精确找", "看看", "查", "找"} {
-		if idx := strings.Index(s, marker); idx >= 0 {
-			s = s[idx+len(marker):]
+		if index := strings.Index(s, marker); index >= 0 {
+			s = s[index+len(marker):]
 			break
 		}
 	}
 	s = strings.TrimLeft(s, "「『\"' ")
-	for _, sep := range []string{"的评价", "的无障碍", "，", ",", "。", "？", "?", "不要", "不能"} {
-		if idx := strings.Index(s, sep); idx > 0 {
-			s = s[:idx]
+	for _, separator := range []string{"的评价", "的无障碍", "，", ",", "。", "？", "?", "不要", "不能"} {
+		if index := strings.Index(s, separator); index > 0 {
+			s = s[:index]
 		}
 	}
 	s = strings.Trim(s, "」』\"' ")
@@ -206,208 +355,4 @@ func normalizeNameForMatch(s string) string {
 		}
 	}
 	return b.String()
-}
-
-func extractSemanticPrefixes(s string) []string {
-	groups := [][]string{
-		{"安静", "办公", "学习", "自习"},
-		{"浪漫", "约会", "情侣"},
-		{"家庭", "聚餐", "孩子", "亲子"},
-		{"深夜", "凌晨", "夜宵"},
-		{"宠物", "带狗"},
-		{"无障碍", "轮椅", "坡道"},
-		{"商务", "宴请", "接待"},
-		{"学生", "平价", "性价比"},
-	}
-	var out []string
-	for _, aliases := range groups {
-		for _, alias := range aliases {
-			if !strings.Contains(s, alias) {
-				continue
-			}
-			runes := []rune(alias)
-			n := 2
-			if len(runes) < n {
-				n = len(runes)
-			}
-			out = append(out, escapeRediSearchToken(string(runes[:n]))+"*")
-			break
-		}
-	}
-	return out
-}
-
-// escapeTextQuery 转义 RediSearch 文本查询特殊字符，并按空白拆成 OR 词
-func escapeTextQuery(s string) string {
-	fields := strings.Fields(s)
-	if len(fields) == 0 {
-		return s
-	}
-	escaped := make([]string, 0, len(fields))
-	for _, w := range fields {
-		escaped = append(escaped, escapeRediSearchToken(w))
-	}
-	return strings.Join(escaped, " | ")
-}
-
-func escapeRediSearchToken(s string) string {
-	var b strings.Builder
-	for _, r := range s {
-		switch r {
-		case ',', '.', '<', '>', '{', '}', '[', ']', '"', '\'', ':', ';', '!', '@', '#', '$', '%', '^', '&', '*', '(', ')', '-', '+', '=', '~', '|':
-			b.WriteRune('\\')
-			b.WriteRune(r)
-		default:
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
-}
-
-// buildPreFilter 构建 RediSearch 预过滤表达式
-func buildPreFilter(filter *repoInterfaces.VectorSearchFilter) string {
-	if filter == nil {
-		return "*"
-	}
-	var parts []string
-	if filter.Area != "" {
-		parts = append(parts, fmt.Sprintf("@area:{%s}", escapeTagValue(filter.Area)))
-	}
-	if filter.TypeName != "" {
-		parts = append(parts, fmt.Sprintf("@type_name:{%s}", escapeTagValue(filter.TypeName)))
-	}
-	if filter.MaxPrice > 0 || filter.MinPrice > 0 {
-		minVal, maxVal := "-inf", "+inf"
-		if filter.MinPrice > 0 {
-			minVal = strconv.FormatInt(filter.MinPrice, 10)
-		}
-		if filter.MaxPrice > 0 {
-			maxVal = strconv.FormatInt(filter.MaxPrice, 10)
-		}
-		parts = append(parts, fmt.Sprintf("@avg_price:[%s %s]", minVal, maxVal))
-	}
-	if filter.MinScore > 0 {
-		parts = append(parts, fmt.Sprintf("@score:[%d +inf]", filter.MinScore))
-	}
-	if filter.MinComments > 0 {
-		parts = append(parts, fmt.Sprintf("@comments:[%d +inf]", filter.MinComments))
-	}
-	if len(parts) == 0 {
-		return "*"
-	}
-	result := ""
-	for _, p := range parts {
-		result += "(" + p + ")"
-	}
-	return result
-}
-
-func escapeTagValue(s string) string {
-	if s == "" {
-		return s
-	}
-	var b []byte
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		switch c {
-		case ',', '"', '\'', '{', '}', '(', ')', '\\':
-			b = append(b, '\\', c)
-		default:
-			b = append(b, c)
-		}
-	}
-	return string(b)
-}
-
-func parseSearchResult(res []interface{}, k int) ([]repoInterfaces.ShopSearchResult, error) {
-	if len(res) < 1 {
-		return nil, nil
-	}
-	total, _ := res[0].(int64)
-	if total == 0 {
-		return nil, nil
-	}
-
-	var results []repoInterfaces.ShopSearchResult
-	i := 1
-	for i < len(res) && len(results) < k {
-		docID, ok := res[i].(string)
-		if !ok {
-			i++
-			continue
-		}
-		i++
-		if i >= len(res) {
-			break
-		}
-		fields, ok := res[i].([]interface{})
-		if !ok {
-			i++
-			continue
-		}
-		i++
-
-		shopID := parseShopIDFromKey(docID)
-		score := 0.0
-		name, typeName, area, textContent := "", "", "", ""
-		var avgPrice int64
-		var shopScore, comments, sold int
-		for j := 0; j+1 < len(fields); j += 2 {
-			f, _ := fields[j].(string)
-			v, _ := fields[j+1].(string)
-			switch f {
-			case "name":
-				name = v
-			case "type_name":
-				typeName = v
-			case "area":
-				area = v
-			case "text_content":
-				textContent = v
-			case "avg_price":
-				if n, err := strconv.ParseInt(v, 10, 64); err == nil {
-					avgPrice = n
-				}
-			case "score":
-				if n, err := strconv.Atoi(v); err == nil {
-					shopScore = n
-				}
-			case "comments":
-				if n, err := strconv.Atoi(v); err == nil {
-					comments = n
-				}
-			case "sold":
-				if n, err := strconv.Atoi(v); err == nil {
-					sold = n
-				}
-			case "vector_score":
-				if s, err := strconv.ParseFloat(v, 64); err == nil {
-					score = s
-				}
-			}
-		}
-		results = append(results, repoInterfaces.ShopSearchResult{
-			ShopID:      shopID,
-			Name:        name,
-			TypeName:    typeName,
-			Area:        area,
-			TextContent: textContent,
-			AvgPrice:    avgPrice,
-			ShopScore:   shopScore,
-			Comments:    comments,
-			Sold:        sold,
-			Score:       score,
-		})
-	}
-	return results, nil
-}
-
-func parseShopIDFromKey(key string) int64 {
-	prefix := redisx.VEC_SHOP_KEY_PREFIX
-	if len(key) > len(prefix) {
-		if id, err := strconv.ParseInt(key[len(prefix):], 10, 64); err == nil {
-			return id
-		}
-	}
-	return 0
 }

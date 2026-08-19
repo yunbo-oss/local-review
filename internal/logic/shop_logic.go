@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"local-review-go/internal/config/mysql"
+	"local-review-go/internal/config/postgres"
 	redisClient "local-review-go/internal/config/redis"
 	"local-review-go/internal/model"
 	"local-review-go/internal/repository"
@@ -75,7 +75,7 @@ func NewShopLogic(deps ShopLogicDeps) ShopLogic {
 
 	db := deps.DB
 	if db == nil {
-		db = mysql.GetMysqlDB()
+		db = postgres.GetPostgresDB()
 	}
 
 	shopRepo := deps.ShopRepo
@@ -249,7 +249,7 @@ func (s *shopLogic) UpdateShopWithCacheCallBack(ctx context.Context, db *gorm.DB
 }
 
 func (s *shopLogic) UpdateShopWithCache(ctx context.Context, shop *model.Shop) error {
-	return s.UpdateShopWithCacheCallBack(ctx, mysql.GetMysqlDB(), shop)
+	return s.UpdateShopWithCacheCallBack(ctx, postgres.GetPostgresDB(), shop)
 }
 
 // QueryShopByIdWithCacheNull 缓存穿透的解决方法: 缓存空对象，布隆过滤器已解决

@@ -181,7 +181,7 @@ func TestExpandedAgentV5Coverage(t *testing.T) {
 		t.Fatalf("invalid v5 shape: cases=%d splits=%+v", len(suite.Agent.Cases), suite.Agent.Splits)
 	}
 	wantFamilies := map[string]bool{
-		"semantic_ood": false, "typo": false, "memory_correction": false,
+		"semantic_ood": false, "typo": false, "preference_correction": false,
 		"coreference": false, "prompt_injection": false, "no_result": false,
 		"claim_level_grounding": false, "session_isolation": false,
 	}
