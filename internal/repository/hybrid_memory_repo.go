@@ -47,3 +47,15 @@ func (r *hybridMemoryRepo) LoadSession(ctx context.Context, userID int64, sessio
 func (r *hybridMemoryRepo) AppendSession(ctx context.Context, userID int64, sessionID string, messages ...memory.Message) error {
 	return r.session.AppendSession(ctx, userID, sessionID, messages...)
 }
+
+func (r *hybridMemoryRepo) LoadSessionSummary(ctx context.Context, userID int64, sessionID string) (memory.SessionSummary, error) {
+	return r.session.LoadSessionSummary(ctx, userID, sessionID)
+}
+
+func (r *hybridMemoryRepo) SaveSessionSummary(ctx context.Context, userID int64, sessionID string, summary memory.SessionSummary) error {
+	return r.session.SaveSessionSummary(ctx, userID, sessionID, summary)
+}
+
+func (r *hybridMemoryRepo) TrimSession(ctx context.Context, userID int64, sessionID string, keepRecent int) error {
+	return r.session.TrimSession(ctx, userID, sessionID, keepRecent)
+}

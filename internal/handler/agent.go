@@ -65,6 +65,11 @@ func (h *AgentHandler) streamRecommend(c *gin.Context, userID int64, req Recomme
 	c.Writer.Flush()
 
 	ctx := c.Request.Context()
+	if traceID := agent.TraceIDFromContext(ctx); traceID != "" {
+		started, _ := json.Marshal(map[string]any{"trace_id": traceID})
+		c.SSEvent("run_started", string(started))
+		c.Writer.Flush()
+	}
 	res, err := h.logic.Recommend(ctx, userID, req.SessionID, req.Question, req.ForceRoute, func(st agent.ToolStatus) {
 		c.SSEvent("status", string(st))
 		c.Writer.Flush()
@@ -77,12 +82,19 @@ func (h *AgentHandler) streamRecommend(c *gin.Context, userID int64, req Recomme
 	c.SSEvent("message", res.Answer)
 	c.Writer.Flush()
 	donePayload := map[string]any{
-		"steps":        res.Steps,
-		"tool_calls":   res.ToolCalls,
-		"tokens":       res.Usage.TotalTokens,
-		"trace_id":     res.TraceID,
-		"route":        res.Route,
-		"route_reason": res.RouteReason,
+		"steps":                res.Steps,
+		"tool_calls":           res.ToolCalls,
+		"tokens":               res.Usage.TotalTokens,
+		"trace_id":             res.TraceID,
+		"route":                res.Route,
+		"route_reason":         res.RouteReason,
+		"intent":               res.Intent.Intent,
+		"replans":              res.Replans,
+		"plan_versions":        len(res.Plans),
+		"runtime_version":      res.RuntimeVersion,
+		"runtime_status":       res.RuntimeStatus,
+		"retrieval_decision":   res.Retrieval.Decision,
+		"retrieval_confidence": res.Retrieval.Confidence,
 	}
 	if res.Degraded {
 		donePayload["degraded"] = true

@@ -76,3 +76,14 @@ func DefaultRunConfig() RunConfig {
 	}
 	return cfg
 }
+
+// RuntimeVersionFromEnv keeps V1 available as a replay/baseline path while
+// making the observation-driven V2 runtime the production default.
+func RuntimeVersionFromEnv() string {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("AGENT_RUNTIME_VERSION"))) {
+	case "v1", "v1_plan", "plan":
+		return RuntimeVersionV1Plan
+	default:
+		return RuntimeVersionV2React
+	}
+}

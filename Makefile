@@ -1,7 +1,7 @@
 .PHONY: run build test tidy clean air test-api seed seed-redis seed-load-test seed-reset-load-test seed-vector load-test-seckill \
 	generate-eval-data generate-challenge-data eval-router eval-router-challenge eval-rag eval-rag-smoke eval-rag-oracle eval-rag-prod eval-rag-prod-baseline \
 	eval-hybrid-task eval-agent eval-agent-fake demo-agent docker-reset docker-up docker-verify docker-eval docker-challenge docker-demo \
-	docker-challenge-v4
+	docker-challenge-v4 docker-challenge-v5 docker-challenge-v6 docker-agent-e2e-v61
 
 run:
 	go run ./cmd/server
@@ -63,7 +63,7 @@ generate-eval-data:
 	go run ./cmd/generate-eval-data
 	go run ./cmd/generate-eval-data --check
 
-# 生成冻结 v3、可检查 v3.1 regression 与新种子 v4 challenge；均不调用 LLM
+# 生成冻结 v3、可检查 v3.1/v6.1 regression，以及 v4/v5/v6 challenge；均不调用 LLM
 generate-challenge-data:
 	go run ./cmd/generate-challenge-data
 	go run ./cmd/generate-challenge-data --check
@@ -71,6 +71,12 @@ generate-challenge-data:
 	go run ./cmd/generate-challenge-data --suite=v31 --check
 	go run ./cmd/generate-challenge-data --suite=v4
 	go run ./cmd/generate-challenge-data --suite=v4 --check
+	go run ./cmd/generate-challenge-data --suite=v5
+	go run ./cmd/generate-challenge-data --suite=v5 --check
+	go run ./cmd/generate-challenge-data --suite=v6
+	go run ./cmd/generate-challenge-data --suite=v6 --check
+	go run ./cmd/generate-challenge-data --suite=v61
+	go run ./cmd/generate-challenge-data --suite=v61 --check
 
 # 生产规则 Router 的确定性分类评测（不调用 LLM）
 eval-router:
@@ -140,7 +146,7 @@ test-llm:
 # --- Docker 可复现评测闭环 ---
 # LLM_API_KEY 只从当前 shell 注入；不要写进 .env 或仓库。
 docker-reset:
-	docker compose --profile verify --profile eval --profile challenge --profile challenge-v4 --profile demo down -v --remove-orphans
+	docker compose --profile verify --profile eval --profile challenge --profile challenge-v4 --profile challenge-v5 --profile challenge-v6 --profile agent-e2e-v61 --profile demo down -v --remove-orphans
 
 docker-up:
 	docker compose up -d --build
@@ -169,6 +175,23 @@ docker-challenge-v4:
 	@test -n "$$LLM_API_KEY" || (echo "LLM_API_KEY is required" >&2; exit 1)
 	docker compose --profile challenge-v4 run --rm challenge-v4-hybrid-task-eval
 	docker compose --profile challenge-v4 run --rm --no-deps challenge-v4-agent-eval
+
+# v5：统一 Query Understanding + Plan/Execute/Replan + claim grounding + layered memory。
+docker-challenge-v5:
+	@test -n "$$LLM_API_KEY" || (echo "LLM_API_KEY is required" >&2; exit 1)
+	docker compose --profile challenge-v5 run --rm challenge-v5-hybrid-task-eval
+	docker compose --profile challenge-v5 run --rm --no-deps challenge-v5-agent-eval
+
+# v6：有界 Parallel ReAct + 评论游标续查 + Redis checkpoint + claim entailment。
+docker-challenge-v6:
+	@test -n "$$LLM_API_KEY" || (echo "LLM_API_KEY is required" >&2; exit 1)
+	docker compose --profile challenge-v6 run --rm challenge-v6-hybrid-task-eval
+	docker compose --profile challenge-v6 run --rm --no-deps challenge-v6-agent-eval
+
+# v6.1：生产 Router -> Clarify / Hybrid RAG / Parallel ReAct 的完整入口评测；不跑对照组。
+docker-agent-e2e-v61:
+	@test -n "$$LLM_API_KEY" || (echo "LLM_API_KEY is required" >&2; exit 1)
+	docker compose --profile agent-e2e-v61 run --rm agent-e2e-v61-eval
 
 docker-demo:
 	@test -n "$$LLM_API_KEY" || (echo "LLM_API_KEY is required" >&2; exit 1)

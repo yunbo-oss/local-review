@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"local-review-go/internal/agent"
 	"local-review-go/internal/llm"
 	repoInterfaces "local-review-go/internal/repository/interface"
 
@@ -46,6 +47,7 @@ type RAGLogicDeps struct {
 	BlogRepo        repoInterfaces.BlogRepo   // 可选：用于获取店铺探店笔记
 	MemoryRepo      repoInterfaces.MemoryRepo // 可选：偏好补空
 	Retriever       RetrieverStrategy         // 空则 DefaultRetrieverStrategy()
+	Reranker        CandidateReranker
 }
 
 type ragLogic struct {
@@ -55,6 +57,7 @@ type ragLogic struct {
 	blog      repoInterfaces.BlogRepo
 	memory    repoInterfaces.MemoryRepo
 	retriever RetrieverStrategy
+	reranker  CandidateReranker
 }
 
 // NewRAGLogic 创建 RAG Logic（检索走共享 ShopSearchLogic）
@@ -70,6 +73,7 @@ func NewRAGLogic(deps RAGLogicDeps) RAGLogic {
 		blog:      deps.BlogRepo,
 		memory:    deps.MemoryRepo,
 		retriever: r,
+		reranker:  deps.Reranker,
 	}
 }
 
@@ -93,9 +97,13 @@ func (l *ragLogic) chatWithProfile(ctx context.Context, userID int64, question s
 		return fmt.Errorf("RAG 服务未配置（请设置 LLM_API_KEY）")
 	}
 
-	// 0. ResolveFilter：显式优先，否则 LLM 抽取
+	// 0. ResolveFilter：统一 Query Understanding 优先；直连旧 RAG 接口时
+	// 仍保留独立 extractor 作为兼容降级。
 	var extracted *repoInterfaces.VectorSearchFilter
-	if filter == nil && l.extractor != nil {
+	intentSpec, hasIntent := agent.IntentSpecFromContext(ctx)
+	if filter == nil && hasIntent {
+		extracted = IntentSpecToVectorFilter(intentSpec)
+	} else if filter == nil && l.extractor != nil {
 		var err error
 		extracted, err = l.extractor.Extract(ctx, question)
 		if err != nil {
@@ -116,13 +124,54 @@ func (l *ragLogic) chatWithProfile(ctx context.Context, userID int64, question s
 	}
 
 	// 1. 共享检索入口（默认 hybrid）
-	shops, err := l.search.Search(ctx, question, resolved, l.retriever, ragTopK)
+	retrievalQuestion := question
+	queries := []string{question}
+	if hasIntent {
+		queries = intentSpec.RetrievalQueries()
+		if len(queries) > 1 {
+			// Multi-query capable retrievers consume all rewrites; legacy searchers
+			// receive the first model rewrite rather than a synthetic concatenation.
+			retrievalQuestion = queries[1]
+		}
+	}
+	searchTopK := ragTopK
+	if hasIntent && l.reranker != nil {
+		searchTopK = 20
+	}
+	var shops []repoInterfaces.ShopSearchResult
+	var err error
+	if multi, ok := l.search.(MultiQueryShopSearchLogic); ok && len(queries) > 1 {
+		var outcome SearchOutcome
+		outcome, err = multi.SearchMultiWithMeta(ctx, queries, resolved, l.retriever, searchTopK, DefaultSearchMode())
+		shops = outcome.Results
+	} else {
+		shops, err = l.search.Search(ctx, retrievalQuestion, resolved, l.retriever, searchTopK)
+	}
 	if err != nil {
 		return fmt.Errorf("检索: %w", err)
 	}
 	if len(shops) == 0 {
 		onChunk("暂无相关店铺数据，请先执行向量导入（make seed-vector）。")
 		return nil
+	}
+	if hasIntent && l.reranker != nil {
+		ranked, rankErr := l.reranker.Rerank(ctx, RerankInput{
+			Question: question, SoftPreferences: intentSpec.SoftPreferences,
+			Candidates: shops, TopK: ragTopK,
+		})
+		if rankErr != nil {
+			logrus.Warnf("RAG candidate rerank fallback: %v", rankErr)
+			if len(shops) > ragTopK {
+				shops = shops[:ragTopK]
+			}
+		} else {
+			shops = ranked.Results
+			assessment := AssessRetrieval(shops, ranked.Scores, len(intentSpec.SoftPreferences) > 0)
+			if assessment.Decision == RetrievalAbstain {
+				onChunk("没有找到与当前需求足够相关、且有证据支持的店铺；建议补充区域或放宽软偏好。")
+				return nil
+			}
+		}
 	}
 
 	// 2. 组装上下文（含店铺基本信息 + 用户探店笔记）

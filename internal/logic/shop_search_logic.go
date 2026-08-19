@@ -54,6 +54,13 @@ type ShopSearchLogic interface {
 	SearchWithMeta(ctx context.Context, query string, filter *repoInterfaces.VectorSearchFilter, strategy RetrieverStrategy, topK int, mode SearchMode) (SearchOutcome, error)
 }
 
+// MultiQueryShopSearchLogic is an optional extension used by the adaptive
+// Agent/RAG path. Each rewrite is retrieved independently and fused so a weak
+// rewrite cannot erase the original user query.
+type MultiQueryShopSearchLogic interface {
+	SearchMultiWithMeta(ctx context.Context, queries []string, filter *repoInterfaces.VectorSearchFilter, strategy RetrieverStrategy, topK int, mode SearchMode) (SearchOutcome, error)
+}
+
 // FilterExtractor 从自然语言抽取过滤条件
 type FilterExtractor interface {
 	Extract(ctx context.Context, question string) (*repoInterfaces.VectorSearchFilter, error)
@@ -221,6 +228,89 @@ func (l *shopSearchLogic) SearchWithMeta(ctx context.Context, query string, filt
 	default:
 		return SearchOutcome{}, fmt.Errorf("unsupported strategy: %s", strategy)
 	}
+}
+
+func (l *shopSearchLogic) SearchMultiWithMeta(ctx context.Context, queries []string, filter *repoInterfaces.VectorSearchFilter, strategy RetrieverStrategy, topK int, mode SearchMode) (SearchOutcome, error) {
+	queries = normalizeRetrievalQueries(queries)
+	if len(queries) == 0 {
+		return SearchOutcome{}, fmt.Errorf("multi-query retrieval requires at least one query")
+	}
+	if len(queries) == 1 {
+		return l.SearchWithMeta(ctx, queries[0], filter, strategy, topK, mode)
+	}
+	if topK <= 0 {
+		topK = 5
+	}
+	armTopK := l.candidateK
+	if armTopK < topK {
+		armTopK = topK
+	}
+	type queryArm struct {
+		out SearchOutcome
+		err error
+	}
+	arms := make([]queryArm, len(queries))
+	g, gctx := errgroup.WithContext(ctx)
+	for i := range queries {
+		i := i
+		g.Go(func() error {
+			arms[i].out, arms[i].err = l.SearchWithMeta(gctx, queries[i], filter, strategy, armTopK, mode)
+			return nil
+		})
+	}
+	_ = g.Wait()
+
+	out := SearchOutcome{Strategy: strategy, Mode: mode}
+	var rankedLists [][]int64
+	var resultLists [][]repoInterfaces.ShopSearchResult
+	for i, arm := range arms {
+		if arm.err != nil {
+			if mode == SearchModeStrict {
+				return out, fmt.Errorf("multi-query arm %d failed: %w", i, arm.err)
+			}
+			out.Degraded = true
+			out.DegradedReason = strings.TrimSpace(out.DegradedReason + ";query_arm_failed:" + queries[i])
+			continue
+		}
+		if arm.out.Degraded {
+			out.Degraded = true
+			out.DegradedReason = strings.TrimSpace(out.DegradedReason + ";" + arm.out.DegradedReason)
+		}
+		rankedLists = append(rankedLists, shopIDs(arm.out.Results))
+		resultLists = append(resultLists, arm.out.Results)
+	}
+	if len(rankedLists) == 0 {
+		return out, fmt.Errorf("all multi-query retrieval arms failed")
+	}
+	fused := rag.FuseRRF(rankedLists, l.rrfK, topK)
+	byID := mergeShopMeta(resultLists...)
+	out.Results = make([]repoInterfaces.ShopSearchResult, 0, len(fused))
+	for _, id := range fused {
+		if item, ok := byID[id]; ok {
+			out.Results = append(out.Results, item)
+		}
+	}
+	return out, nil
+}
+
+func normalizeRetrievalQueries(values []string) []string {
+	seen := map[string]struct{}{}
+	var out []string
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+		if len(out) >= 4 {
+			break
+		}
+	}
+	return out
 }
 
 func (l *shopSearchLogic) searchDense(ctx context.Context, query string, filter *repoInterfaces.VectorSearchFilter, topK int) ([]repoInterfaces.ShopSearchResult, error) {

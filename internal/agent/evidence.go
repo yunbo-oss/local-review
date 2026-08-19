@@ -23,6 +23,23 @@ type ShopEvidence struct {
 	BlogTexts    []string
 }
 
+// EvidenceSnapshot is the durable, lock-free representation of one run's
+// evidence. AgentState persists this value rather than serializing the live
+// EvidenceLedger (which contains a mutex and process-local state).
+type EvidenceSnapshot struct {
+	Shops map[int64]ShopEvidenceSnapshot `json:"shops"`
+}
+
+type ShopEvidenceSnapshot struct {
+	ShopID       int64                    `json:"shop_id"`
+	Name         string                   `json:"name"`
+	DiscoveredBy string                   `json:"discovered_by"`
+	Verified     bool                     `json:"verified"`
+	Fields       map[string]EvidenceValue `json:"fields"`
+	BlogIDs      []int64                  `json:"blog_ids"`
+	BlogTexts    []string                 `json:"blog_texts"`
+}
+
 // Citeable 是否可被 [shop:id] 引用（至少 discovered）
 func (s *ShopEvidence) Citeable() bool {
 	return s != nil && s.DiscoveredBy != ""
@@ -115,8 +132,25 @@ func (l *EvidenceLedger) RecordBlogEvidence(shopID int64, blogIDs []int64, blogT
 		// 明确不授予新身份；已 discovered 的保持 citeable
 		return nil
 	}
-	ev.BlogIDs = append([]int64{}, blogIDs...)
-	ev.BlogTexts = append([]string{}, blogTexts...)
+	seen := make(map[int64]struct{}, len(ev.BlogIDs)+len(blogIDs))
+	for _, id := range ev.BlogIDs {
+		seen[id] = struct{}{}
+	}
+	for index, id := range blogIDs {
+		if id <= 0 {
+			continue
+		}
+		if _, duplicate := seen[id]; duplicate {
+			continue
+		}
+		seen[id] = struct{}{}
+		ev.BlogIDs = append(ev.BlogIDs, id)
+		if index < len(blogTexts) {
+			ev.BlogTexts = append(ev.BlogTexts, blogTexts[index])
+		} else {
+			ev.BlogTexts = append(ev.BlogTexts, "")
+		}
+	}
 	return nil
 }
 
@@ -131,8 +165,8 @@ var semanticRules = []semanticRule{
 	{Name: "family", Aliases: []string{"家庭", "聚餐", "孩子", "儿童椅", "亲子", "老人", "三代", "小朋友", "带娃", "长辈", "一家五口", "老少"}},
 	{Name: "late", Aliases: []string{"深夜", "凌晨", "夜宵", "夜班", "加班后", "演出散场", "十一点", "末班车", "午夜", "十二点", "夜里", "打烊"}},
 	{Name: "pet", Aliases: []string{"宠物", "带狗", "猫狗", "饮水碗", "毛孩子", "柯基", "主子", "四脚朋友"}},
-	{Name: "accessible", Aliases: []string{"无障碍", "轮椅", "坡道", "扶手", "行动不便", "助行器", "台阶", "拄拐", "腿脚", "通道"}},
-	{Name: "business", Aliases: []string{"商务", "宴请", "客户", "接待", "合作方", "供应商", "合同", "项目伙伴", "工作饭局", "独立空间"}},
+	{Name: "accessible", Aliases: []string{"无障碍", "轮椅", "坡道", "扶手", "行动不便", "助行器", "台阶", "拄拐", "腿脚", "通道", "婴儿车", "平推", "落差"}},
+	{Name: "business", Aliases: []string{"商务", "宴请", "客户", "接待", "合作方", "供应商", "合同", "项目伙伴", "工作饭局", "独立空间", "私下谈", "私密", "隔音", "邻桌"}},
 	{Name: "student_value", Aliases: []string{"学生", "平价", "性价比", "学生党", "学生优惠", "钱包", "刚毕业", "租房族", "控制花销", "预算紧", "分量", "省着花"}},
 }
 
@@ -281,4 +315,59 @@ func (l *EvidenceLedger) Get(shopID int64) *ShopEvidence {
 		cp.BlogTexts = append([]string{}, ev.BlogTexts...)
 	}
 	return &cp
+}
+
+func (l *EvidenceLedger) HasBlogEvidence(shopID int64) bool {
+	item := l.Get(shopID)
+	return item != nil && len(item.BlogIDs) > 0
+}
+
+func (l *EvidenceLedger) HasVerifiedDetails(shopID int64) bool {
+	item := l.Get(shopID)
+	return item != nil && item.Verified
+}
+
+// Snapshot returns a deep copy suitable for checkpoints, traces and replay.
+func (l *EvidenceLedger) Snapshot() EvidenceSnapshot {
+	out := EvidenceSnapshot{Shops: map[int64]ShopEvidenceSnapshot{}}
+	if l == nil {
+		return out
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for id, item := range l.Shops {
+		if item == nil {
+			continue
+		}
+		fields := make(map[string]EvidenceValue, len(item.Fields))
+		for key, value := range item.Fields {
+			fields[key] = value
+		}
+		out.Shops[id] = ShopEvidenceSnapshot{
+			ShopID: id, Name: item.Name, DiscoveredBy: item.DiscoveredBy,
+			Verified: item.Verified, Fields: fields,
+			BlogIDs:   append([]int64(nil), item.BlogIDs...),
+			BlogTexts: append([]string(nil), item.BlogTexts...),
+		}
+	}
+	return out
+}
+
+// NewEvidenceLedgerFromSnapshot restores the live ledger used by tools after
+// a process restart or a durable-agent resume.
+func NewEvidenceLedgerFromSnapshot(snapshot EvidenceSnapshot) *EvidenceLedger {
+	ledger := NewEvidenceLedger()
+	for id, item := range snapshot.Shops {
+		fields := make(map[string]EvidenceValue, len(item.Fields))
+		for key, value := range item.Fields {
+			fields[key] = value
+		}
+		ledger.Shops[id] = &ShopEvidence{
+			ShopID: id, Name: item.Name, DiscoveredBy: item.DiscoveredBy,
+			Verified: item.Verified, Fields: fields,
+			BlogIDs:   append([]int64(nil), item.BlogIDs...),
+			BlogTexts: append([]string(nil), item.BlogTexts...),
+		}
+	}
+	return ledger
 }

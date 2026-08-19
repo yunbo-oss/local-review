@@ -18,7 +18,7 @@ import (
 const (
 	sessionTTL  = 7 * 24 * time.Hour
 	profileTTL  = 90 * 24 * time.Hour
-	sessionCap  = 20
+	sessionCap  = 60
 	casMaxRetry = 3
 )
 
@@ -150,10 +150,50 @@ func (r *memoryRepo) AppendSession(ctx context.Context, userID int64, sessionID 
 	return err
 }
 
+func (r *memoryRepo) LoadSessionSummary(ctx context.Context, userID int64, sessionID string) (memory.SessionSummary, error) {
+	raw, err := r.rdb.Get(ctx, redisx.AgentSessionSummaryKey(userID, sessionID)).Result()
+	if err == redis.Nil {
+		return memory.SessionSummary{}, nil
+	}
+	if err != nil {
+		return memory.SessionSummary{}, err
+	}
+	var summary memory.SessionSummary
+	if err := json.Unmarshal([]byte(raw), &summary); err != nil {
+		return memory.SessionSummary{}, err
+	}
+	_ = r.rdb.Expire(ctx, redisx.AgentSessionSummaryKey(userID, sessionID), sessionTTL).Err()
+	return summary, nil
+}
+
+func (r *memoryRepo) SaveSessionSummary(ctx context.Context, userID int64, sessionID string, summary memory.SessionSummary) error {
+	if summary.Version <= 0 {
+		summary.Version = 1
+	}
+	if summary.UpdatedAt == 0 {
+		summary.UpdatedAt = memory.NowUnix()
+	}
+	raw, err := json.Marshal(summary)
+	if err != nil {
+		return err
+	}
+	return r.rdb.Set(ctx, redisx.AgentSessionSummaryKey(userID, sessionID), raw, sessionTTL).Err()
+}
+
+func (r *memoryRepo) TrimSession(ctx context.Context, userID int64, sessionID string, keepRecent int) error {
+	if keepRecent <= 0 {
+		keepRecent = DefaultWorkingMessagesForRepo
+	}
+	return r.rdb.LTrim(ctx, redisx.AgentSessionKey(userID, sessionID), -int64(keepRecent), -1).Err()
+}
+
+const DefaultWorkingMessagesForRepo = 12
+
 func profileToHash(p memory.Profile) map[string]any {
 	areas, _ := json.Marshal(p.PreferredAreas)
 	types, _ := json.Marshal(p.PreferredTypes)
 	dislikes, _ := json.Marshal(p.Dislikes)
+	preferenceMeta, _ := json.Marshal(p.PreferenceMeta)
 	budget := ""
 	if p.BudgetMax != nil {
 		budget = strconv.FormatInt(*p.BudgetMax, 10)
@@ -166,6 +206,7 @@ func profileToHash(p memory.Profile) map[string]any {
 		"summary":         p.Summary,
 		"version":         p.Version,
 		"updated_at":      p.UpdatedAt,
+		"preference_meta": string(preferenceMeta),
 	}
 }
 
@@ -190,6 +231,7 @@ func hashToProfile(m map[string]string) (memory.Profile, error) {
 	_ = json.Unmarshal([]byte(orEmptyArray(m["preferred_areas"])), &p.PreferredAreas)
 	_ = json.Unmarshal([]byte(orEmptyArray(m["preferred_types"])), &p.PreferredTypes)
 	_ = json.Unmarshal([]byte(orEmptyArray(m["dislikes"])), &p.Dislikes)
+	_ = json.Unmarshal([]byte(m["preference_meta"]), &p.PreferenceMeta)
 	if p.PreferredAreas == nil {
 		p.PreferredAreas = []string{}
 	}

@@ -3,6 +3,7 @@ package logic
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 
 	repoInterfaces "local-review-go/internal/repository/interface"
@@ -11,6 +12,16 @@ import (
 type stubEmbed struct {
 	vec []float32
 	err error
+}
+
+type countingVector struct {
+	stubVector
+	textCalls atomic.Int32
+}
+
+func (s *countingVector) SearchText(ctx context.Context, query string, filter *repoInterfaces.VectorSearchFilter, k int) ([]repoInterfaces.ShopSearchResult, error) {
+	s.textCalls.Add(1)
+	return s.stubVector.SearchText(ctx, query, filter, k)
 }
 
 func (s *stubEmbed) Embed(ctx context.Context, text string) ([]float32, error) {
@@ -105,6 +116,33 @@ func TestShopSearchLogic_HybridFuses(t *testing.T) {
 	}
 	if len(got) == 0 || got[0].ShopID != 2 {
 		t.Fatalf("want shop 2 first after RRF, got %+v", got)
+	}
+}
+
+func TestShopSearchLogic_MultiQueryRetrievesEveryUniqueRewrite(t *testing.T) {
+	t.Parallel()
+	vec := &countingVector{stubVector: stubVector{
+		dense: []repoInterfaces.ShopSearchResult{{ShopID: 1}, {ShopID: 2}},
+		text:  []repoInterfaces.ShopSearchResult{{ShopID: 2}, {ShopID: 3}},
+	}}
+	base := NewShopSearchLogic(ShopSearchLogicDeps{
+		EmbeddingClient: &stubEmbed{vec: []float32{0.1}}, VectorRepo: vec,
+	})
+	multi, ok := base.(MultiQueryShopSearchLogic)
+	if !ok {
+		t.Fatal("shop search does not implement MultiQueryShopSearchLogic")
+	}
+	out, err := multi.SearchMultiWithMeta(context.Background(),
+		[]string{"原问题", "同义改写", "原问题", "第二改写"}, nil,
+		RetrieverHybrid, 3, SearchModeStrict)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if vec.textCalls.Load() != 3 {
+		t.Fatalf("text calls=%d want=3 unique queries", vec.textCalls.Load())
+	}
+	if len(out.Results) != 3 || out.Results[0].ShopID != 2 {
+		t.Fatalf("unexpected multi-query fusion: %+v", out.Results)
 	}
 }
 

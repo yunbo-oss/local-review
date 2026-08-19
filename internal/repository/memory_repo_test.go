@@ -69,19 +69,37 @@ func TestMemoryRepo_SessionAndProfile(t *testing.T) {
 	})
 
 	t.Run("session_rpush_ltrim", func(t *testing.T) {
-		msgs := make([]memory.Message, 0, 25)
-		for i := 0; i < 25; i++ {
+		msgs := make([]memory.Message, 0, 70)
+		for i := 0; i < 70; i++ {
 			msgs = append(msgs, memory.Message{Role: "user", Content: "m" + string(rune('a'+i%26))})
 		}
 		if err := repo.AppendSession(ctx, 1, "s1", msgs...); err != nil {
 			t.Fatal(err)
 		}
-		loaded, err := repo.LoadSession(ctx, 1, "s1", 50)
+		loaded, err := repo.LoadSession(ctx, 1, "s1", 100)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(loaded) != 20 {
-			t.Fatalf("want 20, got %d", len(loaded))
+		if len(loaded) != 60 {
+			t.Fatalf("want 60, got %d", len(loaded))
+		}
+	})
+
+	t.Run("session_summary_and_trim", func(t *testing.T) {
+		summary := memory.SessionSummary{Content: "比较过两家咖啡店", ThroughTs: 1700000000, Version: 2}
+		if err := repo.SaveSessionSummary(ctx, 1, "s1", summary); err != nil {
+			t.Fatal(err)
+		}
+		loaded, err := repo.LoadSessionSummary(ctx, 1, "s1")
+		if err != nil || loaded.Content != summary.Content || loaded.Version != 2 {
+			t.Fatalf("summary=%+v err=%v", loaded, err)
+		}
+		if err := repo.TrimSession(ctx, 1, "s1", 12); err != nil {
+			t.Fatal(err)
+		}
+		messages, err := repo.LoadSession(ctx, 1, "s1", 60)
+		if err != nil || len(messages) != 12 {
+			t.Fatalf("trimmed messages=%d err=%v", len(messages), err)
 		}
 	})
 }

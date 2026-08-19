@@ -22,10 +22,15 @@ type Expected struct {
 	RequiredClaimRegex          []string       `json:"required_claim_regex,omitempty"`
 	ExpectNoResults             bool           `json:"expect_no_results"`
 	ExpectGroundedness          *bool          `json:"expect_groundedness"`
+	RuntimeVersion              string         `json:"runtime_version,omitempty"`
+	MaxSearchRounds             int            `json:"max_search_rounds,omitempty"`
+	MaxReviewPagesPerShop       int            `json:"max_review_pages_per_shop,omitempty"`
+	RequireAnswerVerified       bool           `json:"require_answer_verified,omitempty"`
 }
 
 // OutcomeActual 一次运行的可观测结果
 type OutcomeActual struct {
+	Route                     string `json:"route,omitempty"`
 	Filter                    map[string]any
 	CitedShopIDs              []int64
 	RecommendedShopIDs        []int64
@@ -44,6 +49,26 @@ type OutcomeActual struct {
 	PromptTokens              int
 	CompletionTokens          int
 	Tokens                    int
+	Intent                    string  `json:"intent,omitempty"`
+	IntentConfidence          float64 `json:"intent_confidence,omitempty"`
+	QueryUnderstandingSource  string  `json:"query_understanding_source,omitempty"`
+	RewriteCount              int     `json:"rewrite_count,omitempty"`
+	PlanVersions              int     `json:"plan_versions,omitempty"`
+	Replans                   int     `json:"replans,omitempty"`
+	PlanFallback              bool    `json:"plan_fallback,omitempty"`
+	ClaimFallback             bool    `json:"claim_fallback,omitempty"`
+	ClaimCount                int     `json:"claim_count,omitempty"`
+	ClaimsWithEvidence        int     `json:"claims_with_evidence,omitempty"`
+	ClaimEvidenceCoverage     float64 `json:"claim_evidence_coverage,omitempty"`
+	RetrievalConfidence       float64 `json:"retrieval_confidence,omitempty"`
+	RetrievalDecision         string  `json:"retrieval_decision,omitempty"`
+	RetrievalEvidenceCoverage float64 `json:"retrieval_evidence_coverage,omitempty"`
+	RuntimeVersion            string  `json:"runtime_version,omitempty"`
+	RuntimeStatus             string  `json:"runtime_status,omitempty"`
+	SearchRounds              int     `json:"search_rounds,omitempty"`
+	MaxReviewPages            int     `json:"max_review_pages,omitempty"`
+	EvidenceGapCount          int     `json:"evidence_gap_count,omitempty"`
+	AnswerVerified            bool    `json:"answer_verified,omitempty"`
 }
 
 // GradeResult 单项评分

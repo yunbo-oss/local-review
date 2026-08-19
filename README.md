@@ -149,7 +149,7 @@ k6 压测，1 Nginx + 3 Go 实例，151 用户 × 25 秒杀券：总 QPS ~1160�
 
 ## 四、AI 语义检索引擎 (RAG) 与推荐 Agent
 
-> 暂未实现前端。RAG 演示：`make demo-rag`；Agent 记忆演示：`make demo-agent`。说明见 [doc/AGENT_AND_EVAL.md](doc/AGENT_AND_EVAL.md)。
+> 暂未实现前端。这里的 ReAct 指 Reason/Act 的有界 Agent 运行时，不是 React.js。RAG 演示：`make demo-rag`；Agent 记忆演示：`make demo-agent`。说明见 [doc/AGENT_AND_EVAL.md](doc/AGENT_AND_EVAL.md)。
 
 ### 4.0 推荐入口
 
@@ -159,13 +159,13 @@ k6 压测，1 Nginx + 3 Go 实例，151 用户 × 25 秒杀券：总 QPS ~1160�
 | `POST /api/agent/recommend` | 有界多步 Agent（需登录；`force_route` 可选） |
 | `POST /api/recommend` | 统一入口：`RecommendRouter` → RAG / Agent |
 
-同任务评测：
+当前架构的端到端评测从生产 Router 入口开始，不强制指定 Agent 路由，也不运行对照组：
 
 ```bash
-make eval-rag-prod-baseline
-make eval-hybrid-task  # 与 Agent 完全相同的任务与 trial
-make eval-agent
+LLM_API_KEY='your-key' make docker-agent-e2e-v61
 ```
+
+该命令实际执行 `Query Understanding -> Router -> Clarify / Hybrid RAG / Parallel ReAct -> Answer Verifier`，报告输出到 `rag-evals/reports/agent_e2e_v61.json`。
 
 ### 4.1 背景
 
@@ -196,52 +196,91 @@ make eval-agent
 - **实时**：店铺创建/更新发 MQ → RAG 消费者 `NewShopUpdateRAGHandler` 异步 Embedding + `StoreShop`
 - **离线**：`make seed-vector` 批量导入
 
-### 4.5 有界推荐 Agent
+### 4.5 当前 Agent 架构
 
-```text
-请求
-  -> RecommendRouter（单轮 RAG / 多步 Agent / 澄清）
-  -> 加载结构化 profile，并应用本轮显式纠正
-  -> 最多 3 steps / 5 次成功工具调用 / 8 次尝试
-       search_shops -> get_shop / list_shop_blogs
-  -> EvidenceLedger 记录本轮观察到的店铺与事实
-  -> 引用、价格、评分、地址、营业时间和评价证据校验
-  -> 必要时仅允许一次无工具、白名单约束的修订
-  -> SSE 输出 answer、route、steps、tool_calls、tokens、trace_id
+```mermaid
+flowchart TD
+    A["POST /api/recommend"] --> B["鉴权、输入与状态预检"]
+    B --> C["LLM Query Understanding<br/>意图、改写、硬条件、软偏好、证据需求、置信度"]
+    C --> D{"Adaptive Router"}
+    D -->|"低置信度、缺少指代"| E["Clarify"]
+    D -->|"简单且自包含"| F["Hybrid RAG one-shot"]
+    D -->|"比较、核验、追问、记忆"| G["选择性 Memory Context"]
+    G --> H["Bounded Parallel ReAct Runtime"]
+    H --> I["Controller 输出 act / finish / clarify"]
+    I -->|"act"| J["校验结构化动作与依赖 DAG"]
+    J --> K{"已有合法候选 ID？"}
+    K -->|"否"| L["search_shops 建立候选注册表"]
+    K -->|"是"| M["并行 get_shop / list_shop_blogs"]
+    L --> N["更新 Candidate、Evidence Ledger、Evidence Gaps"]
+    M --> N
+    N -->|"证据不足：续查评论或改写重搜"| H
+    I -->|"finish"| O["生成结构化 Claim Answer"]
+    O --> P["字段一致性、引用合法性、语义蕴含校验"]
+    P -->|"通过"| Q["输出带证据回答"]
+    P -->|"失败"| R["确定性证据回退或安全无结果"]
+    Q --> S["写入会话；按策略更新长期画像"]
+    R --> S
 ```
 
-- `search_shops` 复用线上 Hybrid 检索，详情与评价工具只读且独立限时。
-- 用户本轮显式条件优先于长期画像；画像使用结构化字段和版本号，不把全部聊天历史当作硬约束。
-- 评价与检索摘要被标记为不可信数据；推荐只能引用本轮证据账本中的 `[shop:id]`。
-- task outcome、groundedness、trajectory 和 composite 分开统计，基础设施错误单列。
-- 简单单轮请求仍走 Hybrid RAG；Agent 用额外调用和 Token 换取复杂任务完成率，不是所有请求的默认路径。
+当前 V2 不是“Planner 一次生成完整计划，再由 Executor 从头执行”的静态工作流。Controller 每轮只输出下一批有类型约束的动作；Executor 返回观察后，运行时重新计算候选、证据缺口与剩余预算，再决定继续检索、翻页、改写重搜、澄清或结束。这种逐轮决策就是当前实现中的 replan。
 
-### 4.6 四路确定性 Router
+| 层次 | 当前实现 |
+|------|----------|
+| Query Understanding | 一次 LLM 结构化解析生成统一 `IntentSpec`，包含 intent、route、hard filters、soft preferences、evidence requirements 和 1～3 条 rewrite；原问题始终保留为检索分支，避免改写丢失硬条件 |
+| Adaptive Router | 在 `rag_oneshot`、`agent_multistep`、`agent_memory`、`clarify` 间分流；模型异常时回退确定性 Router，低置信度或缺失历史指代时优先澄清 |
+| ReAct Controller | 只输出 `act / finish / clarify` 和短 `reason_code`，不暴露或持久化思维链；非法 JSON 或状态机决策只允许一次有界修复 |
+| Parallel Executor | 根据 `depends_on` 计算 DAG 就绪前沿，通过 `errgroup` 限流并行；支持单工具超时、瞬时错误重试、参数去重、失败依赖跳过和总调用预算 |
+| Candidate / Evidence | `search_shops` 后才注册候选；详情与评价工具只能访问已注册 ID。评价通过服务端 cursor 增量读取，默认每店最多两页 |
+| Rerank | Hybrid 检索与语义相关性形成第一阶段排序；工具执行后再按已验证证据覆盖率确定性重排 |
+| Answer Verifier | 最终回答先转为 claim JSON，每条事实绑定 `shop:{id}.{field}` 或 `blog:{id}`；再做字段值、跨店引用、主观评价蕴含与硬条件校验，失败时 fail closed |
+| Runtime Safety | 默认限制 4 轮、10 次工具调用、12 次尝试、2 次搜索和每店 2 页评价；无新证据、重复调用、超时和客户端取消都有显式终止状态 |
 
-统一入口不调用模型做路由，而是按可解释的固定顺序输出 `rag_oneshot`、`agent_multistep`、`agent_memory` 或 `clarify`：
+### 4.6 Agent 层面的主要改动
 
-1. 合法 `force_route` 直接覆盖；非法值忽略。
-2. 从“实际需求是/我只想”等边界提取真实意图，避免引用的评论或注入文本误触发规则。
-3. 识别预算、区域、类别等偏好的删除/修改，加载或更新结构化记忆后进入推荐 Agent。
-4. 识别比较、详情、评价核验、冲突和证据解释，进入同一个推荐 Agent 的多步工具路径。
-5. 历史指代在有 session 时加载会话上下文后进入推荐 Agent；缺少历史时要求澄清。
-6. 其余自包含找店请求走 one-shot Hybrid RAG。
+| 早期/兼容实现 | 当前 V2 |
+|---------------|---------|
+| Router、RAG 过滤提取和 Agent 各自理解请求，容易出现意图不一致 | 统一 `IntentSpec` 同时服务路由、检索、证据收集和记忆策略 |
+| 静态 Planner 或顺序 tool loop | 有界 Parallel ReAct，每轮基于最新 observation 和 evidence gaps 重新决策 |
+| 模型可直接给详情/评价工具传任意店铺 ID | Candidate Registry 设置搜索屏障，未检索到的 ID 无法进入后续工具 |
+| 一次读取评论后直接生成答案 | 评论证据不足时沿服务端 cursor 继续读取；无支持证据则明确返回无结果 |
+| 只检查答案中的店铺 ID 是否出现过 | Claim-level Evidence Ledger + 字段一致性 + LLM entailment，主观结论必须引用真实评价 |
+| 将历史和画像直接拼入 Prompt | 分层 Memory Context，并以 `none / read_only / write_after_success` 控制读取与提交 |
+| 请求日志难以还原一次运行 | Redis checkpoint + MySQL run/tool audit + OpenTelemetry 分层 span |
 
-`agent_multistep` 与 `agent_memory` 是执行模式标签，不是两个独立 Agent；它们复用同一个有界推荐 Agent，后者只额外使用结构化画像或会话历史。Handler 仅在问题含历史指代时读取 session，普通 one-shot 不额外访问记忆存储。冻结 `router.v2` challenge 含四类各 13 题：旧策略 29/52（55.77%），v2 策略 52/52（100%），Accuracy 提升 44.23 个百分点且无模型调用。该集合是人工设计、类别平衡的 repository-visible challenge，不代表线上自然流量准确率。
+这里的 `agent_multistep` 与 `agent_memory` 只是兼容路由标签，不是两个 Agent。二者进入同一个 V2 runtime，区别是是否读取会话/画像以及是否允许在回答验证成功后更新长期记忆。`AGENT_RUNTIME_VERSION=v1_plan` 仅用于回放旧 Planner 基线，默认运行 `v2_react`。
 
-### 4.7 评测结果
+### 4.7 并行执行、记忆与可观测性边界
 
-评测使用固定种子生成的 200 家店和 1000 条评价，并连接真实的 DeepSeek API、MySQL 与 Redis。正式结果记录于 2026-08-09，对应代码和数据版本 `fb85084`。
+- **为什么不能一开始并行查详情和评价**：`get_shop`、`list_shop_blogs` 的 `shop_id` 必须来自本轮 `search_shops`。第一轮先搜索；候选注册后，同一批候选的详情和评价才形成可并行的 DAG 就绪前沿。
+- **如何继续检查评价**：每次评论工具返回服务端签发的 `next_cursor`。Evidence Gap 仍未满足且 cursor 非空时，下一轮 Controller 才能继续翻页；客户端或模型不能伪造偏移量。
+- **Memory 是否需要单独 Agent**：当前没有 Memory Agent。应用层先从 MySQL 加载版本化结构化画像、从 Redis 加载有界会话与摘要，再只注入相关事实；用户明确表达的纯偏好更新可在预检阶段确定性提交，模型推断出的偏好则只有在 `COMPLETED + AnswerVerified` 的 `write_after_success` 路径才能 CAS 更新长期画像。
+- **运行恢复**：完整 `AgentState` 按 `run_id + revision` 写入 Redis checkpoint，使用事务 CAS 防止旧 revision 覆盖新状态，TTL 为 30 分钟；它与长期用户记忆分离。
+- **执行追踪**：HTTP 上下文中的 W3C Trace ID 贯穿 `agent.run -> agent.controller / agent.action -> tool.execute`；SSE 的 `run_started`、最终响应和 MySQL `agent_runs` 使用同一 `trace_id`。`agent_tool_calls` 仅保存参数摘要/哈希、状态、错误码、耗时和结果数，不保存原始问句或评价正文。
+
+关键实现：
+
+- Query Understanding / Rewrite：`internal/agent/understanding.go`
+- Adaptive Router：`internal/logic/adaptive_recommend_router.go`
+- ReAct 状态机与预算：`internal/agent/react_runtime.go`、`internal/agent/react_types.go`
+- DAG 并行执行：`internal/agent/react_executor.go`
+- Evidence Gap / Claim Verifier：`internal/agent/evidence_gap.go`、`internal/agent/claims.go`、`internal/agent/claim_entailment.go`
+- Memory 与运行审计编排：`internal/logic/recommend_agent_logic.go`
+
+### 4.8 评测结果
+
+评测使用固定种子生成的 200 家店和 1000 条评价，并连接真实的 DeepSeek API、MySQL 与 Redis。v4 是旧 tool-loop 的历史冻结结果；当前 Parallel ReAct + Adaptive Router 必须看 v6/v6.1 报告，不能沿用 v4 数字冒充新架构效果。
 
 | 数据集 | 结果 |
 |--------|------|
 | Retrieval v2（60 题） | HitRate@5 100%，Recall@5 81.63%，Precision@5 83.21%，MRR 0.9732，NDCG@5 0.9802，过滤准确率 100%，基础设施错误率 0% |
 | Retrieval v3 challenge（120 题） | HitRate@5 70.54%，task success 64.17%，no-result accuracy 12.50% |
-| Agent v4 与 one-shot Hybrid RAG 同任务对照 | scenario-macro task success 96.43% vs 46.43%，相差 50.00 个百分点；trial-micro 97.92% vs 52.08% |
-| Agent v4 | 成功回答 groundedness 100%，trajectory 100%，P50/P95 6.043s/10.049s，平均 2.56 次工具调用、5292 Token，基础设施错误率 0% |
+| Agent v4（历史旧 runtime）与 one-shot Hybrid RAG 同任务对照 | scenario-macro task success 96.43% vs 46.43%；该数字不代表当前 V2 Agent |
+| Router E2E v6.1 首轮诊断（修复前） | trial-micro task success 60.71%，scenario-macro 56.67%，成功任务 groundedness 97.06%，P50/P95 3.741s/13.849s，infra error 0% |
+| Router E2E v6.1 修复后（当前 V2） | trial-micro task/composite 92.86%，scenario-macro 90.00%，成功任务 groundedness 100%，P50/P95 8.455s/23.141s，56 trials、infra error 0% |
 | Router v2 challenge（52 题） | Accuracy 和 macro-F1 均为 100%；旧策略为 55.77% |
 
-Agent v4 对照固定使用 `agent_multistep`，不包含 Router 的收益。场景主要覆盖多轮记忆、纠正、评价核验、无结果和提示注入，因此结果只反映这组冻结任务，不代表线上整体效果。详细口径和失败记录见 [Agent 与评测说明](doc/AGENT_AND_EVAL.md) 与 [实践问题与修复日志](doc/EVAL_PRACTICE_LOG.md)。
+v6.1 通过真实生产入口执行 `Query Understanding -> Router -> Clarify / RAG / Parallel ReAct`，不跑对照组。当前报告是共同机制修复后重新完整实测的结果；仍有 4/56 失败集中在 `agent_memory` 的开放式语义候选选择，不能把 92.86% 外推为线上准确率。详细口径见 [Agent 与评测说明](doc/AGENT_AND_EVAL.md)。
 
 ---
 

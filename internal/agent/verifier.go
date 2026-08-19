@@ -123,8 +123,11 @@ func checkFactConflicts(answer string, cited []int64, ledger *EvidenceLedger) er
 			evidencePrices[got] = struct{}{}
 		}
 	}
-	for _, m := range avgPriceRe.FindAllStringSubmatch(answer, -1) {
-		want, _ := strconv.ParseInt(m[1], 10, 64)
+	for _, match := range avgPriceRe.FindAllStringSubmatchIndex(answer, -1) {
+		if len(match) < 4 || isBudgetCeilingMention(answer, match[0], match[3]) {
+			continue
+		}
+		want, _ := strconv.ParseInt(answer[match[2]:match[3]], 10, 64)
 		if _, ok := evidencePrices[want]; !ok {
 			return NewPublicError(ErrGroundingFactConflict,
 				fmt.Sprintf("avg_price conflict: answer=%d not present in cited evidence", want))
@@ -140,6 +143,32 @@ func checkFactConflicts(answer string, cited []int64, ledger *EvidenceLedger) er
 		return err
 	}
 	return nil
+}
+
+// A recommendation often restates the user's budget (for example “人均275元
+// 以内”) next to actual shop prices. That number is a constraint, not a shop
+// fact, and must not be compared with the evidence price set.
+func isBudgetCeilingMention(answer string, matchStart, captureEnd int) bool {
+	lineStart := strings.LastIndex(answer[:matchStart], "\n") + 1
+	prefix := answer[lineStart:matchStart]
+	for _, marker := range []string{"预算", "最多", "最高", "上限", "封顶", "不超过"} {
+		if strings.Contains(prefix, marker) {
+			return true
+		}
+	}
+	lineEnd := strings.Index(answer[captureEnd:], "\n")
+	if lineEnd < 0 {
+		lineEnd = len(answer)
+	} else {
+		lineEnd += captureEnd
+	}
+	suffix := strings.TrimSpace(answer[captureEnd:lineEnd])
+	for _, marker := range []string{"元以内", "以内", "元以下", "以下", "元封顶", "封顶", "元上限", "上限"} {
+		if strings.HasPrefix(suffix, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func checkScoreConflicts(answer string, cited []int64, ledger *EvidenceLedger) error {

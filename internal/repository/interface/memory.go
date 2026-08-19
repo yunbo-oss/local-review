@@ -15,3 +15,13 @@ type MemoryRepo interface {
 	// ReplaceProfile 评测/demo 用：直接写入完整 profile 快照（覆盖）
 	ReplaceProfile(ctx context.Context, userID int64, profile memory.Profile) error
 }
+
+// LayeredMemoryRepo is an optional episodic-memory extension. Callers use a
+// type assertion so lightweight test repositories and older deployments remain
+// compatible.
+type LayeredMemoryRepo interface {
+	MemoryRepo
+	LoadSessionSummary(ctx context.Context, userID int64, sessionID string) (memory.SessionSummary, error)
+	SaveSessionSummary(ctx context.Context, userID int64, sessionID string, summary memory.SessionSummary) error
+	TrimSession(ctx context.Context, userID int64, sessionID string, keepRecent int) error
+}

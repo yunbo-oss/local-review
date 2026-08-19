@@ -13,7 +13,7 @@ import (
 func main() {
 	root := flag.String("root", ".", "repository root")
 	check := flag.Bool("check", false, "verify generated artifacts are already current")
-	suite := flag.String("suite", "v3", "suite to generate: v3, v31, or v4")
+	suite := flag.String("suite", "v3", "suite to generate: v3, v31, v4, v5, v6, or v61")
 	flag.Parse()
 
 	var paths []string

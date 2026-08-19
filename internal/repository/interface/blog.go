@@ -3,6 +3,7 @@ package interfaces
 import (
 	"context"
 	"local-review-go/internal/model"
+	"time"
 )
 
 // BlogRepo 博客数据访问接口
@@ -16,4 +17,23 @@ type BlogRepo interface {
 	ListByShopID(ctx context.Context, shopID int64, limit int) ([]model.Blog, error)
 	IncrLike(ctx context.Context, id int64) error
 	DecrLike(ctx context.Context, id int64) error
+}
+
+type BlogPageRequest struct {
+	ShopID     int64
+	Cursor     string
+	Limit      int
+	Sort       string
+	FreshAfter time.Time
+}
+
+type BlogPageResult struct {
+	Blogs      []model.Blog
+	NextCursor string
+}
+
+// PaginatedBlogRepo is optional so existing domain stubs remain small. The
+// recommendation Agent uses it when incremental evidence retrieval is enabled.
+type PaginatedBlogRepo interface {
+	ListByShopIDPage(ctx context.Context, request BlogPageRequest) (BlogPageResult, error)
 }

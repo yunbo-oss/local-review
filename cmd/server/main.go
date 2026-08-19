@@ -109,30 +109,41 @@ func main() {
 		FilterExtractor: logic.NewLLMFilterExtractor(chatClient),
 		BlogRepo:        blogRepo,
 		MemoryRepo:      memoryRepo,
+		Reranker:        logic.NewLLMCandidateReranker(chatClient),
 	})
 	ragHandler := handler.NewRAGHandler(ragLogic)
 
 	var agentHandler *handler.AgentHandler
 	var recommendHandler *handler.RecommendHandler
 	recommendRouter := logic.NewRecommendRouter()
+	adaptiveRouter := logic.NewAdaptiveRecommendRouter(
+		recommendRouter, agent.NewLLMQueryUnderstander(chatClient),
+	)
 	if toolChat != nil {
 		agentLogic := logic.NewRecommendAgentLogic(logic.RecommendAgentLogicDeps{
-			ToolChat:   toolChat,
-			ChatClient: chatClient,
-			Memory:     memoryRepo,
-			Search:     shopSearch,
-			ShopRepo:   shopRepo,
-			BlogRepo:   blogRepo,
-			RunRepo:    agentRunRepo,
-			Router:     recommendRouter,
-			Config:     agent.DefaultRunConfig(),
+			ToolChat:       toolChat,
+			ChatClient:     chatClient,
+			Memory:         memoryRepo,
+			Search:         shopSearch,
+			ShopRepo:       shopRepo,
+			BlogRepo:       blogRepo,
+			RunRepo:        agentRunRepo,
+			Router:         recommendRouter,
+			AdaptiveRouter: adaptiveRouter,
+			Reranker:       logic.NewLLMCandidateReranker(chatClient),
+			Planner:        agent.NewLLMPlanner(chatClient),
+			Controller:     agent.NewLLMDecisionController(toolChat),
+			Checkpointer:   repository.NewRedisAgentCheckpointer(redis.GetRedisClient()),
+			RuntimeVersion: agent.RuntimeVersionFromEnv(),
+			Summarizer:     agent.NewLLMSessionSummarizer(chatClient),
+			Config:         agent.DefaultRunConfig(),
 		})
 		agentHandler = handler.NewAgentHandler(agentLogic)
 	} else if llmCfg.APIKey != "" {
 		logrus.Warn("LLM_API_KEY 已配置但 ToolChatClient 不可用：当前模型/网关可能不支持 function calling；/api/agent/recommend 将不注册。详见 doc/AGENT_AND_EVAL.md")
 	}
 	if agentHandler != nil || ragHandler != nil {
-		recommendHandler = handler.NewRecommendHandler(recommendRouter, agentHandler, ragHandler)
+		recommendHandler = handler.NewRecommendHandler(adaptiveRouter, agentHandler, ragHandler)
 	}
 	if err := redis.InitShopVectorIndex(context.Background(), redis.GetRedisClient(), llmCfg.EmbeddingDim); err != nil {
 		logrus.Warnf("RAG 向量索引初始化失败（需 Redis Stack）: %v", err)

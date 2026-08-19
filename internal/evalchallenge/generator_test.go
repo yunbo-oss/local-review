@@ -126,4 +126,78 @@ func TestAgentSuiteBuildIsDeterministic(t *testing.T) {
 	if hash(mustJSON(a)) != hash(mustJSON(b)) {
 		t.Fatal("v4 agent suite is not deterministic")
 	}
+	v5a := BuildAgentChallengeV5("sha256:source")
+	v5b := BuildAgentChallengeV5("sha256:source")
+	if hash(mustJSON(v5a)) != hash(mustJSON(v5b)) {
+		t.Fatal("v5 agent suite is not deterministic")
+	}
+	v6a := BuildAgentChallengeV6("sha256:source")
+	v6b := BuildAgentChallengeV6("sha256:source")
+	if hash(mustJSON(v6a)) != hash(mustJSON(v6b)) {
+		t.Fatal("v6 agent suite is not deterministic")
+	}
+	v61a := BuildAgentRegressionV61("sha256:source")
+	v61b := BuildAgentRegressionV61("sha256:source")
+	if hash(mustJSON(v61a)) != hash(mustJSON(v61b)) {
+		t.Fatal("v6.1 agent regression suite is not deterministic")
+	}
+}
+
+func TestAgentV61SeparatesTaskAndRuntimeContracts(t *testing.T) {
+	suite := BuildAgentRegressionV61("sha256:source")
+	if len(suite.Agent.Cases) != 48 || suite.Agent.Splits["challenge"].Sealed {
+		t.Fatalf("v6.1 must be a 48-case inspectable regression suite: %+v", suite.Agent.Splits)
+	}
+	for _, c := range suite.Agent.Cases {
+		if c.Expected.RuntimeVersion != "" || c.Expected.RequireAnswerVerified ||
+			c.Expected.MaxSearchRounds != 0 || c.Expected.MaxReviewPagesPerShop != 0 {
+			t.Fatalf("case %s leaked runtime conformance into task expectations: %+v", c.ID, c.Expected)
+		}
+		for _, tag := range c.Tags {
+			if tag == "v2_runtime" {
+				t.Fatalf("case %s retained v2_runtime task tag", c.ID)
+			}
+		}
+	}
+}
+
+func TestAgentV6CarriesRuntimeEvidenceBudgets(t *testing.T) {
+	suite := BuildAgentChallengeV6("sha256:source")
+	if len(suite.Agent.Cases) != 48 {
+		t.Fatalf("v6 cases=%d", len(suite.Agent.Cases))
+	}
+	for _, c := range suite.Agent.Cases {
+		if c.Expected.RuntimeVersion != "v2_react" || c.Expected.MaxSteps != 4 ||
+			c.Expected.MaxToolCalls != 10 || c.Expected.MaxSearchRounds != 2 ||
+			c.Expected.MaxReviewPagesPerShop != 2 || !c.Expected.RequireAnswerVerified {
+			t.Fatalf("case %s missing V2 contract: %+v", c.ID, c.Expected)
+		}
+	}
+}
+
+func TestExpandedAgentV5Coverage(t *testing.T) {
+	suite := BuildAgentChallengeV5("sha256:source")
+	if len(suite.Agent.Cases) != 48 || suite.Agent.Splits["dev"].Cases != 8 || suite.Agent.Splits["challenge"].Cases != 40 {
+		t.Fatalf("invalid v5 shape: cases=%d splits=%+v", len(suite.Agent.Cases), suite.Agent.Splits)
+	}
+	wantFamilies := map[string]bool{
+		"semantic_ood": false, "typo": false, "memory_correction": false,
+		"coreference": false, "prompt_injection": false, "no_result": false,
+		"claim_level_grounding": false, "session_isolation": false,
+	}
+	for _, c := range suite.Agent.Cases {
+		for _, tag := range c.Tags {
+			if _, tracked := wantFamilies[tag]; tracked {
+				wantFamilies[tag] = true
+			}
+		}
+	}
+	for family, found := range wantFamilies {
+		if !found {
+			t.Fatalf("v5 missing capability family %s", family)
+		}
+	}
+	if suite.Manifest.AgentCases != 48 || suite.Manifest.AgentChallengeTrials <= 40 {
+		t.Fatalf("invalid v5 manifest counts: %+v", suite.Manifest)
+	}
 }

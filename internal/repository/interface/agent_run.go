@@ -6,7 +6,9 @@ import (
 
 // AgentRunBegin 开始一次运行
 type AgentRunBegin struct {
+	RunKey        string
 	TraceID       string
+	SpanID        string
 	UserID        int64
 	SessionID     string
 	Model         string
@@ -30,6 +32,7 @@ type AgentToolCallInput struct {
 
 // AgentRunFinalize 终态
 type AgentRunFinalize struct {
+	RunKey              string
 	TraceID             string
 	Status              string // COMPLETED / FAILED / CANCELLED
 	Steps               int

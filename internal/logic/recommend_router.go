@@ -25,9 +25,11 @@ type RouteDecision struct {
 
 // RouteInput 路由输入
 type RouteInput struct {
-	Question   string
-	ForceRoute string
-	HasHistory bool // 同 session 已有多轮时可提示记忆路径
+	Question       string
+	ForceRoute     string
+	HasHistory     bool // 同 session 已有多轮时可提示记忆路径
+	ProfileSummary string
+	HistorySummary string
 }
 
 // RecommendRouter 规则路由（Phase A）；embedding 级联留后

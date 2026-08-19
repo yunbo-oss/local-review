@@ -29,7 +29,8 @@ func (c *captureSearch) SearchWithMeta(ctx context.Context, query string, filter
 }
 
 type memStub struct {
-	prof memory.Profile
+	prof    memory.Profile
+	history []memory.Message
 }
 
 func (m *memStub) LoadProfile(ctx context.Context, userID int64) (memory.Profile, error) {
@@ -46,7 +47,33 @@ func (m *memStub) ReplaceProfile(ctx context.Context, userID int64, profile memo
 	return nil
 }
 func (m *memStub) LoadSession(ctx context.Context, userID int64, sessionID string, limit int) ([]memory.Message, error) {
-	return nil, nil
+	if limit > 0 && len(m.history) > limit {
+		return append([]memory.Message(nil), m.history[len(m.history)-limit:]...), nil
+	}
+	return append([]memory.Message(nil), m.history...), nil
+}
+
+func TestRecommendationRouteInputIncludesProfileAndHistorySummaries(t *testing.T) {
+	budget := int64(180)
+	mem := &memStub{
+		prof: memory.Profile{PreferredAreas: []string{"海淀区"}, BudgetMax: &budget},
+		history: []memory.Message{
+			{Role: "user", Content: "上次想找能安静写材料的店"},
+			{Role: "assistant", Content: "我列了两个候选"},
+		},
+	}
+	l := NewRecommendAgentLogic(RecommendAgentLogicDeps{Memory: mem})
+	provider, ok := l.(RecommendRouteContextProvider)
+	if !ok {
+		t.Fatal("recommend logic must expose layered route context")
+	}
+	got, err := provider.RecommendationRouteInput(context.Background(), 1, "s", "还是前一个", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.HasHistory || !strings.Contains(got.ProfileSummary, "海淀区") || !strings.Contains(got.HistorySummary, "安静写材料") {
+		t.Fatalf("route context lost memory: %+v", got)
+	}
 }
 func (m *memStub) AppendSession(ctx context.Context, userID int64, sessionID string, messages ...memory.Message) error {
 	return nil
@@ -54,6 +81,54 @@ func (m *memStub) AppendSession(ctx context.Context, userID int64, sessionID str
 
 type toolChatOnce struct {
 	turn llm.AssistantTurn
+}
+
+type layeredMemStub struct {
+	*memStub
+	saved memory.SessionSummary
+	keep  int
+}
+
+func (m *layeredMemStub) LoadSessionSummary(context.Context, int64, string) (memory.SessionSummary, error) {
+	return m.saved, nil
+}
+func (m *layeredMemStub) SaveSessionSummary(_ context.Context, _ int64, _ string, summary memory.SessionSummary) error {
+	m.saved = summary
+	return nil
+}
+func (m *layeredMemStub) TrimSession(_ context.Context, _ int64, _ string, keep int) error {
+	m.keep = keep
+	return nil
+}
+
+type summaryCapture struct {
+	messages []memory.Message
+}
+
+func (s *summaryCapture) Summarize(_ context.Context, previous memory.SessionSummary, messages []memory.Message) (memory.SessionSummary, llm.TokenUsage, error) {
+	s.messages = append([]memory.Message(nil), messages...)
+	return memory.SessionSummary{Content: "摘要", ThroughTs: 1, Version: previous.Version + 1}, llm.TokenUsage{TotalTokens: 10}, nil
+}
+
+func TestCompactSessionKeepsUnsummarisedWorkingWindowWithoutTimestampLoss(t *testing.T) {
+	mem := &layeredMemStub{memStub: &memStub{}}
+	summarizer := &summaryCapture{}
+	l := &recommendAgentLogic{memory: mem, summarizer: summarizer}
+	history := make([]memory.Message, 12)
+	for i := range history {
+		history[i] = memory.Message{Role: "user", Content: "历史", Ts: 1}
+	}
+	usage, calls := l.compactSessionAfterSuccess(context.Background(), 1, "s",
+		memory.SessionSummary{Content: "旧摘要", ThroughTs: 1, Version: 1}, history,
+		memory.Message{Role: "user", Content: "当前问题", Ts: 1},
+		memory.Message{Role: "assistant", Content: "当前回答", Ts: 1},
+	)
+	if calls != 1 || usage.TotalTokens != 10 || len(summarizer.messages) != 6 {
+		t.Fatalf("compaction did not archive the exact prefix: calls=%d usage=%+v archived=%d", calls, usage, len(summarizer.messages))
+	}
+	if mem.keep != memory.DefaultWorkingMessages {
+		t.Fatalf("trim keeps %d messages, want %d", mem.keep, memory.DefaultWorkingMessages)
+	}
 }
 
 func (t *toolChatOnce) ChatWithTools(ctx context.Context, messages []llm.ChatMessage, tools []llm.ToolDefinition) (llm.AssistantTurn, error) {
@@ -91,6 +166,33 @@ func TestRecommendAgentLogic_PureProfileUpdateUsesDeterministicFastPath(t *testi
 	}
 	if res.ModelCalls != 0 || len(res.ProfileAfter.PreferredAreas) != 1 || res.ProfileAfter.PreferredAreas[0] != "东城区" {
 		t.Fatalf("result=%+v", res)
+	}
+	if res.RuntimeVersion != agent.RuntimeVersionV1Plan || res.RuntimeStatus != agent.RuntimeCompleted || !res.AnswerVerified {
+		t.Fatalf("profile fast path must be an auditable verified terminal result: %+v", res)
+	}
+}
+
+func TestRecommendAgentLogic_ClarificationRouteDoesNotRunTools(t *testing.T) {
+	search := &captureSearch{}
+	understander := understanderStub{spec: agent.IntentSpec{
+		Intent: "clarify", Route: "clarify", NeedClarification: true,
+		ClarificationQuestion: "你说的是上一轮哪一家？", Confidence: 0.9,
+	}}
+	l := NewRecommendAgentLogic(RecommendAgentLogicDeps{
+		ToolChat: &toolChatOnce{}, Memory: &memStub{}, Search: search,
+		Router:         NewRecommendRouter(),
+		AdaptiveRouter: NewAdaptiveRecommendRouter(NewRecommendRouter(), understander),
+		Config:         agent.DefaultRunConfig(),
+	})
+	res, err := l.Recommend(context.Background(), 1, "clarify-direct", "还是那家", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Route != string(RouteClarify) || !strings.Contains(res.Answer, "上一轮哪一家") || search.lastTopK != 0 {
+		t.Fatalf("clarification should be a no-tool terminal response: %+v", res)
+	}
+	if res.RuntimeVersion != agent.RuntimeVersionV1Plan || res.RuntimeStatus != agent.RuntimeNeedsClarify || !res.AnswerVerified {
+		t.Fatalf("clarification must expose terminal runtime metadata: %+v", res)
 	}
 }
 
@@ -242,6 +344,7 @@ func TestPreflightRecommendationGuard(t *testing.T) {
 		question string
 		code     string
 	}{
+		"deferred":      {"先不用推荐，我还在确认同行的人", "recommendation_deferred"},
 		"contradiction": {"日料人均至少200但最多20，两个数都不能改", "contradictory_price_range"},
 		"taxonomy":      {"朝阳区找电影院，只认这个类别", "unsupported_category"},
 		"reference":     {"还是上回那家吧", "unresolved_reference"},
@@ -279,8 +382,8 @@ func TestEffectiveProfileForQuestionClearsBudgetForCurrentSearch(t *testing.T) {
 	if got.BudgetMax != nil {
 		t.Fatalf("budget should be suppressed for current search: %+v", got)
 	}
-	if len(got.PreferredAreas) != 1 || got.PreferredAreas[0] != "海淀区" {
-		t.Fatalf("effective profile mutated unrelated fields: %+v", got)
+	if len(got.PreferredAreas) != 0 {
+		t.Fatalf("current-turn area must suppress the old profile area: %+v", got)
 	}
 	if old.BudgetMax == nil || *old.BudgetMax != 80 {
 		t.Fatalf("input profile was mutated: %+v", old)
@@ -333,5 +436,31 @@ func TestInferDeterministicProfilePatchWorkingIntentTurns(t *testing.T) {
 	budgetPatch := inferDeterministicProfilePatch("花销按人均250封顶，先记住", memory.Profile{})
 	if budgetPatch.BudgetMax == nil || *budgetPatch.BudgetMax != 250 {
 		t.Fatalf("budget patch=%+v", budgetPatch)
+	}
+}
+
+func TestMemoryPolicyIsCapabilityNotSeparateAgent(t *testing.T) {
+	t.Parallel()
+	if got := memoryPolicyForRequest("海淀咖啡", memory.Profile{}, memory.SessionSummary{}, nil); got != agent.MemoryNone {
+		t.Fatalf("empty memory policy=%s", got)
+	}
+	profile := memory.Profile{PreferredAreas: []string{"海淀区"}}
+	if got := memoryPolicyForRequest("推荐安静咖啡", profile, memory.SessionSummary{}, nil); got != agent.MemoryReadOnly {
+		t.Fatalf("read policy=%s", got)
+	}
+	if got := memoryPolicyForRequest("以后优先海淀区，再推荐咖啡", profile, memory.SessionSummary{}, nil); got != agent.MemoryWriteAfterSuccess {
+		t.Fatalf("write policy=%s", got)
+	}
+}
+
+func TestEffectiveProfileDropsFieldsOverriddenThisTurn(t *testing.T) {
+	t.Parallel()
+	budget := int64(120)
+	old := memory.Profile{
+		PreferredAreas: []string{"朝阳区"}, PreferredTypes: []string{"火锅"}, BudgetMax: &budget,
+	}
+	got := effectiveProfileForQuestion(old, "海淀区找咖啡，人均80以内")
+	if len(got.PreferredAreas) != 0 || len(got.PreferredTypes) != 0 || got.BudgetMax != nil {
+		t.Fatalf("profile overrides leaked into prompt: %+v", got)
 	}
 }

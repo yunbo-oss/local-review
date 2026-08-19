@@ -57,10 +57,11 @@ type ContextBuilder struct {
 
 // BuildInput 分层输入
 type BuildInput struct {
-	Policy         string // system policy（必留）
-	ProfileSummary string // 短偏好摘要
-	History        []llm.ChatMessage
-	Question       string
+	Policy          string // system policy（必留）
+	ProfileSummary  string // 短偏好摘要
+	EpisodicSummary string // 持久化会话事件摘要
+	History         []llm.ChatMessage
+	Question        string
 }
 
 // Build 裁剪历史：旧消息压成摘要，最近消息优先；超长单条截断但不挤掉 system/question
@@ -80,6 +81,9 @@ func (b *ContextBuilder) BuildStructured(in BuildInput) []llm.ChatMessage {
 	sysParts := []string{policy}
 	if s := strings.TrimSpace(in.ProfileSummary); s != "" {
 		sysParts = append(sysParts, "当前用户偏好："+truncateRunes(s, bud.MaxProfileChars))
+	}
+	if s := strings.TrimSpace(in.EpisodicSummary); s != "" {
+		sysParts = append(sysParts, "会话事件摘要："+truncateRunes(s, bud.MaxOldSummary))
 	}
 
 	recent, older := splitRecent(in.History, bud.RecentMsgCount)

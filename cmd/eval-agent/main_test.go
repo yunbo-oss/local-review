@@ -167,6 +167,34 @@ func TestBuildReportDistinguishesTrialMicroAndScenarioMacro(t *testing.T) {
 	}
 }
 
+func TestBuildReportAggregatesAdaptiveArchitectureMetrics(t *testing.T) {
+	cases := []CaseReport{{
+		ID: "adaptive", Trials: TrialAggregate{Trials: 1, Successes: 1, SuccessRate: 1},
+		TrialDetails: []TrialDetail{{
+			Outcome: GradeResult{Pass: true}, Ground: GradeResult{Pass: true}, Traj: GradeResult{Pass: true}, Pass: true,
+			Actual: OutcomeActual{
+				Route: "agent_multistep", RuntimeStatus: "COMPLETED", AnswerVerified: true,
+				IntentConfidence: 0.8, RewriteCount: 2, PlanVersions: 2, Replans: 1,
+				PlanFallback: true, ClaimFallback: true, ClaimCount: 4, ClaimsWithEvidence: 3,
+				RetrievalConfidence: 0.7, RetrievalDecision: "abstain",
+			},
+		}},
+	}}
+	rep, err := buildReport("agent.test", "sha256:test", ExperimentMeta{System: "agent"}, cases, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := rep.Summary
+	if got.AvgIntentConfidence != 0.8 || got.AvgRewriteCount != 2 || got.AvgPlanVersions != 2 ||
+		got.AvgReplans != 1 || got.PlanFallbackRate != 1 || got.ClaimEvidenceCoverage != 0.75 ||
+		got.ClaimFallbackRate != 1 || got.AnswerVerifiedRate != 1 ||
+		got.AvgRetrievalConfidence != 0.7 || got.RetrievalAbstentionRate != 1 ||
+		got.RouteCounts["agent_multistep"] != 1 || got.RouteTaskSuccessRates["agent_multistep"] != 1 ||
+		got.RuntimeStatusCounts["COMPLETED"] != 1 {
+		t.Fatalf("adaptive summary metrics=%+v", got)
+	}
+}
+
 func TestCompareBaseline_RequiresSameTasks(t *testing.T) {
 	agentCases := []CaseReport{
 		{ID: "a", OutcomePass: 1, Trials: TrialAggregate{Trials: 3, Successes: 2, SuccessRate: 2.0 / 3.0}},
