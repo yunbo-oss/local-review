@@ -339,5 +339,3 @@ local-review-go/
 ```
 
 压测方式与报告见 [doc/LOAD_TEST.md](doc/LOAD_TEST.md)。
-
-面试简历的推荐写法见 [doc/RESUME.md](doc/RESUME.md)。
