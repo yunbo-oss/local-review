@@ -6,151 +6,11 @@
 
 ---
 
-## 一、分布式部署与基础设施
-
-### 1.1 Nginx 负载均衡
-
-- **配置**：`configs/nginx.conf`，upstream `go_backend` 指向 3 个 Go 实例
-- **策略**：`least_conn` 最少连接
-- **健康检查**：`/health` 端点，`max_fails=3`、`fail_timeout=30s` 被动健康检查，故障实例自动剔除
-- **透传**：`X-Real-IP`、`X-Forwarded-For`、`Host` 等请求头透传
-
-### 1.2 JWT 无状态认证
-
-- **实现**：`internal/middleware/jwt.go`，`golang-jwt/jwt/v5`
-- **Claims**：`CustomClaims` 含 `AuthUser`（id、nickName、icon）、`BufferTime`（缓冲期）、`RegisteredClaims`
-- **Token 生命周期**：7 天有效，`TokenRefreshBuffer=30min` 内可刷新
-- **多实例**：`JWT_SECRET_KEY` 通过 `env_file` 统一，保证各实例签发/校验一致
-- **路由分组**：
-  - `authGroup`：`middleware.AuthRequired()`，需登录
-  - `publicGroup`：登录、验证码、热门博客等公开接口
-
----
-
-## 二、高并发秒杀系统设计
-
-### 2.1 整体流程
-
-```
-用户请求 POST /api/voucher-order/seckill/:id
-    │
-    ├─ 1. 令牌桶限流（中间件，超限 429）
-    ├─ 2. 布隆过滤器校验 voucherId（不存在直接 404）
-    ├─ 3. querySeckillVoucherById 查秒杀券
-    ├─ 4. 校验秒杀时间（BeginTime/EndTime）
-    ├─ 5. ensureSeckillStockInRedis（Redis 库存 key 存在则跳过，否则回填）
-    ├─ 6. 发送 RocketMQ 事务消息（半消息）
-    │       └─ ExecuteLocalTransaction：Lua 检查库存 + 防重复(SISMEMBER) + 预减
-    │       └─ 成功 → Commit；失败 → Rollback
-    ├─ 7. 立即返回「排队中」
-    │
-    └─ 消费者异步：lock:order:{userId} 分布式锁 → createVoucherOrder（HasPurchased + DecrStock + Create）
-```
-
-### 2.2 限流
-
-- **秒杀接口**：`middleware.SeckillRateLimit()`，`golang.org/x/time/rate` 令牌桶，默认 1000 QPS、burst 2000，超限 429
-- **登录/验证码**：按 IP 限流，`perIPRateLimit`，防暴力破解
-
-### 2.3 Lua 脚本原子性
-
-`script/voucher_script.lua` 在 Redis 内原子执行：
-
-1. 检查 `seckill:stock:{voucherId}` 库存
-2. 检查 `seckill:order:{voucherId}` 是否已含 userId（防重复）
-3. `INCRBY stock -1`、`SADD order userId`
-
-返回值：0 成功，1 库存不足/不存在，2 已购买。
-
-**ensureSeckillStockInRedis 必要性**：Lua 要求 `seckill:stock:{voucherId}` 必须存在，否则直接返回 1 拒绝。key 可能因 Redis 重启、24h TTL 过期而缺失。该函数在 key 不存在时从 PostgreSQL 回填，保证业务可恢复；使用分布式锁 `lock:rebuild:stock:{voucherId}` 防止多实例并发回填。
-
-### 2.4 RocketMQ 事务消息
-
-- **流程**：半消息 → `ExecuteLocalTransaction` 执行 Lua → 成功 Commit / 失败 Rollback
-- **回查**：Producer 崩溃时，Broker 调用 `CheckLocalTransaction`，根据 `seckill:order:{voucherId}` 是否含 userId 判断 Commit/Rollback
-- **Topic**：`seckill-orders`，消费者组 `seckill-consumer-group`
-
-### 2.5 PostgreSQL 乐观锁与唯一索引
-
-- **DecrStock**：`UPDATE tb_seckill_voucher SET stock = stock - 1 WHERE voucher_id = ? AND stock > 0`，`stock > 0` 防止超卖
-- **唯一索引**：`tb_voucher_order (user_id, voucher_id)` 兜底防重复下单
-- **关单**：`UpdateStatus(id, NOTPAYED, CANCELED)` 条件更新，仅当状态为未支付时更新
-
-### 2.6 订单超时处理
-
-- **延迟消息**：下单时发送 `order-timeout` Topic，`DelayTimeLevel=16`（30 分钟）
-- **消费者**：`HandleOrderTimeout` → `UpdateStatus` 关单 → PostgreSQL `IncrStock` 回滚库存 → Lua 恢复 Redis 库存 + `SREM` 移除用户购买标记
-
-### 2.7 压测结果
-
-k6 压测，1 Nginx + 3 Go 实例，151 用户 × 25 秒杀券：总 QPS ~1160，无超卖少卖。详见 [doc/LOAD_TEST.md](doc/LOAD_TEST.md)。
-
----
-
-## 三、缓存架构与高可用保障
-
-### 3.1 Redis Key 设计
-
-`pkg/utils/redisx/keys.go` 集中管理：
-
-| Key 模式 | 用途 |
-|----------|------|
-| `cache:shop:{id}` | 店铺详情缓存 |
-| `seckill:stock:{voucherId}` | 秒杀库存 |
-| `seckill:order:{voucherId}` | 用户购买标记（Set） |
-| `cache:seckill:voucher:{id}` | 秒杀券缓存 |
-| `shop:lock:{id}` | 店铺缓存重建锁 |
-| `lock:order:{userId}` | 秒杀订单创建锁（消费者防同一用户并发） |
-| `lock:rebuild:stock:{voucherId}` | 秒杀库存回填锁（防多实例并发回填） |
-| `bf:shop`、`bf:seckill-voucher` | 布隆过滤器 |
-| `uv:{date}` | UV 统计（HyperLogLog） |
-
-### 3.2 布隆过滤器
-
-- **实现**：`pkg/utils/BloomFilter.go`，基于 Redis BitMap
-- **预热**：启动时异步从 DB 加载店铺 ID、秒杀券 ID，批量 `AddBatch` 写入
-- **使用**：店铺详情 `QueryShopByIdWithCacheNull`、秒杀 `SeckillVoucher` 前先 `Contains`，不存在直接返回
-
-### 3.3 店铺缓存策略
-
-- **当前使用**：`QueryShopByIdPassThrough`，Cache Aside + 布隆过滤器防穿透 + 分布式锁防击穿（缓存 miss 时仅一个请求查 DB 重建）
-- **逻辑过期**：`QueryShopByIdWithLogicExpire` 已实现，缓存存 `RedisData{Data, ExpireTime}`，无物理 TTL；过期时抢锁，抢到则投递 `redisDataQueue` 异步重建，抢不到返回旧数据
-
-### 3.4 秒杀券缓存
-
-- **Key**：`cache:seckill:voucher:{id}`，TTL 5 分钟
-- **回填**：`querySeckillVoucherById` 未命中时查 DB 并写入
-- **库存回填**：`seckill:stock` key 不存在时，`singleflight` 防并发回填，从 PostgreSQL 读取并 `SET`
-
-### 3.5 分布式锁与 Watchdog
-
-- **实现**：`pkg/utils/distributed_lock.go`
-- **加锁**：`SET key token NX EX ttl`，成功则启动 Watchdog 协程
-- **Watchdog**：每 `ttl/2` 执行 Lua 续期 `EXPIRE`，业务超时也不误删锁
-- **解锁**：Lua 校验 token 后 `DEL`，保证仅持有者可释放
-
-### 3.6 缓存一致性：MQ 异步删缓存
-
-- **写路径**：`UpdateShopWithCache` → DB 更新 → 发 MQ `shop-update`（不同步删缓存）
-- **消费者**：`shop-update-cache-consumer-group` 异步 `DEL cache:shop:{id}`
-- **兜底**：MQ 发送失败时同步删缓存
-
-### 3.7 店铺更新 MQ 双消费者
-
-`shop-update` Topic 两个消费者组：
-
-| 消费者组 | 职责 |
-|----------|------|
-| `shop-update-cache-consumer-group` | 异步删店铺缓存 |
-| `shop-update-rag-consumer-group` | 异步生成检索文档，并更新 PostgreSQL 全文索引与向量 |
-
----
-
-## 四、AI 语义检索引擎 (RAG) 与推荐 Agent
+## 一、AI 语义检索引擎 (RAG) 与推荐 Agent
 
 > 暂未实现前端。这里的 ReAct 指有界“观察—行动”运行时，不是 React.js。RAG 演示：`make demo-rag`；多轮偏好演示：`make demo-agent`。说明见 [doc/AGENT_AND_EVAL.md](doc/AGENT_AND_EVAL.md)。
 
-### 4.0 推荐入口
+### 1.0 推荐入口
 
 | 接口 | 说明 |
 |------|------|
@@ -166,18 +26,18 @@ LLM_API_KEY='your-key' make docker-agent-e2e-v61
 
 该命令实际执行“请求理解与改写 → 三路路由 → 澄清 / 单轮混合检索 / 有界并行 ReAct → 回答校验”，报告输出到 `rag-evals/reports/agent_e2e_v61.json`。
 
-### 4.1 背景
+### 1.1 背景
 
 传统关键词匹配无法理解「适合情侣的浪漫餐厅」等语义，引入向量检索 + LLM 实现智能推荐。
 
-### 4.2 技术方案
+### 1.2 技术方案
 
 - **统一检索存储**：PostgreSQL 17 + pgvector；`shop_search_documents` 同时持久化检索文本、384 维向量、模型名、内容哈希与来源版本
 - **索引**：全文检索使用 `tsvector + GIN`，向量检索使用 pgvector HNSW（余弦距离），区域、类型、价格、评分和评论数使用组合过滤索引
 - **一致性**：业务数据与检索文档处于同一数据库；RocketMQ 异步重建文档，并以 `source_version` 阻止旧消息覆盖新向量
 - **Embedding**：默认 `local-feature-hash-zh-v2`（384 维确定性本地 embedding，便于离线复现）；也保留 OpenAI-compatible embedding provider 配置
 
-### 4.3 检索流程
+### 1.3 检索流程
 
 ```
 用户提问
@@ -192,12 +52,12 @@ LLM_API_KEY='your-key' make docker-agent-e2e-v61
     └─ 5. LLM Chat：生成推荐，SSE 流式输出
 ```
 
-### 4.4 数据同步
+### 1.4 数据同步
 
 - **实时**：店铺创建/更新发 MQ → RAG 消费者 `NewShopUpdateRAGHandler` 异步 Embedding + `StoreShop`
 - **离线**：`make seed-vector` 批量导入
 
-### 4.5 当前 Agent 架构
+### 1.5 当前 Agent 架构
 
 ```mermaid
 flowchart TD
@@ -240,7 +100,7 @@ flowchart TD
 | 回答校验 | 最终回答先转为逐条声明 JSON，每条事实绑定 `shop:{id}.{field}` 或 `blog:{id}`；再做字段值、跨店引用、主观评价蕴含与硬条件校验，失败时关闭输出 |
 | 运行安全 | 默认限制 4 轮、10 次工具调用、12 次尝试、2 次搜索和每店 2 页评价；无新证据、重复调用、超时和客户端取消都有显式终态 |
 
-### 4.6 Agent 层面的主要改动
+### 1.6 Agent 层面的主要改动
 
 | 早期/兼容实现 | 当前 V2 |
 |---------------|---------|
@@ -255,7 +115,7 @@ flowchart TD
 
 `AGENT_RUNTIME_VERSION=v1_plan` 仅用于回放旧规划基线；生产默认使用 `v2_react`。历史请求中的旧路由值只在入口兼容，内部立即归一为 `agent`，响应与新评测不再输出旧值。
 
-### 4.7 并行执行、记忆与可观测性边界
+### 1.7 并行执行、记忆与可观测性边界
 
 - **为什么不能一开始并行查详情和评价**：`get_shop`、`list_shop_blogs` 的 `shop_id` 必须来自本轮 `search_shops`。第一轮先搜索；候选注册后，同一批候选的详情和评价才形成可并行的 DAG 就绪前沿。
 - **如何继续检查评价**：每次评论工具返回服务端签发的 `next_cursor`。Evidence Gap 仍未满足且 cursor 非空时，下一轮 Controller 才能继续翻页；客户端或模型不能伪造偏移量。
@@ -274,7 +134,7 @@ flowchart TD
 - 证据缺口与逐条事实校验：`internal/agent/evidence_gap.go`、`internal/agent/claims.go`、`internal/agent/claim_entailment.go`
 - 上下文、画像与运行审计编排：`internal/logic/recommend_agent_logic.go`
 
-### 4.8 评测结果
+### 1.8 评测结果
 
 评测使用固定种子生成的 200 家店和 1000 条评价；检索连接真实 PostgreSQL/pgvector，Agent 评测连接真实 DeepSeek API、PostgreSQL 与 Redis。v4 是旧工具循环的历史冻结结果；当前有界并行 ReAct 必须看 v6/v6.1 报告，不能沿用 v4 数字冒充新架构效果。
 
@@ -288,6 +148,146 @@ flowchart TD
 | 三路 Router v2 challenge（52 题） | Accuracy 和 macro-F1 均为 100%；旧策略为 55.77% |
 
 v6.1 通过真实生产入口执行“请求理解 → 三路路由 → 澄清/单轮检索/完整 Agent”，不强制路由，也不跑对照组。报告只说明固定数据集上的离线结果，不能外推为线上准确率。详细口径见 [Agent 与评测说明](doc/AGENT_AND_EVAL.md)。
+
+---
+
+## 二、分布式部署与基础设施
+
+### 2.1 Nginx 负载均衡
+
+- **配置**：`configs/nginx.conf`，upstream `go_backend` 指向 3 个 Go 实例
+- **策略**：`least_conn` 最少连接
+- **健康检查**：`/health` 端点，`max_fails=3`、`fail_timeout=30s` 被动健康检查，故障实例自动剔除
+- **透传**：`X-Real-IP`、`X-Forwarded-For`、`Host` 等请求头透传
+
+### 2.2 JWT 无状态认证
+
+- **实现**：`internal/middleware/jwt.go`，`golang-jwt/jwt/v5`
+- **Claims**：`CustomClaims` 含 `AuthUser`（id、nickName、icon）、`BufferTime`（缓冲期）、`RegisteredClaims`
+- **Token 生命周期**：7 天有效，`TokenRefreshBuffer=30min` 内可刷新
+- **多实例**：`JWT_SECRET_KEY` 通过 `env_file` 统一，保证各实例签发/校验一致
+- **路由分组**：
+  - `authGroup`：`middleware.AuthRequired()`，需登录
+  - `publicGroup`：登录、验证码、热门博客等公开接口
+
+---
+
+## 三、高并发秒杀系统设计
+
+### 3.1 整体流程
+
+```
+用户请求 POST /api/voucher-order/seckill/:id
+    │
+    ├─ 1. 令牌桶限流（中间件，超限 429）
+    ├─ 2. 布隆过滤器校验 voucherId（不存在直接 404）
+    ├─ 3. querySeckillVoucherById 查秒杀券
+    ├─ 4. 校验秒杀时间（BeginTime/EndTime）
+    ├─ 5. ensureSeckillStockInRedis（Redis 库存 key 存在则跳过，否则回填）
+    ├─ 6. 发送 RocketMQ 事务消息（半消息）
+    │       └─ ExecuteLocalTransaction：Lua 检查库存 + 防重复(SISMEMBER) + 预减
+    │       └─ 成功 → Commit；失败 → Rollback
+    ├─ 7. 立即返回「排队中」
+    │
+    └─ 消费者异步：lock:order:{userId} 分布式锁 → createVoucherOrder（HasPurchased + DecrStock + Create）
+```
+
+### 3.2 限流
+
+- **秒杀接口**：`middleware.SeckillRateLimit()`，`golang.org/x/time/rate` 令牌桶，默认 1000 QPS、burst 2000，超限 429
+- **登录/验证码**：按 IP 限流，`perIPRateLimit`，防暴力破解
+
+### 3.3 Lua 脚本原子性
+
+`script/voucher_script.lua` 在 Redis 内原子执行：
+
+1. 检查 `seckill:stock:{voucherId}` 库存
+2. 检查 `seckill:order:{voucherId}` 是否已含 userId（防重复）
+3. `INCRBY stock -1`、`SADD order userId`
+
+返回值：0 成功，1 库存不足/不存在，2 已购买。
+
+**ensureSeckillStockInRedis 必要性**：Lua 要求 `seckill:stock:{voucherId}` 必须存在，否则直接返回 1 拒绝。key 可能因 Redis 重启、24h TTL 过期而缺失。该函数在 key 不存在时从 PostgreSQL 回填，保证业务可恢复；使用分布式锁 `lock:rebuild:stock:{voucherId}` 防止多实例并发回填。
+
+### 3.4 RocketMQ 事务消息
+
+- **流程**：半消息 → `ExecuteLocalTransaction` 执行 Lua → 成功 Commit / 失败 Rollback
+- **回查**：Producer 崩溃时，Broker 调用 `CheckLocalTransaction`，根据 `seckill:order:{voucherId}` 是否含 userId 判断 Commit/Rollback
+- **Topic**：`seckill-orders`，消费者组 `seckill-consumer-group`
+
+### 3.5 PostgreSQL 乐观锁与唯一索引
+
+- **DecrStock**：`UPDATE tb_seckill_voucher SET stock = stock - 1 WHERE voucher_id = ? AND stock > 0`，`stock > 0` 防止超卖
+- **唯一索引**：`tb_voucher_order (user_id, voucher_id)` 兜底防重复下单
+- **关单**：`UpdateStatus(id, NOTPAYED, CANCELED)` 条件更新，仅当状态为未支付时更新
+
+### 3.6 订单超时处理
+
+- **延迟消息**：下单时发送 `order-timeout` Topic，`DelayTimeLevel=16`（30 分钟）
+- **消费者**：`HandleOrderTimeout` → `UpdateStatus` 关单 → PostgreSQL `IncrStock` 回滚库存 → Lua 恢复 Redis 库存 + `SREM` 移除用户购买标记
+
+### 3.7 压测结果
+
+k6 压测，1 Nginx + 3 Go 实例，151 用户 × 25 秒杀券：总 QPS ~1160，无超卖少卖。详见 [doc/LOAD_TEST.md](doc/LOAD_TEST.md)。
+
+---
+
+## 四、缓存架构与高可用保障
+
+### 4.1 Redis Key 设计
+
+`pkg/utils/redisx/keys.go` 集中管理：
+
+| Key 模式 | 用途 |
+|----------|------|
+| `cache:shop:{id}` | 店铺详情缓存 |
+| `seckill:stock:{voucherId}` | 秒杀库存 |
+| `seckill:order:{voucherId}` | 用户购买标记（Set） |
+| `cache:seckill:voucher:{id}` | 秒杀券缓存 |
+| `shop:lock:{id}` | 店铺缓存重建锁 |
+| `lock:order:{userId}` | 秒杀订单创建锁（消费者防同一用户并发） |
+| `lock:rebuild:stock:{voucherId}` | 秒杀库存回填锁（防多实例并发回填） |
+| `bf:shop`、`bf:seckill-voucher` | 布隆过滤器 |
+| `uv:{date}` | UV 统计（HyperLogLog） |
+
+### 4.2 布隆过滤器
+
+- **实现**：`pkg/utils/BloomFilter.go`，基于 Redis BitMap
+- **预热**：启动时异步从 DB 加载店铺 ID、秒杀券 ID，批量 `AddBatch` 写入
+- **使用**：店铺详情 `QueryShopByIdWithCacheNull`、秒杀 `SeckillVoucher` 前先 `Contains`，不存在直接返回
+
+### 4.3 店铺缓存策略
+
+- **当前使用**：`QueryShopByIdPassThrough`，Cache Aside + 布隆过滤器防穿透 + 分布式锁防击穿（缓存 miss 时仅一个请求查 DB 重建）
+- **逻辑过期**：`QueryShopByIdWithLogicExpire` 已实现，缓存存 `RedisData{Data, ExpireTime}`，无物理 TTL；过期时抢锁，抢到则投递 `redisDataQueue` 异步重建，抢不到返回旧数据
+
+### 4.4 秒杀券缓存
+
+- **Key**：`cache:seckill:voucher:{id}`，TTL 5 分钟
+- **回填**：`querySeckillVoucherById` 未命中时查 DB 并写入
+- **库存回填**：`seckill:stock` key 不存在时，`singleflight` 防并发回填，从 PostgreSQL 读取并 `SET`
+
+### 4.5 分布式锁与 Watchdog
+
+- **实现**：`pkg/utils/distributed_lock.go`
+- **加锁**：`SET key token NX EX ttl`，成功则启动 Watchdog 协程
+- **Watchdog**：每 `ttl/2` 执行 Lua 续期 `EXPIRE`，业务超时也不误删锁
+- **解锁**：Lua 校验 token 后 `DEL`，保证仅持有者可释放
+
+### 4.6 缓存一致性：MQ 异步删缓存
+
+- **写路径**：`UpdateShopWithCache` → DB 更新 → 发 MQ `shop-update`（不同步删缓存）
+- **消费者**：`shop-update-cache-consumer-group` 异步 `DEL cache:shop:{id}`
+- **兜底**：MQ 发送失败时同步删缓存
+
+### 4.7 店铺更新 MQ 双消费者
+
+`shop-update` Topic 两个消费者组：
+
+| 消费者组 | 职责 |
+|----------|------|
+| `shop-update-cache-consumer-group` | 异步删店铺缓存 |
+| `shop-update-rag-consumer-group` | 异步生成检索文档，并更新 PostgreSQL 全文索引与向量 |
 
 ---
 
