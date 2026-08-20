@@ -9,6 +9,9 @@ import (
 // MergeProfile 将 patch 合并到旧 profile；remove 优先于同值 add；budget 三态。
 func MergeProfile(old Profile, patch ProfilePatch) (Profile, error) {
 	out := old
+	if out.PreferenceMeta == nil {
+		out.PreferenceMeta = map[string]PreferenceMetadata{}
+	}
 	out.PreferredAreas = mergeStringSet(old.PreferredAreas, patch.PreferredAreasAdd, patch.PreferredAreasRemove)
 	out.PreferredTypes = mergeStringSet(old.PreferredTypes, patch.PreferredTypesAdd, patch.PreferredTypesRemove)
 	out.Dislikes = mergeStringSet(old.Dislikes, patch.DislikesAdd, patch.DislikesRemove)
@@ -31,6 +34,30 @@ func MergeProfile(old Profile, patch ProfilePatch) (Profile, error) {
 	}
 
 	out.UpdatedAt = NowUnix()
+	source := strings.TrimSpace(patch.Source)
+	if source == "" {
+		source = "user_explicit"
+	}
+	confidence := patch.Confidence
+	if confidence <= 0 || confidence > 1 {
+		confidence = 1
+	}
+	meta := PreferenceMetadata{Source: source, Confidence: confidence, UpdatedAt: out.UpdatedAt}
+	if len(patch.PreferredAreasAdd)+len(patch.PreferredAreasRemove) > 0 {
+		out.PreferenceMeta["preferred_areas"] = meta
+	}
+	if len(patch.PreferredTypesAdd)+len(patch.PreferredTypesRemove) > 0 {
+		out.PreferenceMeta["preferred_types"] = meta
+	}
+	if len(patch.DislikesAdd)+len(patch.DislikesRemove) > 0 {
+		out.PreferenceMeta["dislikes"] = meta
+	}
+	if patch.BudgetMax != nil {
+		out.PreferenceMeta["budget_max"] = meta
+	}
+	if patch.Summary != nil {
+		out.PreferenceMeta["summary"] = meta
+	}
 	return out, nil
 }
 

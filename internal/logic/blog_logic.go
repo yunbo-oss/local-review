@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"local-review-go/internal/config/mysql"
+	"local-review-go/internal/config/postgres"
 	redisClient "local-review-go/internal/config/redis"
 	"local-review-go/internal/model"
 	"local-review-go/internal/repository"
@@ -50,15 +50,15 @@ type BlogLogicDeps struct {
 func NewBlogLogic(deps BlogLogicDeps) BlogLogic {
 	blogRepo := deps.BlogRepo
 	if blogRepo == nil {
-		blogRepo = repository.NewBlogRepo(mysql.GetMysqlDB())
+		blogRepo = repository.NewBlogRepo(postgres.GetPostgresDB())
 	}
 	userRepo := deps.UserRepo
 	if userRepo == nil {
-		userRepo = repository.NewUserRepo(mysql.GetMysqlDB())
+		userRepo = repository.NewUserRepo(postgres.GetPostgresDB())
 	}
 	followRepo := deps.FollowRepo
 	if followRepo == nil {
-		followRepo = repository.NewFollowRepo(mysql.GetMysqlDB())
+		followRepo = repository.NewFollowRepo(postgres.GetPostgresDB())
 	}
 	redisCli := deps.Redis
 	if redisCli == nil {

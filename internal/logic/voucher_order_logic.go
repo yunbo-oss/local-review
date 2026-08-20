@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"local-review-go/internal/config/mysql"
+	"local-review-go/internal/config/postgres"
 	redisClient "local-review-go/internal/config/redis"
 	"local-review-go/internal/model"
 	"local-review-go/internal/mq"
@@ -57,11 +57,11 @@ type VoucherOrderLogicDeps struct {
 func NewVoucherOrderLogic(deps VoucherOrderLogicDeps) VoucherOrderLogic {
 	voucherOrderRepo := deps.VoucherOrderRepo
 	if voucherOrderRepo == nil {
-		voucherOrderRepo = repository.NewVoucherOrderRepo(mysql.GetMysqlDB())
+		voucherOrderRepo = repository.NewVoucherOrderRepo(postgres.GetPostgresDB())
 	}
 	seckillVoucherRepo := deps.SeckillVoucherRepo
 	if seckillVoucherRepo == nil {
-		seckillVoucherRepo = repository.NewSeckillVoucherRepo(mysql.GetMysqlDB())
+		seckillVoucherRepo = repository.NewSeckillVoucherRepo(postgres.GetPostgresDB())
 	}
 	return &voucherOrderLogic{
 		redis:                     redisClient.GetRedisClient(),
@@ -124,7 +124,7 @@ func (l *voucherOrderLogic) SeckillVoucher(ctx context.Context, voucherID int64,
 		return fmt.Errorf("generate order id: %w", err)
 	}
 
-	// 发送前检查 Redis 库存 key 是否存在：若过期则从 MySQL 回填，避免 Lua 直接拒绝
+	// 发送前检查 Redis 库存 key 是否存在：若过期则从 PostgreSQL 回填，避免 Lua 直接拒绝
 	if err := l.ensureSeckillStockInRedis(ctx, voucherID, &voucher); err != nil {
 		return err
 	}
@@ -179,7 +179,7 @@ func (l *voucherOrderLogic) processOrder(ctx context.Context, order model.Vouche
 
 // createVoucherOrder 创建优惠券订单（事务：校验重复 + 扣库存 + 插入）
 func (l *voucherOrderLogic) createVoucherOrder(ctx context.Context, order model.VoucherOrder) error {
-	return mysql.GetMysqlDB().Transaction(func(tx *gorm.DB) error {
+	return postgres.GetPostgresDB().Transaction(func(tx *gorm.DB) error {
 		purchasedFlag, err := l.voucherOrderRepo.HasPurchased(ctx, order.UserId, order.VoucherId, tx)
 		if err != nil || purchasedFlag {
 			if err != nil {
@@ -199,7 +199,7 @@ func (l *voucherOrderLogic) createVoucherOrder(ctx context.Context, order model.
 	})
 }
 
-// ensureSeckillStockInRedis 确保 Redis 库存 key 存在；若过期则从 MySQL 回填，避免 Lua 直接拒绝。
+// ensureSeckillStockInRedis 确保 Redis 库存 key 存在；若过期则从 PostgreSQL 回填，避免 Lua 直接拒绝。
 // 使用分布式锁防止多实例并发回填，保证同一 voucherId 只回填一次。
 func (l *voucherOrderLogic) ensureSeckillStockInRedis(ctx context.Context, voucherID int64, voucher *model.SecKillVoucher) error {
 	stockKey := redisx.SECKILL_STOCK_KEY + strconv.FormatInt(voucherID, 10)
@@ -250,7 +250,7 @@ func (l *voucherOrderLogic) ensureSeckillStockInRedis(ctx context.Context, vouch
 	return fmt.Errorf("rebuild stock voucher %d failed after retries", voucherID)
 }
 
-// querySeckillVoucherById 查询秒杀优惠券，优先走 Redis 缓存，减轻 MySQL 压力
+// querySeckillVoucherById 查询秒杀优惠券，优先走 Redis 缓存，减轻 PostgreSQL 压力
 func (l *voucherOrderLogic) querySeckillVoucherById(ctx context.Context, id int64) (model.SecKillVoucher, error) {
 	redisKey := redisx.CACHE_SECKILL_VOUCHER_KEY + strconv.FormatInt(id, 10)
 	cached, err := l.redis.Get(ctx, redisKey).Result()
@@ -276,7 +276,7 @@ func (l *voucherOrderLogic) querySeckillVoucherById(ctx context.Context, id int6
 	return sv, nil
 }
 
-// HandleOrderTimeout 处理订单超时：未支付则关单 + 回滚 Redis + 回滚 MySQL
+// HandleOrderTimeout 处理订单超时：未支付则关单 + 回滚 Redis + 回滚 PostgreSQL
 func (l *voucherOrderLogic) HandleOrderTimeout(ctx context.Context, msg *mq.OrderTimeoutMsg) error {
 	order, err := l.voucherOrderRepo.GetByID(ctx, msg.OrderId)
 	if err != nil {
@@ -287,9 +287,9 @@ func (l *voucherOrderLogic) HandleOrderTimeout(ctx context.Context, msg *mq.Orde
 		return nil
 	}
 
-	// MySQL 事务：更新状态 + 回滚库存；仅当成功关单时才回滚 Redis
+	// PostgreSQL 事务：更新状态 + 回滚库存；仅当成功关单时才回滚 Redis
 	var didCancel bool
-	err = mysql.GetMysqlDB().Transaction(func(tx *gorm.DB) error {
+	err = postgres.GetPostgresDB().Transaction(func(tx *gorm.DB) error {
 		rows, err := l.voucherOrderRepo.UpdateStatus(ctx, msg.OrderId, model.NOTPAYED, model.CANCELED, tx)
 		if err != nil {
 			return fmt.Errorf("update order status: %w", err)

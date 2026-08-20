@@ -77,6 +77,17 @@ func TestVerifyAnswer_MultipleShopsRejectsUnknownPrice(t *testing.T) {
 	}
 }
 
+func TestVerifyAnswer_DoesNotTreatBudgetCeilingAsShopPrice(t *testing.T) {
+	ledger := NewEvidenceLedger()
+	ledger.DiscoverFromSearch(72, "A", map[string]any{"avg_price": int64(134)})
+	ledger.DiscoverFromSearch(132, "B", map[string]any{"avg_price": int64(155)})
+
+	answer := "推荐结果：[shop:72]、[shop:132]\n根据人均275元以内的预算筛选。\nA 人均134元；B 人均155元。"
+	if err := VerifyAnswer(answer, ledger, VerifyOptions{}); err != nil {
+		t.Fatalf("budget ceiling was mistaken for a shop fact: %v", err)
+	}
+}
+
 func TestVerifyAnswer_OK(t *testing.T) {
 	t.Parallel()
 	l := NewEvidenceLedger()

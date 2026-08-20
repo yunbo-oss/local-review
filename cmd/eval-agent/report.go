@@ -35,7 +35,8 @@ type AgentEvalReport struct {
 }
 
 type ExperimentMeta struct {
-	System                string           `json:"system"` // agent|hybrid_rag
+	System                string           `json:"system"`               // agent|hybrid_rag
+	EntryPoint            string           `json:"entrypoint,omitempty"` // agent_direct|router_e2e
 	Split                 string           `json:"split"`
 	ChatModel             string           `json:"chat_model"`
 	ChatTemperature       float32          `json:"chat_temperature"`
@@ -54,6 +55,9 @@ type ExperimentMeta struct {
 	ForceRoute            string           `json:"force_route,omitempty"`
 	Mode                  string           `json:"mode"` // inprocess|fake
 	PolicyVersion         string           `json:"policy_version"`
+	AgentRuntimeVersion   string           `json:"agent_runtime_version,omitempty"`
+	AgentMaxSearchRounds  int              `json:"agent_max_search_rounds,omitempty"`
+	AgentMaxReviewPages   int              `json:"agent_max_review_pages_per_shop,omitempty"`
 	InputPriceUSDPerMTok  float64          `json:"input_price_usd_per_million_tokens"`
 	OutputPriceUSDPerMTok float64          `json:"output_price_usd_per_million_tokens"`
 	Runtime               evalmeta.Runtime `json:"runtime"`
@@ -79,12 +83,25 @@ type ReportSummary struct {
 	AvgModelCalls              float64            `json:"avg_model_calls"`
 	AvgToolCalls               float64            `json:"avg_tool_calls"`
 	AvgTokens                  float64            `json:"avg_tokens"`
+	AvgIntentConfidence        float64            `json:"avg_intent_confidence"`
+	AvgRewriteCount            float64            `json:"avg_rewrite_count"`
+	AvgPlanVersions            float64            `json:"avg_plan_versions"`
+	AvgReplans                 float64            `json:"avg_replans"`
+	PlanFallbackRate           float64            `json:"plan_fallback_rate"`
+	ClaimFallbackRate          float64            `json:"claim_fallback_rate"`
+	AnswerVerifiedRate         float64            `json:"answer_verified_rate"`
+	ClaimEvidenceCoverage      float64            `json:"claim_evidence_coverage"`
+	AvgRetrievalConfidence     float64            `json:"avg_retrieval_confidence"`
+	RetrievalAbstentionRate    float64            `json:"retrieval_abstention_rate"`
 	TotalModelCalls            int                `json:"total_model_calls"`
 	TotalToolCalls             int                `json:"total_tool_calls"`
 	TotalTokens                int                `json:"total_tokens"`
 	TotalPromptTokens          int                `json:"total_prompt_tokens"`
 	TotalCompletionTokens      int                `json:"total_completion_tokens"`
 	EstimatedCostUSDUpperBound float64            `json:"estimated_cost_usd_upper_bound"`
+	RouteCounts                map[string]int     `json:"route_counts,omitempty"`
+	RouteTaskSuccessRates      map[string]float64 `json:"route_task_success_rates,omitempty"`
+	RuntimeStatusCounts        map[string]int     `json:"runtime_status_counts,omitempty"`
 }
 
 // WilsonInterval records both the interval and its effective sample size so
@@ -183,6 +200,10 @@ func buildReport(datasetVer, datasetHash string, exp ExperimentMeta, cases []Cas
 
 	var outOK, gOK, successfulGroundOK, successfulGroundN, tOK, compositeOK, evalN int
 	var modelSum, toolSum, tokSum, promptTokSum, completionTokSum float64
+	var intentConfidenceSum, rewriteSum, planVersionSum, replanSum float64
+	var planFallbackN, claimFallbackN, answerVerifiedN, claimCount, claimsWithEvidence int
+	var retrievalConfidenceSum float64
+	var retrievalAbstentionN int
 	var lats []int64
 	consistency := map[string]float64{}
 	tagOutcomePass := map[string]int{}
@@ -190,6 +211,9 @@ func buildReport(datasetVer, datasetHash string, exp ExperimentMeta, cases []Cas
 	tagN := map[string]int{}
 	passAtKOK := 0
 	passAtKN := 0
+	routeCounts := map[string]int{}
+	routeOutcomeOK := map[string]int{}
+	runtimeStatusCounts := map[string]int{}
 
 	for _, c := range cases {
 		caseTrials := len(c.TrialDetails)
@@ -230,6 +254,41 @@ func buildReport(datasetVer, datasetHash string, exp ExperimentMeta, cases []Cas
 			tokSum += float64(td.Actual.Tokens)
 			promptTokSum += float64(td.Actual.PromptTokens)
 			completionTokSum += float64(td.Actual.CompletionTokens)
+			intentConfidenceSum += td.Actual.IntentConfidence
+			rewriteSum += float64(td.Actual.RewriteCount)
+			planVersionSum += float64(td.Actual.PlanVersions)
+			replanSum += float64(td.Actual.Replans)
+			if td.Actual.PlanFallback {
+				planFallbackN++
+			}
+			if td.Actual.ClaimFallback {
+				claimFallbackN++
+			}
+			if td.Actual.AnswerVerified {
+				answerVerifiedN++
+			}
+			route := strings.TrimSpace(td.Actual.Route)
+			if route == "" {
+				route = strings.TrimSpace(td.Route)
+			}
+			if route == "" {
+				route = "unknown"
+			}
+			routeCounts[route]++
+			if td.Outcome.Pass {
+				routeOutcomeOK[route]++
+			}
+			status := strings.TrimSpace(td.Actual.RuntimeStatus)
+			if status == "" {
+				status = "not_applicable"
+			}
+			runtimeStatusCounts[status]++
+			claimCount += td.Actual.ClaimCount
+			claimsWithEvidence += td.Actual.ClaimsWithEvidence
+			retrievalConfidenceSum += td.Actual.RetrievalConfidence
+			if td.Actual.RetrievalDecision == "abstain" {
+				retrievalAbstentionN++
+			}
 			if td.Actual.LatencyMs > 0 {
 				lats = append(lats, td.Actual.LatencyMs)
 			}
@@ -246,7 +305,16 @@ func buildReport(datasetVer, datasetHash string, exp ExperimentMeta, cases []Cas
 		rep.NEvaluated = evalN
 	}
 
-	sum := ReportSummary{TrialConsistency: consistency}
+	routeOutcomeRates := make(map[string]float64, len(routeCounts))
+	for route, count := range routeCounts {
+		if count > 0 {
+			routeOutcomeRates[route] = float64(routeOutcomeOK[route]) / float64(count)
+		}
+	}
+	sum := ReportSummary{
+		TrialConsistency: consistency, RouteCounts: routeCounts,
+		RouteTaskSuccessRates: routeOutcomeRates, RuntimeStatusCounts: runtimeStatusCounts,
+	}
 	if evalN > 0 {
 		sum.OutcomeRate = float64(outOK) / float64(evalN)
 		sum.GroundednessRate = float64(gOK) / float64(evalN)
@@ -257,6 +325,15 @@ func buildReport(datasetVer, datasetHash string, exp ExperimentMeta, cases []Cas
 		sum.AvgModelCalls = modelSum / float64(evalN)
 		sum.AvgToolCalls = toolSum / float64(evalN)
 		sum.AvgTokens = tokSum / float64(evalN)
+		sum.AvgIntentConfidence = intentConfidenceSum / float64(evalN)
+		sum.AvgRewriteCount = rewriteSum / float64(evalN)
+		sum.AvgPlanVersions = planVersionSum / float64(evalN)
+		sum.AvgReplans = replanSum / float64(evalN)
+		sum.PlanFallbackRate = float64(planFallbackN) / float64(evalN)
+		sum.ClaimFallbackRate = float64(claimFallbackN) / float64(evalN)
+		sum.AnswerVerifiedRate = float64(answerVerifiedN) / float64(evalN)
+		sum.AvgRetrievalConfidence = retrievalConfidenceSum / float64(evalN)
+		sum.RetrievalAbstentionRate = float64(retrievalAbstentionN) / float64(evalN)
 		sum.TotalModelCalls = int(modelSum)
 		sum.TotalToolCalls = int(toolSum)
 		sum.TotalTokens = int(tokSum)
@@ -267,6 +344,9 @@ func buildReport(datasetVer, datasetHash string, exp ExperimentMeta, cases []Cas
 		sum.EstimatedCostUSDUpperBound = round6(
 			promptTokSum*exp.InputPriceUSDPerMTok/1_000_000 + completionTokSum*exp.OutputPriceUSDPerMTok/1_000_000,
 		)
+	}
+	if claimCount > 0 {
+		sum.ClaimEvidenceCoverage = float64(claimsWithEvidence) / float64(claimCount)
 	}
 	sum.OutcomeWilson95 = wilson95(outOK, evalN)
 	sum.GroundednessWilson95 = wilson95(gOK, evalN)

@@ -22,11 +22,16 @@ func NewAgentRunRepo(db *gorm.DB) repoInterfaces.AgentRunRepo {
 }
 
 func (r *agentRunRepo) Begin(ctx context.Context, in repoInterfaces.AgentRunBegin) (int64, error) {
-	if in.TraceID == "" || in.UserID <= 0 || in.SessionID == "" {
-		return 0, fmt.Errorf("trace_id/user_id/session_id required")
+	if in.RunKey == "" {
+		in.RunKey = in.TraceID // compatibility for pre-V2 callers
+	}
+	if in.RunKey == "" || in.TraceID == "" || in.UserID <= 0 || in.SessionID == "" {
+		return 0, fmt.Errorf("run_key/trace_id/user_id/session_id required")
 	}
 	row := model.AgentRun{
+		RunKey:        in.RunKey,
 		TraceID:       in.TraceID,
+		SpanID:        in.SpanID,
 		UserID:        in.UserID,
 		SessionID:     in.SessionID,
 		Status:        model.AgentRunRunning,
@@ -34,7 +39,7 @@ func (r *agentRunRepo) Begin(ctx context.Context, in repoInterfaces.AgentRunBegi
 		PolicyVersion: in.PolicyVersion,
 		Route:         in.Route,
 		RouteReason:   in.RouteReason,
-		// MySQL JSON columns reject the Go zero-value empty string.
+		// JSONB columns reject the Go zero-value empty string.
 		EvidenceSummaryJSON: "{}",
 	}
 	if err := r.db.WithContext(ctx).Create(&row).Error; err != nil {
@@ -52,7 +57,13 @@ func (r *agentRunRepo) Finalize(ctx context.Context, in repoInterfaces.AgentRunF
 	now := time.Now()
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var row model.AgentRun
-		if err := tx.Where("trace_id = ?", in.TraceID).First(&row).Error; err != nil {
+		query := tx
+		if in.RunKey != "" {
+			query = query.Where("run_key = ?", in.RunKey)
+		} else {
+			query = query.Where("trace_id = ?", in.TraceID)
+		}
+		if err := query.First(&row).Error; err != nil {
 			return err
 		}
 		if row.Status != model.AgentRunRunning {
@@ -106,7 +117,7 @@ func (r *agentRunRepo) Finalize(ctx context.Context, in repoInterfaces.AgentRunF
 
 func (r *agentRunRepo) GetByTraceID(ctx context.Context, traceID string) (string, int64, error) {
 	var row model.AgentRun
-	err := r.db.WithContext(ctx).Where("trace_id = ?", traceID).First(&row).Error
+	err := r.db.WithContext(ctx).Where("trace_id = ?", traceID).Order("id DESC").First(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return "", 0, fmt.Errorf("run not found")
 	}

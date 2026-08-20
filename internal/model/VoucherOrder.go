@@ -18,14 +18,14 @@ const (
 )
 
 type VoucherOrder struct {
-	Id         int64     `gorm:"primary;column:id" json:"id"`
+	Id         int64     `gorm:"primaryKey;column:id" json:"id"`
 	UserId     int64     `gorm:"column:user_id;uniqueIndex:idx_user_voucher" json:"userId"`
 	VoucherId  int64     `gorm:"column:voucher_id;uniqueIndex:idx_user_voucher" json:"voucherId"`
 	PayType    int       `gorm:"column:pay_type" json:"payType"`
 	Status     int       `gorm:"column:status" json:"status"`
 	CreateTime time.Time `gorm:"column:create_time" json:"create_time"`
 	// 订单在未支付/未核销/未退款时没有对应时间。使用指针让 GORM 写
-	// SQL NULL，而不是 MySQL strict mode 会拒绝的 0000-00-00。
+	// SQL NULL，避免使用不存在业务语义的零时间。
 	PayTime    *time.Time `gorm:"column:pay_time" json:"payTime"`
 	UseTime    *time.Time `gorm:"column:use_time" json:"useTime"`
 	RefundTime *time.Time `gorm:"column:refund_time" json:"refundTime"`

@@ -39,9 +39,31 @@ type RecommendAgentLogic interface {
 	HasSessionHistory(ctx context.Context, userID int64, sessionID string) (bool, error)
 }
 
+// RecommendRouteContextProvider lets the unified HTTP entry enrich Query
+// Understanding with the same layered memory summaries used by the Agent.
+// It is optional so alternate RecommendAgentLogic implementations remain
+// source-compatible.
+type RecommendRouteContextProvider interface {
+	RecommendationRouteInput(ctx context.Context, userID int64, sessionID, question, forceRoute string) (RouteInput, error)
+}
+
+// RecommendTurnRecorder lets the unified Router entry persist non-Agent
+// branches (RAG and clarification) into the same bounded session history.
+// Agent branches already persist inside Recommend after verification.
+type RecommendTurnRecorder interface {
+	RecordRecommendationTurn(ctx context.Context, userID int64, sessionID, question, answer string) error
+}
+
 // RecommendResult 一次推荐结果
 type RecommendResult struct {
 	Answer             string
+	Intent             agent.IntentSpec
+	Plans              []agent.ExecutionPlan
+	Replans            int
+	PlanFallback       bool
+	ClaimFallback      bool
+	ClaimAnswer        *agent.ClaimAnswer
+	Retrieval          RetrievalAssessment
 	Steps              int
 	ModelCalls         int
 	ToolCalls          int
@@ -55,31 +77,53 @@ type RecommendResult struct {
 	RouteReason        string
 	Degraded           bool
 	DegradedReason     string
+	RuntimeVersion     string
+	RuntimeStatus      agent.RuntimeStatus
+	SearchRounds       int
+	MaxReviewPages     int
+	EvidenceGapCount   int
+	AnswerVerified     bool
 }
 
 // RecommendAgentLogicDeps 依赖
 type RecommendAgentLogicDeps struct {
-	ToolChat   llm.ToolChatClient
-	ChatClient llm.ChatClient
-	Memory     repoInterfaces.MemoryRepo
-	Search     ShopSearchLogic
-	ShopRepo   repoInterfaces.ShopRepo
-	BlogRepo   repoInterfaces.BlogRepo
-	RunRepo    repoInterfaces.AgentRunRepo // 可选；nil 则不落库
-	Config     agent.RunConfig
-	Router     RecommendRouter // 可选；nil 则默认 agent_multistep
+	ToolChat       llm.ToolChatClient
+	ChatClient     llm.ChatClient
+	Memory         repoInterfaces.MemoryRepo
+	Search         ShopSearchLogic
+	ShopRepo       repoInterfaces.ShopRepo
+	BlogRepo       repoInterfaces.BlogRepo
+	RunRepo        repoInterfaces.AgentRunRepo // 可选；nil 则不落库
+	Config         agent.RunConfig
+	Router         RecommendRouter        // 可选；nil 则默认完整 Agent
+	AdaptiveRouter ContextRecommendRouter // 可选；统一 LLM Query Understanding + 规则回退
+	Reranker       CandidateReranker
+	Planner        agent.Planner
+	Controller     agent.DecisionController
+	Checkpointer   agent.AgentCheckpointer
+	ReactConfig    agent.ReactRuntimeConfig
+	RuntimeVersion string
+	Summarizer     agent.SessionSummarizer
 }
 
 type recommendAgentLogic struct {
-	tools  llm.ToolChatClient
-	chat   llm.ChatClient
-	memory repoInterfaces.MemoryRepo
-	search ShopSearchLogic
-	shop   repoInterfaces.ShopRepo
-	blog   repoInterfaces.BlogRepo
-	runs   repoInterfaces.AgentRunRepo
-	router RecommendRouter
-	cfg    agent.RunConfig
+	tools      llm.ToolChatClient
+	chat       llm.ChatClient
+	memory     repoInterfaces.MemoryRepo
+	search     ShopSearchLogic
+	shop       repoInterfaces.ShopRepo
+	blog       repoInterfaces.BlogRepo
+	runs       repoInterfaces.AgentRunRepo
+	router     RecommendRouter
+	adaptive   ContextRecommendRouter
+	reranker   CandidateReranker
+	planner    agent.Planner
+	controller agent.DecisionController
+	checkpoint agent.AgentCheckpointer
+	reactCfg   agent.ReactRuntimeConfig
+	runtime    string
+	summarizer agent.SessionSummarizer
+	cfg        agent.RunConfig
 }
 
 // NewRecommendAgentLogic 创建推荐 Agent Logic
@@ -92,10 +136,18 @@ func NewRecommendAgentLogic(deps RecommendAgentLogicDeps) RecommendAgentLogic {
 	if router == nil {
 		router = NewRecommendRouter()
 	}
+	runtimeVersion := strings.TrimSpace(deps.RuntimeVersion)
+	if runtimeVersion != agent.RuntimeVersionV2React || deps.Controller == nil {
+		runtimeVersion = agent.RuntimeVersionV1Plan
+	}
 	return &recommendAgentLogic{
 		tools: deps.ToolChat, chat: deps.ChatClient, memory: deps.Memory,
 		search: deps.Search, shop: deps.ShopRepo, blog: deps.BlogRepo,
-		runs: deps.RunRepo, router: router, cfg: cfg,
+		runs: deps.RunRepo, router: router, adaptive: deps.AdaptiveRouter,
+		reranker: deps.Reranker, planner: deps.Planner,
+		controller: deps.Controller, checkpoint: deps.Checkpointer,
+		reactCfg: deps.ReactConfig, runtime: runtimeVersion,
+		summarizer: deps.Summarizer, cfg: cfg,
 	}
 }
 
@@ -112,6 +164,48 @@ func (l *recommendAgentLogic) HasSessionHistory(ctx context.Context, userID int6
 	return len(history) > 0, nil
 }
 
+func (l *recommendAgentLogic) RecordRecommendationTurn(ctx context.Context, userID int64, sessionID, question, answer string) error {
+	if l.memory == nil || userID <= 0 || strings.TrimSpace(sessionID) == "" {
+		return fmt.Errorf("recommendation session recorder is not configured")
+	}
+	question = strings.TrimSpace(question)
+	answer = strings.TrimSpace(answer)
+	if question == "" || answer == "" {
+		return fmt.Errorf("question and answer are required")
+	}
+	return l.memory.AppendSession(ctx, userID, strings.TrimSpace(sessionID),
+		memory.Message{Role: "user", Content: question},
+		memory.Message{Role: "assistant", Content: answer},
+	)
+}
+
+func (l *recommendAgentLogic) RecommendationRouteInput(ctx context.Context, userID int64, sessionID, question, forceRoute string) (RouteInput, error) {
+	in := RouteInput{Question: strings.TrimSpace(question), ForceRoute: strings.TrimSpace(forceRoute)}
+	if l.memory == nil || userID <= 0 || strings.TrimSpace(sessionID) == "" {
+		return in, nil
+	}
+	profile, err := l.memory.LoadProfile(ctx, userID)
+	if err != nil {
+		return in, fmt.Errorf("load route profile: %w", err)
+	}
+	history, err := l.memory.LoadSession(ctx, userID, strings.TrimSpace(sessionID), 12)
+	if err != nil {
+		return in, fmt.Errorf("load route session: %w", err)
+	}
+	summary := memory.SessionSummary{}
+	if layered, ok := l.memory.(repoInterfaces.LayeredMemoryRepo); ok {
+		loaded, loadErr := layered.LoadSessionSummary(ctx, userID, strings.TrimSpace(sessionID))
+		if loadErr != nil {
+			return in, fmt.Errorf("load route summary: %w", loadErr)
+		}
+		summary = loaded
+	}
+	in.HasHistory = len(history) > 0 || strings.TrimSpace(summary.Content) != ""
+	in.ProfileSummary = memory.ProfileSummaryForPrompt(profile)
+	in.HistorySummary = strings.TrimSpace(summary.Content + "\n" + summarizeHistoryForUnderstanding(history))
+	return in, nil
+}
+
 func (l *recommendAgentLogic) Recommend(ctx context.Context, userID int64, sessionID, question, forceRoute string, onStatus func(agent.ToolStatus)) (RecommendResult, error) {
 	if l.tools == nil || l.memory == nil || l.search == nil {
 		return RecommendResult{}, fmt.Errorf("RecommendAgent 未完整配置")
@@ -123,18 +217,37 @@ func (l *recommendAgentLogic) Recommend(ctx context.Context, userID int64, sessi
 	}
 
 	start := time.Now()
-	traceID := uuid.NewString()
+	runCtx, runSpan, spanCreated := agent.EnsureRunSpan(ctx, l.cfg.MaxSteps, l.cfg.MaxToolCalls)
+	if spanCreated {
+		defer runSpan.End()
+	}
+	ctx = runCtx
+	traceID := agent.TraceIDFromContext(ctx)
+	if traceID == "" {
+		traceID = uuid.NewString()
+	}
+	runKey := uuid.NewString()
+	spanID := agent.SpanIDFromContext(ctx)
 	var runID int64
 	var searchDeg bool
 	finalize := func(status, grounding, stop string, loopRes agent.LoopResult) {
 		if l.runs == nil || runID == 0 {
 			return
 		}
-		ev, _ := json.Marshal(map[string]any{
-			"cited":     loopRes.ObservedShopIDs,
-			"grounding": grounding,
-		})
+		evidenceSummary := map[string]any{
+			"cited":          loopRes.ObservedShopIDs,
+			"grounding":      grounding,
+			"runtime":        loopRes.RuntimeVersion,
+			"claim_fallback": loopRes.ClaimFallback,
+		}
+		if loopRes.RuntimeState != nil {
+			evidenceSummary["runtime_status"] = loopRes.RuntimeState.Status
+			evidenceSummary["state_revision"] = loopRes.RuntimeState.Revision
+			evidenceSummary["evidence_gap_count"] = len(loopRes.RuntimeState.Gaps)
+		}
+		ev, _ := json.Marshal(evidenceSummary)
 		ferr := l.runs.Finalize(context.WithoutCancel(ctx), repoInterfaces.AgentRunFinalize{
+			RunKey:              runKey,
 			TraceID:             traceID,
 			Status:              status,
 			Steps:               loopRes.Steps,
@@ -148,6 +261,7 @@ func (l *recommendAgentLogic) Recommend(ctx context.Context, userID int64, sessi
 			StopReason:          stop,
 			DegradedMode:        searchDeg,
 			EvidenceSummaryJSON: string(ev),
+			Tools:               reactToolAudit(loopRes.RuntimeState),
 		})
 		if ferr != nil {
 			logrus.Warnf("AgentRun.Finalize: %v", ferr)
@@ -159,18 +273,59 @@ func (l *recommendAgentLogic) Recommend(ctx context.Context, userID int64, sessi
 		logrus.Warnf("LoadProfile: %v", err)
 		prof = memory.Profile{}
 	}
-	history, err := l.memory.LoadSession(ctx, userID, sessionID, 20)
+	history, err := l.memory.LoadSession(ctx, userID, sessionID, 40)
 	if err != nil {
 		logrus.Warnf("LoadSession: %v", err)
 		history = nil
 	}
-	route := l.router.Route(RouteInput{
+	episodic := memory.SessionSummary{}
+	if layeredRepo, ok := l.memory.(repoInterfaces.LayeredMemoryRepo); ok {
+		if loaded, loadErr := layeredRepo.LoadSessionSummary(ctx, userID, sessionID); loadErr != nil {
+			logrus.Warnf("LoadSessionSummary: %v", loadErr)
+		} else {
+			episodic = loaded
+		}
+	}
+	layeredContext := memory.BuildLayeredContext(prof, episodic, history, question)
+	promptHistory := layeredContext.PromptMessages()
+	routeInput := RouteInput{
 		Question: question, ForceRoute: forceRoute, HasHistory: len(history) > 0,
-	})
+		ProfileSummary: memory.ProfileSummaryForPrompt(prof),
+		HistorySummary: strings.TrimSpace(episodic.Content + "\n" + summarizeHistoryForUnderstanding(promptHistory)),
+	}
+	route := l.router.Route(routeInput)
+	intentSpec := agent.FallbackIntentSpec(question, string(route.Route))
+	var understandingUsage llm.TokenUsage
+	understandingCalls := 0
+	if fromCtx, ok := agent.IntentSpecFromContext(ctx); ok {
+		intentSpec = fromCtx
+		if strings.TrimSpace(intentSpec.Source) == "" {
+			intentSpec.Source = "context"
+		}
+		understandingUsage = agent.IntentUsageFromContext(ctx)
+		understandingCalls = agent.IntentCallsFromContext(ctx)
+		if parsed, valid := parseIntentRoute(intentSpec.Route); valid {
+			route.Route = parsed
+			route.Reason = "query_understanding_context:" + intentSpec.Intent
+			route.Confidence = intentSpec.Confidence
+		}
+	} else if l.adaptive != nil {
+		var routeErr error
+		understandingCalls = 1
+		route, intentSpec, understandingUsage, routeErr = l.adaptive.RouteContext(ctx, routeInput)
+		if routeErr != nil {
+			logrus.Warnf("query understanding fallback: %v", routeErr)
+		}
+	}
 	if l.runs != nil {
+		policyVersion := "agent-policy-v2-plan-claim"
+		if l.runtime == agent.RuntimeVersionV2React {
+			policyVersion = "agent-policy-v3-parallel-react"
+		}
 		id, berr := l.runs.Begin(ctx, repoInterfaces.AgentRunBegin{
-			TraceID: traceID, UserID: userID, SessionID: sessionID,
-			PolicyVersion: "agent-policy-v1",
+			RunKey: runKey, TraceID: traceID, SpanID: spanID,
+			UserID: userID, SessionID: sessionID,
+			PolicyVersion: policyVersion,
 			Route:         string(route.Route), RouteReason: route.Reason,
 		})
 		if berr != nil {
@@ -179,7 +334,31 @@ func (l *recommendAgentLogic) Recommend(ctx context.Context, userID int64, sessi
 			runID = id
 		}
 	}
-	if deterministicPatch := inferDeterministicProfilePatch(question, prof); profilePatchHasChanges(deterministicPatch) &&
+	if route.Route == RouteClarify {
+		questionToAsk := strings.TrimSpace(intentSpec.ClarificationQuestion)
+		if questionToAsk == "" {
+			questionToAsk = "请补充想找的区域、店铺类型、预算或上一轮具体对象。"
+		}
+		answer := "推荐结果：无\n" + questionToAsk
+		_ = l.memory.AppendSession(ctx, userID, sessionID,
+			memory.Message{Role: "user", Content: question},
+			memory.Message{Role: "assistant", Content: answer},
+		)
+		loop := agent.LoopResult{
+			Answer: answer, GroundingOK: true, AllowNoResult: true,
+			ModelCalls: understandingCalls, Usage: understandingUsage,
+			RuntimeVersion: l.runtime,
+		}
+		finalize(model.AgentRunCompleted, "ok", "clarify", loop)
+		return RecommendResult{
+			Answer: answer, Intent: intentSpec, ProfileAfter: prof, TraceID: traceID,
+			ModelCalls: understandingCalls, Usage: understandingUsage,
+			Route: string(route.Route), RouteReason: route.Reason,
+			RuntimeVersion: l.runtime, RuntimeStatus: agent.RuntimeNeedsClarify,
+			AnswerVerified: true,
+		}, nil
+	}
+	if deterministicPatch := annotateProfilePatch(inferDeterministicProfilePatch(question, prof), "deterministic_user_explicit", 1); profilePatchHasChanges(deterministicPatch) &&
 		!recommendRequestIntent.MatchString(question) {
 		merged, mergeErr := l.mergeProfilePatchForRun(ctx, userID, runID, deterministicPatch)
 		if mergeErr == nil {
@@ -188,11 +367,17 @@ func (l *recommendAgentLogic) Recommend(ctx context.Context, userID int64, sessi
 				memory.Message{Role: "user", Content: question},
 				memory.Message{Role: "assistant", Content: answer},
 			)
-			loop := agent.LoopResult{Answer: answer, GroundingOK: true, AllowNoResult: true}
+			loop := agent.LoopResult{
+				Answer: answer, GroundingOK: true, AllowNoResult: true,
+				RuntimeVersion: l.runtime,
+			}
 			finalize(model.AgentRunCompleted, "ok", "profile_update", loop)
 			return RecommendResult{
-				Answer: answer, ProfileAfter: merged, TraceID: traceID,
+				Answer: answer, Intent: intentSpec, ProfileAfter: merged, TraceID: traceID,
+				ModelCalls: understandingCalls, Usage: understandingUsage,
 				Route: string(route.Route), RouteReason: route.Reason + "; preflight=profile_update",
+				RuntimeVersion: l.runtime, RuntimeStatus: agent.RuntimeCompleted,
+				AnswerVerified: true,
 			}, nil
 		}
 		logrus.Warnf("deterministic profile update: %v", mergeErr)
@@ -200,6 +385,7 @@ func (l *recommendAgentLogic) Recommend(ctx context.Context, userID int64, sessi
 	if guardCode, guardAnswer := preflightRecommendationGuard(question, history, prof); guardCode != "" {
 		guardLoop := agent.LoopResult{
 			Answer: guardAnswer, GroundingOK: true, GroundingCode: "", AllowNoResult: true,
+			RuntimeVersion: l.runtime,
 		}
 		_ = l.memory.AppendSession(ctx, userID, sessionID,
 			memory.Message{Role: "user", Content: question},
@@ -207,22 +393,48 @@ func (l *recommendAgentLogic) Recommend(ctx context.Context, userID int64, sessi
 		)
 		finalize(model.AgentRunCompleted, "ok", guardCode, guardLoop)
 		return RecommendResult{
-			Answer: guardAnswer, ProfileAfter: prof, TraceID: traceID,
+			Answer: guardAnswer, Intent: intentSpec, ProfileAfter: prof, TraceID: traceID,
+			ModelCalls: understandingCalls, Usage: understandingUsage,
 			Route: string(route.Route), RouteReason: route.Reason + "; preflight=" + guardCode,
+			RuntimeVersion: l.runtime, RuntimeStatus: agent.RuntimeCompleted,
+			AnswerVerified: true,
 		}, nil
 	}
 
-	histMsgs := make([]llm.ChatMessage, 0, len(history))
-	for _, h := range history {
+	histMsgs := make([]llm.ChatMessage, 0, len(promptHistory))
+	for _, h := range promptHistory {
 		histMsgs = append(histMsgs, llm.ChatMessage{Role: h.Role, Content: h.Content})
 	}
 	workingQuestion := resolveWorkingQuestion(question, history)
 	effectiveProf := effectiveProfileForQuestion(prof, workingQuestion)
+	memoryPolicy := memoryPolicyForRequest(question, prof, episodic, promptHistory)
 	requiredSemantics := agent.RequiredSemanticConcepts(workingQuestion)
+	questionFilter := inferExplicitFilter(workingQuestion)
+	requiredTools := requiredEvidenceTools(workingQuestion)
+	if intentSpec.Source == "llm" || intentSpec.Source == "llm_forced" || intentSpec.Source == "context" {
+		if understood := IntentSpecToVectorFilter(intentSpec); understood != nil {
+			questionFilter = understood
+		}
+		requiredTools = intentEvidenceTools(intentSpec, workingQuestion)
+		// The finite semantic dictionary remains a deterministic fallback for
+		// deployments without Query Understanding. Once an IntentSpec is
+		// available, retrieval/reranking and claim evidence must generalise from
+		// the model's soft preferences instead of benchmark-specific aliases.
+		requiredSemantics = nil
+	}
+	// Query Understanding may under-specify evidence on a degraded model turn.
+	// Merge the deterministic safety floor, then reflect the result back into
+	// the shared IntentSpec so V2 EvidenceGap cannot finish before required tools.
+	for _, tool := range requiredEvidenceTools(workingQuestion) {
+		requiredTools = appendIntentTool(requiredTools, tool)
+	}
+	intentSpec = ensureIntentEvidenceRequirements(intentSpec, requiredTools)
 	searchAdp := &shopSearchAdapter{
-		inner: l.search, profile: effectiveProf, questionFilter: inferExplicitFilter(workingQuestion),
+		inner: l.search, profile: effectiveProf, questionFilter: questionFilter,
 		enforceQuestionFilter: true, requiredSemantics: requiredSemantics,
 		semanticRerank: len(requiredSemantics) > 0 && !strings.Contains(question, "对比"),
+		queries:        intentSpec.RetrievalQueries(), softPreferences: intentSpec.SoftPreferences,
+		reranker: l.reranker, question: workingQuestion,
 	}
 	exactShopName := explicitExactShopName(workingQuestion)
 	exec := &agent.ToolExecutor{
@@ -232,34 +444,75 @@ func (l *recommendAgentLogic) Recommend(ctx context.Context, userID int64, sessi
 		Ledger:            agent.NewEvidenceLedger(),
 		Observed:          map[int64]struct{}{},
 		RequiredSemantics: requiredSemantics,
-		RequiredTools:     requiredEvidenceTools(workingQuestion),
+		RequiredTools:     requiredTools,
 		TargetShopName:    exactShopName,
 		FactualLookup:     exactShopName != "",
 	}
 	harness := &agent.RecommendAgentHarness{
-		Tools: l.tools, Exec: exec, Config: l.cfg, Builder: &agent.ContextBuilder{},
+		Tools: l.tools, Exec: exec, Config: l.cfg, Builder: &agent.ContextBuilder{}, Planner: l.planner,
+		Checkpointer: l.checkpoint, ReactConfig: l.reactCfg,
+	}
+	if l.runtime == agent.RuntimeVersionV2React {
+		harness.Controller = l.controller
+	}
+	runtimeRunID := runKey
+	profilePrompt := memory.ProfileSummaryForPrompt(effectiveProf)
+	episodicPrompt := episodic.Content
+	historyPrompt := histMsgs
+	if memoryPolicy == agent.MemoryNone {
+		profilePrompt = ""
+		episodicPrompt = ""
+		historyPrompt = nil
 	}
 	outcome := harness.Run(ctx, agent.HarnessInput{
-		Policy:         agentSystemPrompt,
-		ProfileSummary: memory.ProfileSummaryForPrompt(effectiveProf),
-		History:        histMsgs,
-		Question:       question,
-		OnStatus:       onStatus,
+		RunID:           runtimeRunID,
+		TraceID:         traceID,
+		Policy:          agentSystemPrompt,
+		ProfileSummary:  profilePrompt,
+		EpisodicSummary: episodicPrompt,
+		History:         historyPrompt,
+		Question:        question,
+		OnStatus:        onStatus,
+		Intent:          intentSpec,
+		MemoryPolicy:    memoryPolicy,
 	})
 	loopRes := outcome.Loop
+	loopRes.ModelCalls += understandingCalls
+	loopRes.Usage = addTokenUsage(loopRes.Usage, understandingUsage)
+	loopRes.ModelCalls += searchAdp.rerankCalls
+	loopRes.Usage = addTokenUsage(loopRes.Usage, searchAdp.rerankUsage)
 	searchDeg = searchAdp.degraded
 	out := RecommendResult{
 		Answer:             outcome.Answer,
+		Intent:             intentSpec,
+		Plans:              append([]agent.ExecutionPlan(nil), loopRes.Plans...),
+		Replans:            loopRes.Replans,
+		PlanFallback:       loopRes.PlanFallback,
+		ClaimFallback:      loopRes.ClaimFallback,
+		ClaimAnswer:        loopRes.ClaimAnswer,
+		Retrieval:          searchAdp.assessment,
 		Steps:              outcome.Steps,
 		ModelCalls:         loopRes.ModelCalls,
 		ToolCalls:          outcome.ToolCalls,
 		ToolNames:          append([]string(nil), loopRes.ToolNames...),
 		DuplicateToolCalls: loopRes.DuplicateRejected,
 		ObservedShopIDs:    outcome.ObservedShopIDs,
-		Usage:              outcome.Usage,
+		Usage:              loopRes.Usage,
 		ProfileAfter:       prof,
 		TraceID:            traceID, Route: string(route.Route), RouteReason: route.Reason,
 		Degraded: searchAdp.degraded, DegradedReason: searchAdp.degradedReason,
+		RuntimeVersion: loopRes.RuntimeVersion,
+	}
+	if loopRes.RuntimeState != nil {
+		out.RuntimeStatus = loopRes.RuntimeState.Status
+		out.SearchRounds = loopRes.RuntimeState.Budget.SearchRounds
+		out.EvidenceGapCount = len(loopRes.RuntimeState.Gaps)
+		out.AnswerVerified = loopRes.RuntimeState.AnswerVerified
+		for _, candidate := range loopRes.RuntimeState.Candidates {
+			if candidate.ReviewPages > out.MaxReviewPages {
+				out.MaxReviewPages = candidate.ReviewPages
+			}
+		}
 	}
 	if outcome.StopReason == "client_disconnect" || ctx.Err() != nil {
 		finalize(model.AgentRunCancelled, "skipped", "client_disconnect", loopRes)
@@ -274,21 +527,23 @@ func (l *recommendAgentLogic) Recommend(ctx context.Context, userID int64, sessi
 		return out, agent.NewPublicError(agent.ErrGroundingUnknownShop, "回答未通过有据可查校验，请重试")
 	}
 
-	_ = l.memory.AppendSession(ctx, userID, sessionID,
+	appendErr := l.memory.AppendSession(ctx, userID, sessionID,
 		memory.Message{Role: "user", Content: question},
 		memory.Message{Role: "assistant", Content: loopRes.Answer},
 	)
 
-	// 仅 COMPLETED 路径写偏好
-	if l.chat != nil {
+	// 仅完成且最终回答已校验的路径写长期偏好。运行时澄清、预算耗尽
+	// 或 claim 校验失败都不得更新长期记忆。
+	answerCommitAllowed := loopRes.RuntimeState == nil ||
+		(loopRes.RuntimeState.Status == agent.RuntimeCompleted && loopRes.RuntimeState.AnswerVerified)
+	profileCommitAllowed := answerCommitAllowed && memoryPolicy == agent.MemoryWriteAfterSuccess
+	if l.chat != nil && profileCommitAllowed {
 		patch, patchUsage, perr := l.extractPatch(ctx, question, prof)
+		out.ModelCalls++
+		out.Usage = addTokenUsage(out.Usage, patchUsage)
 		if perr != nil {
 			logrus.Warnf("ExtractProfilePatch: %v", perr)
-		} else if ctx.Err() == nil {
-			out.ModelCalls++
-			out.Usage.PromptTokens += patchUsage.PromptTokens
-			out.Usage.CompletionTokens += patchUsage.CompletionTokens
-			out.Usage.TotalTokens += patchUsage.TotalTokens
+		} else if ctx.Err() == nil && profilePatchHasChanges(patch) {
 			merged, merr := l.mergeProfilePatchForRun(ctx, userID, runID, patch)
 			if merr != nil {
 				logrus.Warnf("MergeProfile: %v", merr)
@@ -297,8 +552,176 @@ func (l *recommendAgentLogic) Recommend(ctx context.Context, userID int64, sessi
 			}
 		}
 	}
-	finalize(model.AgentRunCompleted, "ok", "final", loopRes)
+	if appendErr == nil && answerCommitAllowed {
+		compactUsage, compactCalls := l.compactSessionAfterSuccess(ctx, userID, sessionID, episodic, history,
+			memory.Message{Role: "user", Content: question, Ts: memory.NowUnix()},
+			memory.Message{Role: "assistant", Content: loopRes.Answer, Ts: memory.NowUnix()},
+		)
+		out.ModelCalls += compactCalls
+		out.Usage = addTokenUsage(out.Usage, compactUsage)
+	}
+	// Persist the complete model cost, including post-success profile
+	// extraction and episodic compaction, in the run audit record.
+	loopRes.ModelCalls = out.ModelCalls
+	loopRes.Usage = out.Usage
+	finalStopReason := outcome.StopReason
+	if finalStopReason == "" {
+		finalStopReason = "final"
+	}
+	finalize(model.AgentRunCompleted, "ok", finalStopReason, loopRes)
 	return out, nil
+}
+
+func ensureIntentEvidenceRequirements(spec agent.IntentSpec, tools []string) agent.IntentSpec {
+	seen := make(map[string]bool, len(spec.EvidenceRequirements)+2)
+	for _, requirement := range spec.EvidenceRequirements {
+		seen[requirement] = true
+	}
+	for _, tool := range tools {
+		var requirement string
+		switch tool {
+		case agent.ToolGetShop:
+			requirement = "shop_detail"
+		case agent.ToolListShopBlogs:
+			requirement = "reviews"
+		}
+		if requirement != "" && !seen[requirement] {
+			spec.EvidenceRequirements = append(spec.EvidenceRequirements, requirement)
+			seen[requirement] = true
+		}
+	}
+	return spec
+}
+
+func summarizeHistoryForUnderstanding(history []memory.Message) string {
+	if len(history) == 0 {
+		return ""
+	}
+	start := len(history) - 8
+	if start < 0 {
+		start = 0
+	}
+	var b strings.Builder
+	for _, msg := range history[start:] {
+		if strings.TrimSpace(msg.Content) == "" {
+			continue
+		}
+		fmt.Fprintf(&b, "[%s] %s\n", msg.Role, strings.TrimSpace(msg.Content))
+	}
+	return b.String()
+}
+
+func addTokenUsage(left, right llm.TokenUsage) llm.TokenUsage {
+	left.PromptTokens += right.PromptTokens
+	left.CompletionTokens += right.CompletionTokens
+	left.TotalTokens += right.TotalTokens
+	return left
+}
+
+// reactToolAudit converts bounded V2 action attempts to the existing database
+// audit contract. Search text and raw tool output are deliberately excluded;
+// the stable args hash is enough to correlate retries and duplicate rejection.
+func reactToolAudit(state *agent.AgentState) []repoInterfaces.AgentToolCallInput {
+	if state == nil {
+		return nil
+	}
+	var out []repoInterfaces.AgentToolCallInput
+	for _, actionID := range state.ActionOrder {
+		record, ok := state.Actions[actionID]
+		if !ok {
+			continue
+		}
+		argsSummary := safeAgentArgsSummary(record.Action)
+		for attemptIndex, result := range record.Attempts {
+			out = append(out, repoInterfaces.AgentToolCallInput{
+				StepNo: record.Turn, AttemptNo: attemptIndex + 1,
+				ToolName: record.Action.Tool, ArgsHash: result.ArgsHash,
+				ArgsSummaryJSON: argsSummary, Status: string(result.Status),
+				ErrorCode: result.ErrorCode, LatencyMs: result.LatencyMs,
+				ResultCount: result.ResultCount,
+			})
+		}
+	}
+	return out
+}
+
+func safeAgentArgsSummary(action agent.AgentAction) string {
+	var raw map[string]any
+	if json.Unmarshal(action.Args, &raw) != nil {
+		return "{}"
+	}
+	allowed := map[string]bool{}
+	switch action.Tool {
+	case agent.ToolSearchShops:
+		allowed = map[string]bool{
+			"area": true, "type_name": true, "max_price": true, "min_price": true,
+		}
+	case agent.ToolGetShop:
+		allowed = map[string]bool{"shop_id": true}
+	case agent.ToolListShopBlogs:
+		allowed = map[string]bool{
+			"shop_id": true, "limit": true, "sort": true, "freshness_days": true,
+		}
+	}
+	summary := make(map[string]any, len(allowed))
+	for key := range allowed {
+		if value, ok := raw[key]; ok {
+			summary[key] = value
+		}
+	}
+	encoded, err := json.Marshal(summary)
+	if err != nil {
+		return "{}"
+	}
+	return string(encoded)
+}
+
+func (l *recommendAgentLogic) compactSessionAfterSuccess(
+	ctx context.Context,
+	userID int64,
+	sessionID string,
+	previous memory.SessionSummary,
+	history []memory.Message,
+	current ...memory.Message,
+) (llm.TokenUsage, int) {
+	if l.summarizer == nil {
+		return llm.TokenUsage{}, 0
+	}
+	repo, ok := l.memory.(repoInterfaces.LayeredMemoryRepo)
+	if !ok {
+		return llm.TokenUsage{}, 0
+	}
+	all := append(append([]memory.Message(nil), history...), current...)
+	if len(all) <= 12 {
+		return llm.TokenUsage{}, 0
+	}
+	archiveEnd := len(all) - memory.DefaultWorkingMessages
+	if archiveEnd <= 0 {
+		return llm.TokenUsage{}, 0
+	}
+	archive := make([]memory.Message, 0, archiveEnd)
+	for _, msg := range all[:archiveEnd] {
+		archive = append(archive, msg)
+	}
+	if len(archive) == 0 {
+		return llm.TokenUsage{}, 0
+	}
+	summary, usage, err := l.summarizer.Summarize(ctx, previous, archive)
+	if err != nil {
+		logrus.Warnf("SummarizeSession: %v", err)
+		return usage, 1
+	}
+	if err := repo.SaveSessionSummary(ctx, userID, sessionID, summary); err != nil {
+		logrus.Warnf("SaveSessionSummary: %v", err)
+		return usage, 1
+	}
+	// Keep exactly the unsummarised working window. Keeping a larger overlap
+	// would require timestamp watermarks to distinguish messages written in
+	// the same second and could either duplicate or silently drop turns.
+	if err := repo.TrimSession(ctx, userID, sessionID, memory.DefaultWorkingMessages); err != nil {
+		logrus.Warnf("TrimSession after summary: %v", err)
+	}
+	return usage, 1
 }
 
 func (l *recommendAgentLogic) mergeProfilePatchForRun(ctx context.Context, userID, runID int64, patch memory.ProfilePatch) (memory.Profile, error) {
@@ -330,12 +753,19 @@ func (l *recommendAgentLogic) extractPatch(ctx context.Context, userUtterance st
 	deterministic := inferDeterministicProfilePatch(userUtterance, old)
 	if err != nil {
 		if profilePatchHasChanges(deterministic) {
-			return deterministic, usage, nil
+			return annotateProfilePatch(deterministic, "deterministic_user_explicit", 1), usage, nil
 		}
 		return memory.ProfilePatch{}, usage, err
 	}
 	patch = constrainProfilePatchToExplicitUtterance(userUtterance, patch)
-	return mergeDeterministicProfilePatch(patch, deterministic), usage, nil
+	patch = mergeDeterministicProfilePatch(patch, deterministic)
+	return annotateProfilePatch(patch, "llm_user_explicit", 0.9), usage, nil
+}
+
+func annotateProfilePatch(patch memory.ProfilePatch, source string, confidence float64) memory.ProfilePatch {
+	patch.Source = source
+	patch.Confidence = confidence
+	return patch
 }
 
 // constrainProfilePatchToExplicitUtterance makes profile updates fail closed:
@@ -375,8 +805,15 @@ type shopSearchAdapter struct {
 	enforceQuestionFilter bool
 	requiredSemantics     []string
 	semanticRerank        bool
+	queries               []string
+	softPreferences       []string
+	reranker              CandidateReranker
+	question              string
+	rerankUsage           llm.TokenUsage
+	rerankCalls           int
 	degraded              bool
 	degradedReason        string
+	assessment            RetrievalAssessment
 }
 
 func (a *shopSearchAdapter) SearchShops(ctx context.Context, query, area, typeName string, maxPrice, minPrice *int64, topK int) ([]agent.ShopHit, error) {
@@ -385,7 +822,7 @@ func (a *shopSearchAdapter) SearchShops(ctx context.Context, query, area, typeNa
 		requestedTopK = 5
 	}
 	fetchTopK := requestedTopK
-	if a.semanticRerank && fetchTopK < 20 {
+	if (a.semanticRerank || a.reranker != nil || len(a.queries) > 1) && fetchTopK < 20 {
 		fetchTopK = 20
 	}
 	area = normalizeArea(area)
@@ -412,7 +849,14 @@ func (a *shopSearchAdapter) SearchShops(ctx context.Context, query, area, typeNa
 	if expansion := agent.SemanticQueryExpansion(a.requiredSemantics); expansion != "" {
 		query = strings.TrimSpace(query + " " + expansion)
 	}
-	outcome, err := a.inner.SearchWithMeta(ctx, query, filter, RetrieverHybrid, fetchTopK, DefaultSearchMode())
+	queries := normalizeRetrievalQueries(append(append([]string{}, a.queries...), query))
+	var outcome SearchOutcome
+	var err error
+	if multi, ok := a.inner.(MultiQueryShopSearchLogic); ok && len(queries) > 1 {
+		outcome, err = multi.SearchMultiWithMeta(ctx, queries, filter, RetrieverHybrid, fetchTopK, DefaultSearchMode())
+	} else {
+		outcome, err = a.inner.SearchWithMeta(ctx, query, filter, RetrieverHybrid, fetchTopK, DefaultSearchMode())
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -421,7 +865,24 @@ func (a *shopSearchAdapter) SearchShops(ctx context.Context, query, area, typeNa
 		a.degradedReason = outcome.DegradedReason
 	}
 	results := outcome.Results
-	if a.semanticRerank {
+	reranked := false
+	var rankScores map[int64]float64
+	if a.reranker != nil && len(results) > 0 {
+		a.rerankCalls++
+		rank, rankErr := a.reranker.Rerank(ctx, RerankInput{
+			Question: a.question, SoftPreferences: a.softPreferences,
+			Candidates: results, TopK: requestedTopK,
+		})
+		a.rerankUsage = addTokenUsage(a.rerankUsage, rank.Usage)
+		if rankErr == nil && len(rank.Results) > 0 {
+			results = rank.Results
+			rankScores = rank.Scores
+			reranked = true
+		} else if rankErr != nil {
+			logrus.Warnf("candidate rerank fallback: %v", rankErr)
+		}
+	}
+	if !reranked && a.semanticRerank {
 		sort.SliceStable(results, func(i, j int) bool {
 			left := agent.ReviewTextSupportsSemantics(results[i].TextContent, a.requiredSemantics)
 			right := agent.ReviewTextSupportsSemantics(results[j].TextContent, a.requiredSemantics)
@@ -430,6 +891,13 @@ func (a *shopSearchAdapter) SearchShops(ctx context.Context, query, area, typeNa
 		if len(results) > requestedTopK {
 			results = results[:requestedTopK]
 		}
+	}
+	if len(results) > requestedTopK {
+		results = results[:requestedTopK]
+	}
+	a.assessment = AssessRetrieval(results, rankScores, len(a.softPreferences) > 0)
+	if a.assessment.Decision == RetrievalAbstain {
+		return nil, nil
 	}
 	out := make([]agent.ShopHit, 0, len(results))
 	for _, r := range results {
@@ -481,6 +949,10 @@ func resolveWorkingQuestion(question string, history []memory.Message) string {
 }
 
 func preflightRecommendationGuard(question string, history []memory.Message, profile memory.Profile) (code, answer string) {
+	if strings.Contains(question, "先不用推荐") || strings.Contains(question, "暂时不用推荐") ||
+		strings.Contains(question, "先别推荐") || strings.Contains(question, "暂不推荐") {
+		return "recommendation_deferred", "推荐结果：无\n好的，这一轮不做店铺推荐；已保留当前会话上下文，确认后可以继续。"
+	}
 	if filter := inferExplicitFilter(question); filter != nil && filter.MinPrice > 0 && filter.MaxPrice > 0 && filter.MinPrice > filter.MaxPrice {
 		return "contradictory_price_range", fmt.Sprintf(
 			"推荐结果：无\n条件互相冲突：最低人均 %d 元高于最高人均 %d 元，因此无法执行有效检索。请先确认价格范围，我不会擅自改动条件。",
@@ -522,10 +994,37 @@ func effectiveProfileForQuestion(old memory.Profile, question string) memory.Pro
 		return memory.Profile{}
 	}
 	out := old
+	if explicit := inferExplicitFilter(question); explicit != nil {
+		// Current-turn hard filters always win. Removing conflicting profile
+		// fields from the prompt also prevents the model from blending old and
+		// new constraints even though retrieval already applies this precedence.
+		if explicit.Area != "" {
+			out.PreferredAreas = nil
+		}
+		if explicit.TypeName != "" {
+			out.PreferredTypes = nil
+		}
+		if explicit.MaxPrice > 0 || explicit.MinPrice > 0 {
+			out.BudgetMax = nil
+		}
+	}
 	if budgetClearIntent.MatchString(question) {
 		out.BudgetMax = nil
 	}
 	return out
+}
+
+func memoryPolicyForRequest(question string, profile memory.Profile, summary memory.SessionSummary, history []memory.Message) agent.MemoryPolicy {
+	if profilePreferenceIntent.MatchString(question) || budgetClearIntent.MatchString(question) ||
+		dislikeMutationIntent.MatchString(question) || summaryMutationIntent.MatchString(question) {
+		return agent.MemoryWriteAfterSuccess
+	}
+	hasProfile := len(profile.PreferredAreas) > 0 || len(profile.PreferredTypes) > 0 ||
+		profile.BudgetMax != nil || len(profile.Dislikes) > 0 || strings.TrimSpace(profile.Summary) != ""
+	if hasProfile || strings.TrimSpace(summary.Content) != "" || len(history) > 0 {
+		return agent.MemoryReadOnly
+	}
+	return agent.MemoryNone
 }
 
 // inferDeterministicProfilePatch only handles explicit finite-catalog

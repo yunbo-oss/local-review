@@ -34,3 +34,14 @@ func TestDefaultRunConfig_FromEnv(t *testing.T) {
 		t.Fatalf("chars %d", cfg.MaxToolResultChars)
 	}
 }
+
+func TestRuntimeVersionFromEnv(t *testing.T) {
+	t.Setenv("AGENT_RUNTIME_VERSION", "v1")
+	if got := RuntimeVersionFromEnv(); got != RuntimeVersionV1Plan {
+		t.Fatalf("v1=%q", got)
+	}
+	t.Setenv("AGENT_RUNTIME_VERSION", "")
+	if got := RuntimeVersionFromEnv(); got != RuntimeVersionV2React {
+		t.Fatalf("default=%q", got)
+	}
+}

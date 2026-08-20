@@ -9,10 +9,13 @@ import (
 type RecommendRoute string
 
 const (
-	RouteRAGOneshot     RecommendRoute = "rag_oneshot"
-	RouteAgentMultistep RecommendRoute = "agent_multistep"
-	RouteAgentMemory    RecommendRoute = "agent_memory"
-	RouteClarify        RecommendRoute = "clarify"
+	RouteRAGOneshot RecommendRoute = "rag_oneshot"
+	RouteAgent      RecommendRoute = "agent"
+	RouteClarify    RecommendRoute = "clarify"
+
+	// 旧值只用于兼容历史请求和冻结报告，不再作为生产路由输出。
+	legacyRouteAgentMultistep = "agent_multistep"
+	legacyRouteAgentMemory    = "agent_memory"
 )
 
 // RouteDecision 路由结果
@@ -25,9 +28,11 @@ type RouteDecision struct {
 
 // RouteInput 路由输入
 type RouteInput struct {
-	Question   string
-	ForceRoute string
-	HasHistory bool // 同 session 已有多轮时可提示记忆路径
+	Question       string
+	ForceRoute     string
+	HasHistory     bool // 同 session 已有多轮时可加载相关上下文
+	ProfileSummary string
+	HistorySummary string
 }
 
 // RecommendRouter 规则路由（Phase A）；embedding 级联留后
@@ -177,14 +182,14 @@ func (r *ruleRecommendRouter) Route(in RouteInput) RouteDecision {
 		return RouteDecision{Route: RouteClarify, Reason: "empty_question", Confidence: 1}
 	}
 	if hasPreferenceMutation(q) {
-		return RouteDecision{Route: RouteAgentMemory, Reason: "preference_mutation", Confidence: 1}
+		return RouteDecision{Route: RouteAgent, Reason: "preference_mutation", Confidence: 1}
 	}
 	if hasMultistepIntent(q) {
-		return RouteDecision{Route: RouteAgentMultistep, Reason: "needs_tools", Confidence: 0.95}
+		return RouteDecision{Route: RouteAgent, Reason: "needs_tools", Confidence: 0.95}
 	}
 	if NeedsSessionHistory(q) {
 		if in.HasHistory {
-			return RouteDecision{Route: RouteAgentMemory, Reason: "session_followup", Confidence: 0.9}
+			return RouteDecision{Route: RouteAgent, Reason: "session_followup", Confidence: 0.9}
 		}
 		return RouteDecision{Route: RouteClarify, Reason: "missing_session_context", Confidence: 0.9}
 	}
@@ -202,10 +207,8 @@ func normalizeForce(s string) RecommendRoute {
 	switch strings.TrimSpace(s) {
 	case string(RouteRAGOneshot):
 		return RouteRAGOneshot
-	case string(RouteAgentMultistep):
-		return RouteAgentMultistep
-	case string(RouteAgentMemory):
-		return RouteAgentMemory
+	case string(RouteAgent), legacyRouteAgentMultistep, legacyRouteAgentMemory:
+		return RouteAgent
 	case string(RouteClarify):
 		return RouteClarify
 	default:
@@ -213,7 +216,14 @@ func normalizeForce(s string) RecommendRoute {
 	}
 }
 
+// IsSupportedForceRoute reports whether an external force_route value can be
+// normalized. Historical route names remain accepted at the boundary, while
+// every decision returned by the router uses the current three-route model.
+func IsSupportedForceRoute(s string) bool {
+	return strings.TrimSpace(s) == "" || normalizeForce(s) != ""
+}
+
 // IsAgentRoute 是否走完整助手
 func IsAgentRoute(r RecommendRoute) bool {
-	return r == RouteAgentMultistep || r == RouteAgentMemory
+	return r == RouteAgent
 }

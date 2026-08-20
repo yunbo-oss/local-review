@@ -32,6 +32,14 @@ type LoopResult struct {
 	GroundingOK       bool
 	GroundingCode     string
 	AllowNoResult     bool
+	Plans             []ExecutionPlan
+	Replans           int
+	PlanFallback      bool
+	ClaimFallback     bool
+	ClaimAnswer       *ClaimAnswer
+	RuntimeVersion    string
+	RuntimeState      *AgentState
+	Decisions         []AgentDecision
 }
 
 // StatusCallback SSE status
@@ -63,8 +71,6 @@ func RunLoop(ctx context.Context, client llm.ToolChatClient, exec *ToolExecutor,
 
 	runCtx, cancel := context.WithTimeout(ctx, cfg.RunTimeout)
 	defer cancel()
-	runCtx, span := StartRunSpan(runCtx, cfg.MaxSteps, cfg.MaxToolCalls)
-	defer span.End()
 
 	res := LoopResult{Messages: append([]llm.ChatMessage{}, messages...)}
 	seen := map[string]struct{}{}

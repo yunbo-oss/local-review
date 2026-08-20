@@ -1,16 +1,14 @@
 -- local-review-go 压测用种子数据
--- 用法: make seed 或 docker exec -i local-review-mysql mysql -uroot -p8888.216 local_review_go < script/seed.sql
-
-SET NAMES utf8mb4;
+-- 用法: make seed
 
 -- 1. 店铺类型
-INSERT IGNORE INTO tb_shop_type (id, name, icon, sort, create_time, update_time) VALUES
+INSERT INTO tb_shop_type (id, name, icon, sort, create_time, update_time) VALUES
 (1, '美食', 'catering', 1, NOW(), NOW()),
 (2, '咖啡', 'coffee', 2, NOW(), NOW()),
-(3, '酒店', 'hotel', 3, NOW(), NOW());
+(3, '酒店', 'hotel', 3, NOW(), NOW()) ON CONFLICT DO NOTHING;
 
 -- 2. 店铺（25 家）
-INSERT IGNORE INTO tb_shop (id, name, type_id, images, area, address, x, y, avg_price, sold, comments, score, open_hours, create_time, update_time) VALUES
+INSERT INTO tb_shop (id, name, type_id, images, area, address, x, y, avg_price, sold, comments, score, open_hours, create_time, update_time) VALUES
 (1, '老北京炸酱面', 1, 'https://picsum.photos/200', '朝阳区', '朝阳路100号', 116.4, 39.9, 35, 1200, 320, 48, '09:00-22:00', NOW(), NOW()),
 (2, '川味小厨', 1, 'https://picsum.photos/201', '海淀区', '中关村大街88号', 116.3, 39.98, 45, 800, 180, 46, '10:00-21:30', NOW(), NOW()),
 (3, '星巴克臻选', 2, 'https://picsum.photos/202', '西城区', '西单大悦城', 116.38, 39.91, 55, 2000, 500, 50, '08:00-23:00', NOW(), NOW()),
@@ -35,34 +33,34 @@ INSERT IGNORE INTO tb_shop (id, name, type_id, images, area, address, x, y, avg_
 (22, 'Tims咖啡', 2, 'https://picsum.photos/221', '丰台区', '丽泽商务区', 116.31, 39.87, 38, 800, 180, 46, '07:00-21:00', NOW(), NOW()),
 (23, '小龙坎火锅', 1, 'https://picsum.photos/222', '朝阳区', '大望路', 116.47, 39.91, 100, 1800, 450, 48, '11:00-24:00', NOW(), NOW()),
 (24, '蜜雪冰城', 2, 'https://picsum.photos/223', '西城区', '西单', 116.38, 39.91, 12, 6000, 1200, 45, '09:00-22:00', NOW(), NOW()),
-(25, '四季民福', 1, 'https://picsum.photos/224', '东城区', '故宫东华门', 116.4, 39.92, 130, 3200, 800, 50, '10:30-21:30', NOW(), NOW());
+(25, '四季民福', 1, 'https://picsum.photos/224', '东城区', '故宫东华门', 116.4, 39.92, 130, 3200, 800, 50, '10:30-21:30', NOW(), NOW()) ON CONFLICT DO NOTHING;
 
 -- 3. 普通优惠券（店铺 1-5）
-INSERT IGNORE INTO tb_voucher (id, shop_id, title, sub_title, rules, pay_value, actual_value, type, status, create_time, update_time) VALUES
+INSERT INTO tb_voucher (id, shop_id, title, sub_title, rules, pay_value, actual_value, type, status, create_time, update_time) VALUES
 (1, 1, '满30减10', '新客专享', '满30可用', 1000, 3000, 0, 0, NOW(), NOW()),
 (2, 2, '满50减15', '限时优惠', '满50可用', 1500, 5000, 0, 0, NOW(), NOW()),
 (3, 3, '第二杯半价', '咖啡日', '限同款', 0, 0, 0, 0, NOW(), NOW()),
 (4, 4, '9.9元拿铁', '新人专享', '每人限1次', 990, 2500, 0, 0, NOW(), NOW()),
-(5, 5, '满200减50', '火锅季', '满200可用', 5000, 20000, 0, 0, NOW(), NOW());
+(5, 5, '满200减50', '火锅季', '满200可用', 5000, 20000, 0, 0, NOW(), NOW()) ON CONFLICT DO NOTHING;
 
 -- 4. 秒杀优惠券（voucher_id 6,7,8 需先插入主表，再插入秒杀表）
-INSERT IGNORE INTO tb_voucher (id, shop_id, title, sub_title, rules, pay_value, actual_value, type, status, create_time, update_time) VALUES
+INSERT INTO tb_voucher (id, shop_id, title, sub_title, rules, pay_value, actual_value, type, status, create_time, update_time) VALUES
 (6, 1, '秒杀-炸酱面5元', '限时秒杀', '每人限1份', 500, 3500, 1, 0, NOW(), NOW()),
 (7, 4, '秒杀-9.9拿铁', '爆款秒杀', '每人限1杯', 990, 2500, 1, 0, NOW(), NOW()),
-(8, 5, '秒杀-火锅套餐99', '超值秒杀', '每人限1份', 9900, 20000, 1, 0, NOW(), NOW());
+(8, 5, '秒杀-火锅套餐99', '超值秒杀', '每人限1份', 9900, 20000, 1, 0, NOW(), NOW()) ON CONFLICT DO NOTHING;
 
 -- 5. 秒杀券详情（begin_time 已开始，end_time 未来24小时，便于压测）
-INSERT IGNORE INTO tb_seckill_voucher (voucher_id, stock, create_time, begin_time, end_time, update_time) VALUES
-(6, 500, NOW(), DATE_SUB(NOW(), INTERVAL 1 HOUR), DATE_ADD(NOW(), INTERVAL 24 HOUR), NOW()),
-(7, 300, NOW(), DATE_SUB(NOW(), INTERVAL 1 HOUR), DATE_ADD(NOW(), INTERVAL 24 HOUR), NOW()),
-(8, 200, NOW(), DATE_SUB(NOW(), INTERVAL 1 HOUR), DATE_ADD(NOW(), INTERVAL 24 HOUR), NOW());
+INSERT INTO tb_seckill_voucher (voucher_id, stock, create_time, begin_time, end_time, update_time) VALUES
+(6, 500, NOW(), NOW() - INTERVAL '1 hour', NOW() + INTERVAL '24 hours', NOW()),
+(7, 300, NOW(), NOW() - INTERVAL '1 hour', NOW() + INTERVAL '24 hours', NOW()),
+(8, 200, NOW(), NOW() - INTERVAL '1 hour', NOW() + INTERVAL '24 hours', NOW()) ON CONFLICT DO NOTHING;
 
 -- 6. 测试用户（用于压测登录，手机号 13800138000）
-INSERT IGNORE INTO tb_user (id, phone, password, nick_name, icon, create_time, update_time) VALUES
-(1, '13800138000', '', 'test_user', '', NOW(), NOW());
+INSERT INTO tb_user (id, phone, password, nick_name, icon, create_time, update_time) VALUES
+(1, '13800138000', '', 'test_user', '', NOW(), NOW()) ON CONFLICT DO NOTHING;
 
 -- 7. 店铺探店笔记/点评（供 RAG 语义检索：embedding 承载「浪漫」「适合约会」等 filter 无法表达的语义）
-INSERT IGNORE INTO tb_blog (id, shop_id, user_id, title, images, content, liked, comments, create_time, update_time) VALUES
+INSERT INTO tb_blog (id, shop_id, user_id, title, images, content, liked, comments, create_time, update_time) VALUES
 (1, 5, 1, '海底捞探店', '', '环境浪漫适合约会，服务态度超好，辣度适中，适合朋友聚餐，强烈推荐！', 88, 12, NOW(), NOW()),
 (2, 5, 1, '火锅体验', '', '氛围很好，适合情侣约会，番茄锅底特别浓郁，牛肉新鲜。', 65, 8, NOW(), NOW()),
 (3, 5, 1, '生日聚餐', '', '过生日选这里，服务员很贴心，环境浪漫，适合庆祝。', 52, 6, NOW(), NOW()),
@@ -107,4 +105,10 @@ INSERT IGNORE INTO tb_blog (id, shop_id, user_id, title, images, content, liked,
 (42, 23, 1, '辣味十足', '', '麻辣鲜香，越吃越上瘾。', 60, 7, NOW(), NOW()),
 (43, 15, 1, '小资情调', '', '装修文艺，菜品精致，适合闺蜜聚会。', 48, 5, NOW(), NOW()),
 (44, 20, 1, '精品酒店', '', '比快捷酒店舒服太多，值得多花点钱。', 62, 7, NOW(), NOW()),
-(45, 25, 1, '高端宴请', '', '请重要客户吃饭，四季民福不会出错。', 85, 11, NOW(), NOW());
+(45, 25, 1, '高端宴请', '', '请重要客户吃饭，四季民福不会出错。', 85, 11, NOW(), NOW()) ON CONFLICT DO NOTHING;
+
+SELECT setval(pg_get_serial_sequence('tb_shop_type', 'id'), GREATEST((SELECT MAX(id) FROM tb_shop_type), 1), true);
+SELECT setval(pg_get_serial_sequence('tb_shop', 'id'), GREATEST((SELECT MAX(id) FROM tb_shop), 1), true);
+SELECT setval(pg_get_serial_sequence('tb_voucher', 'id'), GREATEST((SELECT MAX(id) FROM tb_voucher), 1), true);
+SELECT setval(pg_get_serial_sequence('tb_user', 'id'), GREATEST((SELECT MAX(id) FROM tb_user), 1), true);
+SELECT setval(pg_get_serial_sequence('tb_blog', 'id'), GREATEST((SELECT MAX(id) FROM tb_blog), 1), true);

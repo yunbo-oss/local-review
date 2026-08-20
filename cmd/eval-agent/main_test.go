@@ -41,7 +41,7 @@ func TestFakeHarness_TrialIsolationAndReportShape(t *testing.T) {
 		cr := CaseReport{ID: c.ID, Tags: c.Tags}
 		var passes []bool
 		for tIdx := 0; tIdx < 3; tIdx++ {
-			td, err := runner.RunTrial(ctx, c, tIdx, "agent_multistep")
+			td, err := runner.RunTrial(ctx, c, tIdx, "agent")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -164,6 +164,34 @@ func TestBuildReportDistinguishesTrialMicroAndScenarioMacro(t *testing.T) {
 	if math.Abs(rep.Summary.OutcomeWilson95.Lower-0.30064184258240184) > 1e-12 ||
 		math.Abs(rep.Summary.OutcomeWilson95.Upper-0.9544127391902995) > 1e-12 {
 		t.Fatalf("outcome is not a Wilson 95%% interval: %+v", rep.Summary.OutcomeWilson95)
+	}
+}
+
+func TestBuildReportAggregatesAdaptiveArchitectureMetrics(t *testing.T) {
+	cases := []CaseReport{{
+		ID: "adaptive", Trials: TrialAggregate{Trials: 1, Successes: 1, SuccessRate: 1},
+		TrialDetails: []TrialDetail{{
+			Outcome: GradeResult{Pass: true}, Ground: GradeResult{Pass: true}, Traj: GradeResult{Pass: true}, Pass: true,
+			Actual: OutcomeActual{
+				Route: "agent", RuntimeStatus: "COMPLETED", AnswerVerified: true,
+				IntentConfidence: 0.8, RewriteCount: 2, PlanVersions: 2, Replans: 1,
+				PlanFallback: true, ClaimFallback: true, ClaimCount: 4, ClaimsWithEvidence: 3,
+				RetrievalConfidence: 0.7, RetrievalDecision: "abstain",
+			},
+		}},
+	}}
+	rep, err := buildReport("agent.test", "sha256:test", ExperimentMeta{System: "agent"}, cases, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := rep.Summary
+	if got.AvgIntentConfidence != 0.8 || got.AvgRewriteCount != 2 || got.AvgPlanVersions != 2 ||
+		got.AvgReplans != 1 || got.PlanFallbackRate != 1 || got.ClaimEvidenceCoverage != 0.75 ||
+		got.ClaimFallbackRate != 1 || got.AnswerVerifiedRate != 1 ||
+		got.AvgRetrievalConfidence != 0.7 || got.RetrievalAbstentionRate != 1 ||
+		got.RouteCounts["agent"] != 1 || got.RouteTaskSuccessRates["agent"] != 1 ||
+		got.RuntimeStatusCounts["COMPLETED"] != 1 {
+		t.Fatalf("adaptive summary metrics=%+v", got)
 	}
 }
 

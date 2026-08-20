@@ -54,7 +54,7 @@ func TestAgentProfileRepo_CacheAsideAndCAS(t *testing.T) {
 		if err != nil || p.Version != 1 {
 			t.Fatalf("%+v %v", p, err)
 		}
-		// 清缓存后仍能从 MySQL 恢复
+		// 清缓存后仍能从 PostgreSQL 恢复
 		mr.Del(redisx.AgentProfileCacheKey(9))
 		p2, err := repo.LoadProfile(ctx, 9)
 		if err != nil || p2.Version != 1 || len(p2.PreferredAreas) != 1 {
@@ -77,12 +77,12 @@ func TestAgentProfileRepo_CacheAsideAndCAS(t *testing.T) {
 		if err != nil || p.Version != 3 || p.PreferredAreas[0] != "西城区" {
 			t.Fatalf("backfill: %+v %v", p, err)
 		}
-		// 再次 Load 走 MySQL/cache，不依赖遗留 Hash
+		// 再次 Load 走 PostgreSQL/cache，不依赖遗留 Hash
 		mr.Del(redisx.AgentProfileKey(42))
 		mr.Del(redisx.AgentProfileCacheKey(42))
 		p2, err := repo.LoadProfile(ctx, 42)
 		if err != nil || p2.Version != 3 {
-			t.Fatalf("mysql persist: %+v %v", p2, err)
+			t.Fatalf("postgres persist: %+v %v", p2, err)
 		}
 	})
 }

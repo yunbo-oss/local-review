@@ -14,7 +14,7 @@ var (
 )
 
 type SecKillVoucher struct {
-	VoucherId  int64     `gorm:"primary;column:voucher_id" json:"voucherId"`
+	VoucherId  int64     `gorm:"primaryKey;column:voucher_id" json:"voucherId"`
 	Stock      int       `gorm:"column:stock" json:"stock"`
 	CreateTime time.Time `gorm:"column:create_time" json:"createTime"`
 	BeginTime  time.Time `gorm:"column:begin_time" json:"beginTime"`

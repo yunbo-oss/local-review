@@ -6,8 +6,10 @@ const AGENT_RUN_TABLE = "agent_runs"
 
 // AgentRun 一次推荐运行摘要（隐私安全：不存完整问句/评价正文）
 type AgentRun struct {
-	ID                  int64      `gorm:"primaryKey;AUTO_INCREMENT;column:id" json:"id"`
-	TraceID             string     `gorm:"column:trace_id;uniqueIndex;size:64;not null" json:"trace_id"`
+	ID                  int64      `gorm:"primaryKey;autoIncrement;column:id" json:"id"`
+	RunKey              string     `gorm:"column:run_key;uniqueIndex;size:64;not null" json:"run_key"`
+	TraceID             string     `gorm:"column:trace_id;index;size:64;not null" json:"trace_id"`
+	SpanID              string     `gorm:"column:span_id;index;size:32" json:"span_id"`
 	UserID              int64      `gorm:"column:user_id;index;not null" json:"user_id"`
 	SessionID           string     `gorm:"column:session_id;size:128;not null" json:"session_id"`
 	Status              string     `gorm:"column:status;size:32;not null;index" json:"status"`
@@ -25,7 +27,7 @@ type AgentRun struct {
 	GroundingStatus     string     `gorm:"column:grounding_status;size:32" json:"grounding_status"`
 	StopReason          string     `gorm:"column:stop_reason;size:64" json:"stop_reason"`
 	DegradedMode        bool       `gorm:"column:degraded_mode" json:"degraded_mode"`
-	EvidenceSummaryJSON string     `gorm:"column:evidence_summary_json;type:json" json:"evidence_summary_json"`
+	EvidenceSummaryJSON string     `gorm:"column:evidence_summary_json;type:jsonb" json:"evidence_summary_json"`
 	CreatedAt           time.Time  `gorm:"column:created_at" json:"created_at"`
 	CompletedAt         *time.Time `gorm:"column:completed_at" json:"completed_at"`
 }

@@ -6,7 +6,7 @@ import (
 	"local-review-go/internal/memory"
 )
 
-// AgentProfileRepo MySQL 事实源 + Redis Cache Aside 的长期偏好
+// AgentProfileRepo PostgreSQL 事实源 + Redis Cache Aside 的长期偏好
 type AgentProfileRepo interface {
 	LoadProfile(ctx context.Context, userID int64) (memory.Profile, error)
 	MergeProfile(ctx context.Context, userID int64, patch memory.ProfilePatch) (memory.Profile, error)

@@ -5,7 +5,7 @@ import "time"
 const VOUCHER_TABLE_NAME = "tb_voucher"
 
 type Voucher struct {
-	Id          int64     `gorm:"primary;AUTO_INCREMENT;column:id" json:"id"`
+	Id          int64     `gorm:"primaryKey;autoIncrement;column:id" json:"id"`
 	ShopId      int64     `gorm:"column:shop_id" json:"shopId"`
 	Title       string    `gorm:"column:title" json:"title"`
 	SubTitlte   string    `gorm:"column:sub_title" json:"subTitle"`

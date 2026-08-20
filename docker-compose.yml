@@ -1,11 +1,12 @@
 name: local-review
 
 x-app-environment: &app-environment
-  MYSQL_USER: root
-  MYSQL_PASSWORD: ${MYSQL_PASSWORD:-8888.216}
-  MYSQL_ADDR: mysql
-  MYSQL_PORT: "3306"
-  MYSQL_DATABASE: local_review_go
+
+  POSTGRES_USER: postgres
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-8888.216}
+  POSTGRES_ADDR: postgres
+  POSTGRES_PORT: "5432"
+  POSTGRES_DATABASE: local_review_go
   REDIS_ADDR: redis
   REDIS_PORT: "6379"
   REDIS_PASSWORD: ${REDIS_PASSWORD:-8888.216}
@@ -28,26 +29,26 @@ x-app-image: &app-image
   image: local-review-eval:latest
 
 services:
-  mysql:
-    image: mysql:8.0.43
+  postgres:
+    image: pgvector/pgvector:0.8.1-pg17
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD:-8888.216}
-      MYSQL_DATABASE: local_review_go
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-8888.216}
+      POSTGRES_DB: local_review_go
     ports:
-      - "${MYSQL_PORT_HOST:-3306}:3306"
+      - "${POSTGRES_PORT_HOST:-5432}:5432"
     volumes:
-      - mysql_data:/var/lib/mysql
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$${MYSQL_ROOT_PASSWORD} --silent"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d local_review_go"]
       interval: 3s
       timeout: 5s
       retries: 40
       start_period: 15s
 
   redis:
-    image: redis/redis-stack-server:7.4.0-v8
-    environment:
-      REDIS_ARGS: "--requirepass ${REDIS_PASSWORD:-8888.216}"
+    image: redis:7.4-alpine
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:-8888.216}", "--appendonly", "yes"]
     ports:
       - "${REDIS_PORT_HOST:-6379}:6379"
     volumes:
@@ -99,26 +100,26 @@ services:
     command: ["./server", "--migrate-only"]
     environment: *app-environment
     depends_on:
-      mysql:
+      postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     restart: "no"
 
-  mysql-seed:
-    image: mysql:8.0.43
+  postgres-seed:
+    image: pgvector/pgvector:0.8.1-pg17
     environment:
-      MYSQL_PWD: ${MYSQL_PASSWORD:-8888.216}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-8888.216}
     volumes:
       - ./script:/seed:ro
     command:
       - sh
       - -ec
       - |
-        mysql -hmysql -uroot local_review_go < /seed/seed.sql
-        mysql -hmysql -uroot local_review_go < /seed/seed-eval.sql
-        shops="$$(mysql -N -hmysql -uroot local_review_go -e 'SELECT COUNT(*) FROM tb_shop')"
-        reviews="$$(mysql -N -hmysql -uroot local_review_go -e 'SELECT COUNT(*) FROM tb_blog')"
+        psql -v ON_ERROR_STOP=1 -h postgres -U postgres -d local_review_go -f /seed/seed.sql
+        psql -v ON_ERROR_STOP=1 -h postgres -U postgres -d local_review_go -f /seed/seed-eval.sql
+        shops="$$(psql -tAc 'SELECT COUNT(*) FROM tb_shop' -h postgres -U postgres -d local_review_go)"
+        reviews="$$(psql -tAc 'SELECT COUNT(*) FROM tb_blog' -h postgres -U postgres -d local_review_go)"
         test "$$shops" = "200" && test "$$reviews" = "1000"
         echo "seed verified: shops=$$shops reviews=$$reviews"
     depends_on:
@@ -143,7 +144,7 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-      mysql-seed:
+      postgres-seed:
         condition: service_completed_successfully
     restart: "no"
 
@@ -152,9 +153,7 @@ services:
     command: ["./seed-vector", "--reset", "--expected-count=200"]
     environment: *app-environment
     depends_on:
-      mysql-seed:
-        condition: service_completed_successfully
-      redis-seed:
+      postgres-seed:
         condition: service_completed_successfully
     restart: "no"
 
@@ -186,6 +185,8 @@ services:
     depends_on:
       vector-init:
         condition: service_completed_successfully
+      redis-seed:
+        condition: service_completed_successfully
       rocketmq-init:
         condition: service_completed_successfully
     healthcheck:
@@ -207,6 +208,9 @@ services:
         ./generate-challenge-data --check
         ./generate-challenge-data --suite=v31 --check
         ./generate-challenge-data --suite=v4 --check
+        ./generate-challenge-data --suite=v5 --check
+        ./generate-challenge-data --suite=v6 --check
+        ./generate-challenge-data --suite=v61 --check
     restart: "no"
 
   router-eval:
@@ -295,7 +299,7 @@ services:
       - --mode=inprocess
       - --system=agent
       - --split=test
-      - --force-route=agent_multistep
+      - --force-route=agent
       - --test-set=rag-evals/golden/agent.v2.json
       - --out=rag-evals/baseline/agent_prod_v2.json
       - --compare-baseline=rag-evals/baseline/hybrid_task_v2.json
@@ -351,7 +355,7 @@ services:
       - --mode=inprocess
       - --system=agent
       - --split=challenge
-      - --force-route=agent_multistep
+      - --force-route=agent
       - --test-set=rag-evals/challenge/agent.v3.json
       - --out=rag-evals/reports/agent_challenge_v3.json
       - --compare-baseline=rag-evals/baseline/hybrid_task_challenge_v3.json
@@ -389,7 +393,7 @@ services:
       - --mode=inprocess
       - --system=agent
       - --split=challenge
-      - --force-route=agent_multistep
+      - --force-route=agent
       - --test-set=rag-evals/challenge/agent.v4.json
       - --out=rag-evals/reports/agent_challenge_v4.json
       - --compare-baseline=rag-evals/baseline/hybrid_task_challenge_v4.json
@@ -401,50 +405,146 @@ services:
         condition: service_completed_successfully
     restart: "no"
 
-  memory-demo-reset:
-    image: mysql:8.0.43
+  challenge-v5-hybrid-task-eval:
+    <<: *app-image
+    profiles: ["challenge-v5"]
+    command:
+      - ./eval-agent
+      - --mode=inprocess
+      - --system=hybrid_rag
+      - --split=challenge
+      - --test-set=rag-evals/challenge/agent.v5.json
+      - --out=rag-evals/baseline/hybrid_task_challenge_v5.json
+    environment: *app-environment
+    volumes:
+      - ./rag-evals:/app/rag-evals
+    depends_on:
+      vector-init:
+        condition: service_completed_successfully
+    restart: "no"
+
+  challenge-v5-agent-eval:
+    <<: *app-image
+    profiles: ["challenge-v5"]
+    command:
+      - ./eval-agent
+      - --mode=inprocess
+      - --system=agent
+      - --split=challenge
+      - --force-route=agent
+      - --test-set=rag-evals/challenge/agent.v5.json
+      - --out=rag-evals/reports/agent_challenge_v5.json
+      - --compare-baseline=rag-evals/baseline/hybrid_task_challenge_v5.json
+    environment: *app-environment
+    volumes:
+      - ./rag-evals:/app/rag-evals
+    depends_on:
+      challenge-v5-hybrid-task-eval:
+        condition: service_completed_successfully
+    restart: "no"
+
+  challenge-v6-hybrid-task-eval:
+    <<: *app-image
+    profiles: ["challenge-v6"]
+    command:
+      - ./eval-agent
+      - --mode=inprocess
+      - --system=hybrid_rag
+      - --split=challenge
+      - --test-set=rag-evals/challenge/agent.v6.json
+      - --out=rag-evals/baseline/hybrid_task_challenge_v6.json
+    environment: *app-environment
+    volumes:
+      - ./rag-evals:/app/rag-evals
+    depends_on:
+      vector-init:
+        condition: service_completed_successfully
+    restart: "no"
+
+  challenge-v6-agent-eval:
+    <<: *app-image
+    profiles: ["challenge-v6"]
+    command:
+      - ./eval-agent
+      - --mode=inprocess
+      - --system=agent
+      - --split=challenge
+      - --force-route=agent
+      - --test-set=rag-evals/challenge/agent.v6.json
+      - --out=rag-evals/reports/agent_challenge_v6.json
+      - --compare-baseline=rag-evals/baseline/hybrid_task_challenge_v6.json
+    environment:
+      <<: *app-environment
+      AGENT_RUNTIME_VERSION: v2_react
+    volumes:
+      - ./rag-evals:/app/rag-evals
+    depends_on:
+      challenge-v6-hybrid-task-eval:
+        condition: service_completed_successfully
+    restart: "no"
+
+  agent-e2e-v61-eval:
+    <<: *app-image
+    profiles: ["agent-e2e-v61"]
+    command:
+      - ./eval-agent
+      - --mode=inprocess
+      - --system=agent
+      - --entrypoint=router_e2e
+      - --split=challenge
+      - --test-set=rag-evals/challenge/agent.v6.1.json
+      - --out=rag-evals/reports/agent_e2e_v61.json
+    environment:
+      <<: *app-environment
+      AGENT_RUNTIME_VERSION: v2_react
+    volumes:
+      - ./rag-evals:/app/rag-evals
+    depends_on:
+      vector-init:
+        condition: service_completed_successfully
+    restart: "no"
+
+  context-demo-reset:
+    image: pgvector/pgvector:0.8.1-pg17
     profiles: ["demo"]
     environment:
-      MYSQL_PWD: ${MYSQL_PASSWORD:-8888.216}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-8888.216}
     command:
       - sh
       - -ec
       - |
-        mysql -hmysql -uroot local_review_go -e "
-          DELETE e FROM user_agent_profile_events e
-          JOIN tb_user u ON u.id = e.user_id
-          WHERE u.phone = '${DEMO_PHONE:-13800138000}';
-          DELETE p FROM user_agent_profiles p
-          JOIN tb_user u ON u.id = p.user_id
-          WHERE u.phone = '${DEMO_PHONE:-13800138000}';
-        "
-        echo "memory demo MySQL profile reset"
+        psql -v ON_ERROR_STOP=1 -h postgres -U postgres -d local_review_go -c "
+          DELETE FROM user_agent_profile_events e USING tb_user u
+          WHERE u.id = e.user_id AND u.phone = '${DEMO_PHONE:-13800138000}';
+          DELETE FROM user_agent_profiles p USING tb_user u
+          WHERE u.id = p.user_id AND u.phone = '${DEMO_PHONE:-13800138000}';"
+        echo "context demo PostgreSQL profile reset"
     depends_on:
-      mysql:
+      postgres:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
     restart: "no"
 
-  memory-demo:
+  context-demo:
     <<: *app-image
     profiles: ["demo"]
     command: ["bash", "./script/agent-demo.sh"]
     environment:
       <<: *app-environment
       BASE_URL: http://app:8088
-      DEMO_SESSION_ID: docker-memory-demo
-      DEMO_REPORT_PATH: rag-evals/reports/memory_demo_latest.json
+      DEMO_SESSION_ID: docker-context-demo
+      DEMO_REPORT_PATH: rag-evals/reports/context_demo_latest.json
     volumes:
       - ./rag-evals:/app/rag-evals
       - ./script/agent-demo.sh:/app/script/agent-demo.sh:ro
     depends_on:
       app:
         condition: service_healthy
-      memory-demo-reset:
+      context-demo-reset:
         condition: service_completed_successfully
     restart: "no"
 
 volumes:
-  mysql_data:
+  postgres_data:
   redis_data:

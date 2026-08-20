@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# RAG 智能点评：初始化 / 展示 / 删除索引
-# 用法: ./script/rag.sh [--init|--drop-index|--demo] [BASE_URL]
+# RAG 智能点评：初始化 / 展示 / 清空检索文档
+# 用法: ./script/rag.sh [--init|--clear-search|--demo] [BASE_URL]
 #   --init       一键初始化（seed + seed-redis + seed-vector + 后台启动服务）
-#   --drop-index 删除向量索引（schema 变更后，再 make seed-vector 重建）
+#   --clear-search 清空 PostgreSQL 检索文档（随后可 make seed-vector 重建）
 #   --demo       展示（3 个问题，流式输出），默认
 # 示例: ./script/rag.sh
 #       ./script/rag.sh --init
@@ -14,7 +14,7 @@ set -e
 MODE="--demo"
 BASE_URL="http://localhost:8088"
 [[ "$1" == "--init" ]] && MODE="--init" && shift
-[[ "$1" == "--drop-index" ]] && MODE="--drop-index" && shift
+[[ "$1" == "--clear-search" ]] && MODE="--clear-search" && shift
 [[ "$1" == "--demo" ]] && shift
 [[ -n "$1" ]] && [[ "$1" != --* ]] && BASE_URL="$1"
 API="${BASE_URL}/api"
@@ -30,11 +30,12 @@ fail() { echo -e "${RED}✗ $1${NC}"; exit 1; }
 info() { echo -e "${YELLOW}→ $1${NC}"; }
 question() { echo -e "${CYAN}  Q: $1${NC}"; }
 
-# ---------- --drop-index ----------
-do_drop_index() {
-  REDIS_CMD="${REDIS_CMD:-docker exec local-review-redis redis-cli -a 8888.216}"
-  $REDIS_CMD FT.DROPINDEX idx:shop:vector DD 2>/dev/null || true
-  echo "向量索引已删除，重启服务或执行 make seed-vector 将自动重建"
+# ---------- --clear-search ----------
+do_clear_search() {
+  docker exec -e PGPASSWORD="${POSTGRES_PASSWORD:-8888.216}" local-review-postgres \
+    psql -v ON_ERROR_STOP=1 -U postgres -d local_review_go \
+    -c 'TRUNCATE TABLE shop_search_documents'
+  echo "检索文档已清空，执行 make seed-vector 可重新生成"
   exit 0
 }
 
@@ -48,12 +49,12 @@ do_init() {
   echo ""
 
   echo -e "${YELLOW}[1] 检查 Docker 容器${NC}"
-  docker ps --format '{{.Names}}' 2>/dev/null | grep -q local-review-mysql || fail "MySQL 未运行，请先: docker compose up -d"
+  docker ps --format '{{.Names}}' 2>/dev/null | grep -q local-review-postgres || fail "PostgreSQL 未运行，请先: docker compose up -d"
   docker ps --format '{{.Names}}' 2>/dev/null | grep -q local-review-redis || fail "Redis 未运行，请先: docker compose up -d"
   pass "Docker 容器已就绪"
   echo ""
 
-  echo -e "${YELLOW}[2] 导入 MySQL 种子数据${NC}"
+  echo -e "${YELLOW}[2] 导入 PostgreSQL 种子数据${NC}"
   cd "$PROJECT_ROOT" && make seed
   pass "种子数据已导入"
   echo ""
@@ -96,7 +97,7 @@ do_init() {
 }
 
 # ---------- 提前退出 ----------
-[[ "$MODE" == "--drop-index" ]] && do_drop_index
+[[ "$MODE" == "--clear-search" ]] && do_clear_search
 [[ "$MODE" == "--init" ]] && do_init
 
 # ---------- 登录获取 Token ----------

@@ -1,0 +1,36 @@
+{
+  "version": "agent-suite.v6.1",
+  "generator_seed": 20260820,
+  "source_dataset_version": "eval-data.v2",
+  "source_manifest_sha256": "sha256:c6caf717666697bfa63cb16efea328346512f33906dc3812404d3e7c8147fc36",
+  "parent_suite": "agent.challenge.v3",
+  "catalog_shops": 200,
+  "catalog_reviews": 1000,
+  "agent_cases": 48,
+  "agent_challenge_trials": 56,
+  "agent_sha256": "sha256:1d816baf1de1ee7183af83fa05a2135558ac9f0f530d1240f49249c3e01e9fd5",
+  "coverage": {
+    "agent_challenge": 40,
+    "agent_claim_level_grounding": 6,
+    "agent_context": 12,
+    "agent_coreference": 8,
+    "agent_dev": 8,
+    "agent_no_result": 6,
+    "agent_prompt_injection": 7,
+    "agent_semantic_ood": 7,
+    "agent_session_isolation": 5,
+    "critical_agent_cases": 8,
+    "critical_agent_trials": 24
+  },
+  "freeze_policy": {
+    "dev": "dev split may be inspected and used for harness development",
+    "challenge": "inspectable corrected regression; failures may be used for development",
+    "on_failure": "record the report; only regression suites may be tuned, then create another newly seeded holdout"
+  },
+  "known_evaluation_gaps": [
+    "repository-visible sealed data is a reproducible holdout, not a secret benchmark",
+    "synthetic catalog/query distributions do not replace anonymised production traffic"
+  ],
+  "generation_command": "go run ./cmd/generate-challenge-data --suite=v61",
+  "formal_evaluation_executed_at_generation": false
+}

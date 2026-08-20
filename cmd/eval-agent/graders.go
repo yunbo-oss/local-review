@@ -89,16 +89,6 @@ func GradeOutcome(actual OutcomeActual, expected Expected) GradeResult {
 	if expected.ProfileAfter != nil {
 		fails = append(fails, diffProfile(actual.ProfileAfter, expected.ProfileAfter)...)
 	}
-	if expected.MaxSteps > 0 && actual.Steps > expected.MaxSteps {
-		fails = append(fails, fmt.Sprintf("steps %d > max %d", actual.Steps, expected.MaxSteps))
-	}
-	boundedToolCalls := actual.ToolCalls
-	if actual.MaxToolCallsInTurn > 0 {
-		boundedToolCalls = actual.MaxToolCallsInTurn
-	}
-	if expected.MaxToolCalls > 0 && boundedToolCalls > expected.MaxToolCalls {
-		fails = append(fails, fmt.Sprintf("max tool_calls in one turn %d > max %d", boundedToolCalls, expected.MaxToolCalls))
-	}
 	fails = append(fails, gradeAnswerAssertions(actual.Answer, expected)...)
 
 	if len(fails) > 0 {
@@ -153,6 +143,11 @@ func GradeGroundedness(actual OutcomeActual, expected Expected) GradeResult {
 // GradeTrajectory 步数/工具数/重复调用
 func GradeTrajectory(actual OutcomeActual, expected Expected) GradeResult {
 	r := GradeResult{Name: "trajectory", Pass: true}
+	route := strings.TrimSpace(actual.Route)
+	if route != "" && route != "agent" {
+		r.Deferred = append(r.Deferred, fmt.Sprintf("agent trajectory contract not applicable to route %s", route))
+		return r
+	}
 	var fails []string
 	maxSteps := expected.MaxSteps
 	if maxSteps <= 0 {
@@ -174,6 +169,18 @@ func GradeTrajectory(actual OutcomeActual, expected Expected) GradeResult {
 	}
 	if actual.DuplicateToolCalls > 0 {
 		fails = append(fails, fmt.Sprintf("duplicate tool calls: %d", actual.DuplicateToolCalls))
+	}
+	if expected.MaxSearchRounds > 0 && actual.SearchRounds > expected.MaxSearchRounds {
+		fails = append(fails, fmt.Sprintf("search rounds %d > %d", actual.SearchRounds, expected.MaxSearchRounds))
+	}
+	if expected.MaxReviewPagesPerShop > 0 && actual.MaxReviewPages > expected.MaxReviewPagesPerShop {
+		fails = append(fails, fmt.Sprintf("review pages per shop %d > %d", actual.MaxReviewPages, expected.MaxReviewPagesPerShop))
+	}
+	if expected.RuntimeVersion != "" && actual.RuntimeVersion != expected.RuntimeVersion {
+		fails = append(fails, fmt.Sprintf("runtime_version want %s got %s", expected.RuntimeVersion, actual.RuntimeVersion))
+	}
+	if expected.RequireAnswerVerified && !actual.AnswerVerified {
+		fails = append(fails, "final answer was not verified by the V2 evidence gate")
 	}
 	if len(expected.RequiredTools) > 0 {
 		if !actual.ToolTraceAvailable {

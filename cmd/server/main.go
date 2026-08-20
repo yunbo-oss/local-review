@@ -6,7 +6,7 @@ import (
 	"local-review-go/internal/agent"
 	"local-review-go/internal/bootstrap"
 	"local-review-go/internal/config"
-	"local-review-go/internal/config/mysql"
+	"local-review-go/internal/config/postgres"
 	"local-review-go/internal/config/redis"
 	"local-review-go/internal/handler"
 	"local-review-go/internal/llm"
@@ -24,7 +24,7 @@ func main() {
 	migrateOnly := flag.Bool("migrate-only", false, "run schema migration and exit")
 	flag.Parse()
 	config.Init() // 含 log.Init()，需在 gin.Default() 之前
-	if err := bootstrap.Migrate(mysql.GetMysqlDB()); err != nil {
+	if err := bootstrap.Migrate(postgres.GetPostgresDB()); err != nil {
 		logrus.Fatalf("数据库迁移失败: %v", err)
 	}
 	if *migrateOnly {
@@ -33,8 +33,8 @@ func main() {
 	}
 	r := gin.Default()
 
-	shopRepo := repository.NewShopRepo(mysql.GetMysqlDB())
-	shopTypeRepo := repository.NewShopTypeRepo(mysql.GetMysqlDB())
+	shopRepo := repository.NewShopRepo(postgres.GetPostgresDB())
+	shopTypeRepo := repository.NewShopTypeRepo(postgres.GetPostgresDB())
 	shopUpdateProducer, err := mq.NewShopUpdateProducer()
 	if err != nil {
 		logrus.Fatalf("RocketMQ 店铺更新生产者初始化失败: %v", err)
@@ -45,19 +45,19 @@ func main() {
 	})
 	shopHandler := handler.NewShopHandler(shopLogic)
 
-	userRepo := repository.NewUserRepo(mysql.GetMysqlDB())
-	userInfoRepo := repository.NewUserInfoRepo(mysql.GetMysqlDB())
-	blogRepo := repository.NewBlogRepo(mysql.GetMysqlDB())
-	followRepo := repository.NewFollowRepo(mysql.GetMysqlDB())
+	userRepo := repository.NewUserRepo(postgres.GetPostgresDB())
+	userInfoRepo := repository.NewUserInfoRepo(postgres.GetPostgresDB())
+	blogRepo := repository.NewBlogRepo(postgres.GetPostgresDB())
+	followRepo := repository.NewFollowRepo(postgres.GetPostgresDB())
 
 	userLogic := logic.NewUserLogic(logic.UserLogicDeps{UserRepo: userRepo, UserInfoRepo: userInfoRepo})
 	userHandler := handler.NewUserHandler(userLogic)
 	shopTypeLogic := logic.NewShopTypeLogic(logic.ShopTypeLogicDeps{ShopTypeRepo: shopTypeRepo})
 	shopTypeHandler := handler.NewShopTypeHandler(shopTypeLogic)
 
-	voucherRepo := repository.NewVoucherRepo(mysql.GetMysqlDB())
-	seckillVoucherRepo := repository.NewSeckillVoucherRepo(mysql.GetMysqlDB())
-	voucherOrderRepo := repository.NewVoucherOrderRepo(mysql.GetMysqlDB())
+	voucherRepo := repository.NewVoucherRepo(postgres.GetPostgresDB())
+	seckillVoucherRepo := repository.NewSeckillVoucherRepo(postgres.GetPostgresDB())
+	voucherOrderRepo := repository.NewVoucherOrderRepo(postgres.GetPostgresDB())
 
 	voucherLogic := logic.NewVoucherLogic(logic.VoucherLogicDeps{VoucherRepo: voucherRepo, SeckillVoucherRepo: seckillVoucherRepo})
 	voucherHandler := handler.NewVoucherHandler(voucherLogic)
@@ -91,13 +91,13 @@ func main() {
 	statisticsLogic := logic.NewStatisticsLogic()
 	statisticsHandler := handler.NewStatisticsHandler(statisticsLogic)
 
-	// RAG 智能点评（可选，需 LLM_API_KEY + Redis Stack）
+	// RAG 智能点评（关系数据、全文索引与向量统一存入 PostgreSQL）
 	llmCfg := llm.LoadConfig()
 	embClient, chatClient, toolChat := llm.NewOpenAIClient(llmCfg)
-	vecRepo := repository.NewVectorRepo(redis.GetRedisClient())
-	agentProfileRepo := repository.NewAgentProfileRepo(mysql.GetMysqlDB(), redis.GetRedisClient())
-	agentRunRepo := repository.NewAgentRunRepo(mysql.GetMysqlDB())
-	// 偏好：MySQL 事实源 + Redis Cache Aside；会话仍 Redis
+	vecRepo := repository.NewVectorRepo(postgres.GetPostgresDB())
+	agentProfileRepo := repository.NewAgentProfileRepo(postgres.GetPostgresDB(), redis.GetRedisClient())
+	agentRunRepo := repository.NewAgentRunRepo(postgres.GetPostgresDB())
+	// 偏好：PostgreSQL 事实源 + Redis Cache Aside；会话仍 Redis
 	memoryRepo := repository.NewHybridMemoryRepo(redis.GetRedisClient(), agentProfileRepo)
 	shopSearch := logic.NewShopSearchLogic(logic.ShopSearchLogicDeps{
 		EmbeddingClient: embClient,
@@ -109,35 +109,42 @@ func main() {
 		FilterExtractor: logic.NewLLMFilterExtractor(chatClient),
 		BlogRepo:        blogRepo,
 		MemoryRepo:      memoryRepo,
+		Reranker:        logic.NewLLMCandidateReranker(chatClient),
 	})
 	ragHandler := handler.NewRAGHandler(ragLogic)
 
 	var agentHandler *handler.AgentHandler
 	var recommendHandler *handler.RecommendHandler
 	recommendRouter := logic.NewRecommendRouter()
+	adaptiveRouter := logic.NewAdaptiveRecommendRouter(
+		recommendRouter, agent.NewLLMQueryUnderstander(chatClient),
+	)
 	if toolChat != nil {
 		agentLogic := logic.NewRecommendAgentLogic(logic.RecommendAgentLogicDeps{
-			ToolChat:   toolChat,
-			ChatClient: chatClient,
-			Memory:     memoryRepo,
-			Search:     shopSearch,
-			ShopRepo:   shopRepo,
-			BlogRepo:   blogRepo,
-			RunRepo:    agentRunRepo,
-			Router:     recommendRouter,
-			Config:     agent.DefaultRunConfig(),
+			ToolChat:       toolChat,
+			ChatClient:     chatClient,
+			Memory:         memoryRepo,
+			Search:         shopSearch,
+			ShopRepo:       shopRepo,
+			BlogRepo:       blogRepo,
+			RunRepo:        agentRunRepo,
+			Router:         recommendRouter,
+			AdaptiveRouter: adaptiveRouter,
+			Reranker:       logic.NewLLMCandidateReranker(chatClient),
+			Planner:        agent.NewLLMPlanner(chatClient),
+			Controller:     agent.NewLLMDecisionController(toolChat),
+			Checkpointer:   repository.NewRedisAgentCheckpointer(redis.GetRedisClient()),
+			RuntimeVersion: agent.RuntimeVersionFromEnv(),
+			Summarizer:     agent.NewLLMSessionSummarizer(chatClient),
+			Config:         agent.DefaultRunConfig(),
 		})
 		agentHandler = handler.NewAgentHandler(agentLogic)
 	} else if llmCfg.APIKey != "" {
 		logrus.Warn("LLM_API_KEY 已配置但 ToolChatClient 不可用：当前模型/网关可能不支持 function calling；/api/agent/recommend 将不注册。详见 doc/AGENT_AND_EVAL.md")
 	}
 	if agentHandler != nil || ragHandler != nil {
-		recommendHandler = handler.NewRecommendHandler(recommendRouter, agentHandler, ragHandler)
+		recommendHandler = handler.NewRecommendHandler(adaptiveRouter, agentHandler, ragHandler)
 	}
-	if err := redis.InitShopVectorIndex(context.Background(), redis.GetRedisClient(), llmCfg.EmbeddingDim); err != nil {
-		logrus.Warnf("RAG 向量索引初始化失败（需 Redis Stack）: %v", err)
-	}
-
 	handler.ConfigRouter(r, handler.Handlers{
 		Shop:         shopHandler,
 		User:         userHandler,
@@ -162,7 +169,7 @@ func main() {
 		}
 	}()
 	go func() {
-		ragHandler := mq.NewShopUpdateRAGHandler(embClient, vecRepo, shopRepo, shopTypeRepo, blogRepo)
+		ragHandler := mq.NewShopUpdateRAGHandler(embClient, llmCfg.EmbeddingModel, vecRepo, shopRepo, shopTypeRepo, blogRepo)
 		if err := mq.StartShopUpdateRAGConsumer(ragHandler); err != nil {
 			logrus.Errorf("店铺更新-RAG 消费者启动失败: %v", err)
 		}

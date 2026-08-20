@@ -9,13 +9,13 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// hybridMemoryRepo：会话仍 Redis；偏好走 MySQL AgentProfileRepo
+// hybridMemoryRepo：会话仍 Redis；偏好走 PostgreSQL AgentProfileRepo
 type hybridMemoryRepo struct {
 	session *memoryRepo
 	profile repoInterfaces.AgentProfileRepo
 }
 
-// NewHybridMemoryRepo 生产推荐路径用：profile=MySQL，session=Redis
+// NewHybridMemoryRepo 生产推荐路径用：profile=PostgreSQL，session=Redis
 func NewHybridMemoryRepo(rdb *redis.Client, profile repoInterfaces.AgentProfileRepo) repoInterfaces.MemoryRepo {
 	return &hybridMemoryRepo{
 		session: &memoryRepo{rdb: rdb},
@@ -46,4 +46,16 @@ func (r *hybridMemoryRepo) LoadSession(ctx context.Context, userID int64, sessio
 
 func (r *hybridMemoryRepo) AppendSession(ctx context.Context, userID int64, sessionID string, messages ...memory.Message) error {
 	return r.session.AppendSession(ctx, userID, sessionID, messages...)
+}
+
+func (r *hybridMemoryRepo) LoadSessionSummary(ctx context.Context, userID int64, sessionID string) (memory.SessionSummary, error) {
+	return r.session.LoadSessionSummary(ctx, userID, sessionID)
+}
+
+func (r *hybridMemoryRepo) SaveSessionSummary(ctx context.Context, userID int64, sessionID string, summary memory.SessionSummary) error {
+	return r.session.SaveSessionSummary(ctx, userID, sessionID, summary)
+}
+
+func (r *hybridMemoryRepo) TrimSession(ctx context.Context, userID int64, sessionID string, keepRecent int) error {
+	return r.session.TrimSession(ctx, userID, sessionID, keepRecent)
 }

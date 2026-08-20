@@ -62,7 +62,7 @@
 
 返回值：0 成功，1 库存不足/不存在，2 已购买。
 
-**ensureSeckillStockInRedis 必要性**：Lua 要求 `seckill:stock:{voucherId}` 必须存在，否则直接返回 1 拒绝。key 可能因 Redis 重启、24h TTL 过期而缺失。该函数在 key 不存在时从 MySQL 回填，保证业务可恢复；使用分布式锁 `lock:rebuild:stock:{voucherId}` 防止多实例并发回填。
+**ensureSeckillStockInRedis 必要性**：Lua 要求 `seckill:stock:{voucherId}` 必须存在，否则直接返回 1 拒绝。key 可能因 Redis 重启、24h TTL 过期而缺失。该函数在 key 不存在时从 PostgreSQL 回填，保证业务可恢复；使用分布式锁 `lock:rebuild:stock:{voucherId}` 防止多实例并发回填。
 
 ### 2.4 RocketMQ 事务消息
 
@@ -70,7 +70,7 @@
 - **回查**：Producer 崩溃时，Broker 调用 `CheckLocalTransaction`，根据 `seckill:order:{voucherId}` 是否含 userId 判断 Commit/Rollback
 - **Topic**：`seckill-orders`，消费者组 `seckill-consumer-group`
 
-### 2.5 MySQL 乐观锁与唯一索引
+### 2.5 PostgreSQL 乐观锁与唯一索引
 
 - **DecrStock**：`UPDATE tb_seckill_voucher SET stock = stock - 1 WHERE voucher_id = ? AND stock > 0`，`stock > 0` 防止超卖
 - **唯一索引**：`tb_voucher_order (user_id, voucher_id)` 兜底防重复下单
@@ -79,7 +79,7 @@
 ### 2.6 订单超时处理
 
 - **延迟消息**：下单时发送 `order-timeout` Topic，`DelayTimeLevel=16`（30 分钟）
-- **消费者**：`HandleOrderTimeout` → `UpdateStatus` 关单 → MySQL `IncrStock` 回滚库存 → Lua 恢复 Redis 库存 + `SREM` 移除用户购买标记
+- **消费者**：`HandleOrderTimeout` → `UpdateStatus` 关单 → PostgreSQL `IncrStock` 回滚库存 → Lua 恢复 Redis 库存 + `SREM` 移除用户购买标记
 
 ### 2.7 压测结果
 
@@ -104,7 +104,6 @@ k6 压测，1 Nginx + 3 Go 实例，151 用户 × 25 秒杀券：总 QPS ~1160�
 | `lock:rebuild:stock:{voucherId}` | 秒杀库存回填锁（防多实例并发回填） |
 | `bf:shop`、`bf:seckill-voucher` | 布隆过滤器 |
 | `uv:{date}` | UV 统计（HyperLogLog） |
-| `vec:shop:{id}` | RAG 店铺向量 Hash |
 
 ### 3.2 布隆过滤器
 
@@ -121,7 +120,7 @@ k6 压测，1 Nginx + 3 Go 实例，151 用户 × 25 秒杀券：总 QPS ~1160�
 
 - **Key**：`cache:seckill:voucher:{id}`，TTL 5 分钟
 - **回填**：`querySeckillVoucherById` 未命中时查 DB 并写入
-- **库存回填**：`seckill:stock` key 不存在时，`singleflight` 防并发回填，从 MySQL 读取并 `SET`
+- **库存回填**：`seckill:stock` key 不存在时，`singleflight` 防并发回填，从 PostgreSQL 读取并 `SET`
 
 ### 3.5 分布式锁与 Watchdog
 
@@ -143,13 +142,13 @@ k6 压测，1 Nginx + 3 Go 实例，151 用户 × 25 秒杀券：总 QPS ~1160�
 | 消费者组 | 职责 |
 |----------|------|
 | `shop-update-cache-consumer-group` | 异步删店铺缓存 |
-| `shop-update-rag-consumer-group` | 异步 Embedding + 更新 Redis 向量 |
+| `shop-update-rag-consumer-group` | 异步生成检索文档，并更新 PostgreSQL 全文索引与向量 |
 
 ---
 
 ## 四、AI 语义检索引擎 (RAG) 与推荐 Agent
 
-> 暂未实现前端。RAG 演示：`make demo-rag`；Agent 记忆演示：`make demo-agent`。说明见 [doc/AGENT_AND_EVAL.md](doc/AGENT_AND_EVAL.md)。
+> 暂未实现前端。这里的 ReAct 指有界“观察—行动”运行时，不是 React.js。RAG 演示：`make demo-rag`；多轮偏好演示：`make demo-agent`。说明见 [doc/AGENT_AND_EVAL.md](doc/AGENT_AND_EVAL.md)。
 
 ### 4.0 推荐入口
 
@@ -159,13 +158,13 @@ k6 压测，1 Nginx + 3 Go 实例，151 用户 × 25 秒杀券：总 QPS ~1160�
 | `POST /api/agent/recommend` | 有界多步 Agent（需登录；`force_route` 可选） |
 | `POST /api/recommend` | 统一入口：`RecommendRouter` → RAG / Agent |
 
-同任务评测：
+当前架构的端到端评测从生产 Router 入口开始，不强制指定 Agent 路由，也不运行对照组：
 
 ```bash
-make eval-rag-prod-baseline
-make eval-hybrid-task  # 与 Agent 完全相同的任务与 trial
-make eval-agent
+LLM_API_KEY='your-key' make docker-agent-e2e-v61
 ```
+
+该命令实际执行“请求理解与改写 → 三路路由 → 澄清 / 单轮混合检索 / 有界并行 ReAct → 回答校验”，报告输出到 `rag-evals/reports/agent_e2e_v61.json`。
 
 ### 4.1 背景
 
@@ -173,8 +172,9 @@ make eval-agent
 
 ### 4.2 技术方案
 
-- **向量存储**：Redis Stack RediSearch，HNSW 索引，`idx:shop:vector`
-- **Schema**：`internal/config/redis/vector.go`，Hash 前缀 `vec:shop:`，字段含 `name`、`type_name`、`area`、`text_content`、`avg_price`、`score`、`comments`、`sold`、`embedding`（VECTOR HNSW COSINE）
+- **统一检索存储**：PostgreSQL 17 + pgvector；`shop_search_documents` 同时持久化检索文本、384 维向量、模型名、内容哈希与来源版本
+- **索引**：全文检索使用 `tsvector + GIN`，向量检索使用 pgvector HNSW（余弦距离），区域、类型、价格、评分和评论数使用组合过滤索引
+- **一致性**：业务数据与检索文档处于同一数据库；RocketMQ 异步重建文档，并以 `source_version` 阻止旧消息覆盖新向量
 - **Embedding**：默认 `local-feature-hash-zh-v2`（384 维确定性本地 embedding，便于离线复现）；也保留 OpenAI-compatible embedding provider 配置
 
 ### 4.3 检索流程
@@ -184,8 +184,9 @@ make eval-agent
     │
     ├─ 1. LLM 意图解析：提取 area、typeName、maxPrice、minScore 等 JSON
     ├─ 2. 确定性本地 embedding：问题转为 384 维向量
-    ├─ 3. ShopSearchLogic：RediSearch TEXT + KNN，RRF 融合
-    │       └─ 预过滤：TAG(area, type_name) + NUMERIC 范围
+    ├─ 3. ShopSearchLogic：PostgreSQL 全文检索 + pgvector KNN，RRF 融合
+    │       └─ 预过滤：area/type_name 等值 + 数值范围
+    │       └─ 引号内精确店名优先，避免近邻分店挤掉目标
     │       └─ 语义阈值：MaxDistance 过滤 COSINE 距离过大的结果
     ├─ 4. 组装上下文：店铺信息 + 探店笔记（BlogRepo）
     └─ 5. LLM Chat：生成推荐，SSE 流式输出
@@ -196,52 +197,97 @@ make eval-agent
 - **实时**：店铺创建/更新发 MQ → RAG 消费者 `NewShopUpdateRAGHandler` 异步 Embedding + `StoreShop`
 - **离线**：`make seed-vector` 批量导入
 
-### 4.5 有界推荐 Agent
+### 4.5 当前 Agent 架构
 
-```text
-请求
-  -> RecommendRouter（单轮 RAG / 多步 Agent / 澄清）
-  -> 加载结构化 profile，并应用本轮显式纠正
-  -> 最多 3 steps / 5 次成功工具调用 / 8 次尝试
-       search_shops -> get_shop / list_shop_blogs
-  -> EvidenceLedger 记录本轮观察到的店铺与事实
-  -> 引用、价格、评分、地址、营业时间和评价证据校验
-  -> 必要时仅允许一次无工具、白名单约束的修订
-  -> SSE 输出 answer、route、steps、tool_calls、tokens、trace_id
+```mermaid
+flowchart TD
+    A["POST /api/recommend"] --> B["鉴权、输入与状态预检"]
+    B --> C["大模型理解请求<br/>意图、查询改写、硬条件、证据需求、置信度"]
+    C --> D{"三路置信度路由"}
+    D -->|"低置信度、缺少指代"| E["澄清"]
+    D -->|"简单且自包含"| F["单轮混合检索"]
+    D -->|"比较、核验、追问、偏好变更"| G["Agent Harness"]
+    G --> H["按需装配会话摘要与结构化画像"]
+    H --> I["有界并行 ReAct<br/>每轮输出 act / finish / clarify"]
+    I -->|"act"| J["校验结构化动作与依赖 DAG"]
+    J --> K{"已有合法候选 ID？"}
+    K -->|"否"| L["search_shops 建立候选注册表"]
+    K -->|"是"| M["并行 get_shop / list_shop_blogs"]
+    L --> N["更新 Candidate、Evidence Ledger、Evidence Gaps"]
+    M --> N
+    N -->|"证据不足：续查评论或改写重搜"| I
+    I -->|"finish"| O["生成结构化 Claim Answer"]
+    O --> P["字段一致性、引用合法性、语义蕴含校验"]
+    P -->|"通过"| Q["输出带证据回答"]
+    P -->|"失败"| R["确定性证据回退或安全无结果"]
+    Q --> S["Harness 返回结果；成功后由应用层写会话/画像"]
+    R --> S
 ```
 
-- `search_shops` 复用线上 Hybrid 检索，详情与评价工具只读且独立限时。
-- 用户本轮显式条件优先于长期画像；画像使用结构化字段和版本号，不把全部聊天历史当作硬约束。
-- 评价与检索摘要被标记为不可信数据；推荐只能引用本轮证据账本中的 `[shop:id]`。
-- task outcome、groundedness、trajectory 和 composite 分开统计，基础设施错误单列。
-- 简单单轮请求仍走 Hybrid RAG；Agent 用额外调用和 Token 换取复杂任务完成率，不是所有请求的默认路径。
+当前实现不是“先生成完整计划，再从头执行”的静态工作流。动作控制器每轮只给出下一批有类型约束的动作；执行器返回观察后，运行时重新计算候选、证据缺口与剩余预算，再决定继续检索、翻页、改写重搜、澄清或结束。
 
-### 4.6 四路确定性 Router
+生产路由只有 `rag_oneshot`、`agent`、`clarify` 三种。会话历史和长期偏好是 `agent` 内部按需装配的上下文，不是独立 Agent，也不是第四条路由。
 
-统一入口不调用模型做路由，而是按可解释的固定顺序输出 `rag_oneshot`、`agent_multistep`、`agent_memory` 或 `clarify`：
+| 层次 | 当前实现 |
+|------|----------|
+| Harness | 统一承担输入校验、上下文裁剪、运行时选择、预算/取消传递、事实校验和标准结果封装；自身不访问数据库，运行审计与画像提交留在应用层 |
+| 请求理解 | 一次大模型结构化解析生成统一 `IntentSpec`，包含意图、路由、硬条件、软偏好、证据需求和 1～3 条改写；原问题始终保留为检索分支 |
+| 三路路由 | 在 `rag_oneshot`、`agent`、`clarify` 间分流；模型异常时回退确定性规则，低置信度或缺失历史指代时优先澄清 |
+| 动作控制器 | 只输出 `act / finish / clarify` 和短原因码，不暴露或持久化思维链；非法 JSON 或非法状态决策只允许一次有界修复 |
+| 并行执行器 | 根据 `depends_on` 计算依赖图的就绪前沿，通过 `errgroup` 限流并行；支持单工具超时、瞬时错误重试、参数去重、失败依赖跳过和总调用预算 |
+| 候选与证据账本 | `search_shops` 后才注册候选；详情与评价工具只能访问已注册 ID。评价通过服务端游标增量读取，默认每店最多两页 |
+| 重排 | 混合检索形成第一阶段排序；工具执行后再按已验证证据覆盖率确定性重排 |
+| 回答校验 | 最终回答先转为逐条声明 JSON，每条事实绑定 `shop:{id}.{field}` 或 `blog:{id}`；再做字段值、跨店引用、主观评价蕴含与硬条件校验，失败时关闭输出 |
+| 运行安全 | 默认限制 4 轮、10 次工具调用、12 次尝试、2 次搜索和每店 2 页评价；无新证据、重复调用、超时和客户端取消都有显式终态 |
 
-1. 合法 `force_route` 直接覆盖；非法值忽略。
-2. 从“实际需求是/我只想”等边界提取真实意图，避免引用的评论或注入文本误触发规则。
-3. 识别预算、区域、类别等偏好的删除/修改，加载或更新结构化记忆后进入推荐 Agent。
-4. 识别比较、详情、评价核验、冲突和证据解释，进入同一个推荐 Agent 的多步工具路径。
-5. 历史指代在有 session 时加载会话上下文后进入推荐 Agent；缺少历史时要求澄清。
-6. 其余自包含找店请求走 one-shot Hybrid RAG。
+### 4.6 Agent 层面的主要改动
 
-`agent_multistep` 与 `agent_memory` 是执行模式标签，不是两个独立 Agent；它们复用同一个有界推荐 Agent，后者只额外使用结构化画像或会话历史。Handler 仅在问题含历史指代时读取 session，普通 one-shot 不额外访问记忆存储。冻结 `router.v2` challenge 含四类各 13 题：旧策略 29/52（55.77%），v2 策略 52/52（100%），Accuracy 提升 44.23 个百分点且无模型调用。该集合是人工设计、类别平衡的 repository-visible challenge，不代表线上自然流量准确率。
+| 早期/兼容实现 | 当前 V2 |
+|---------------|---------|
+| 路由、RAG 过滤提取和 Agent 各自理解请求，容易出现意图不一致 | 统一 `IntentSpec` 同时服务路由、检索、证据收集和上下文策略 |
+| 静态规划或顺序工具循环 | 有界并行 ReAct，每轮基于最新观察和证据缺口重新决策 |
+| 模型可直接给详情/评价工具传任意店铺 ID | Candidate Registry 设置搜索屏障，未检索到的 ID 无法进入后续工具 |
+| 一次读取评论后直接生成答案 | 评论证据不足时沿服务端 cursor 继续读取；无支持证据则明确返回无结果 |
+| 只检查答案中的店铺 ID 是否出现过 | 逐条声明证据账本 + 字段一致性 + 语义蕴含校验，主观结论必须引用真实评价 |
+| 将全部历史和画像直接拼入提示词 | Harness 只装配相关会话摘要和结构化画像；读取策略与“回答校验成功后写入”策略相互独立 |
+| 请求日志难以还原一次运行 | Redis 检查点 + PostgreSQL 运行/工具审计 + OpenTelemetry 分层链路 |
+| Agent 编排与业务落库混在一起 | Harness 只负责一次运行的安全边界，应用层负责路由、审计、会话和画像事务，便于离线回放与替换运行时 |
 
-### 4.7 评测结果
+`AGENT_RUNTIME_VERSION=v1_plan` 仅用于回放旧规划基线；生产默认使用 `v2_react`。历史请求中的旧路由值只在入口兼容，内部立即归一为 `agent`，响应与新评测不再输出旧值。
 
-评测使用固定种子生成的 200 家店和 1000 条评价，并连接真实的 DeepSeek API、MySQL 与 Redis。正式结果记录于 2026-08-09，对应代码和数据版本 `fb85084`。
+### 4.7 并行执行、记忆与可观测性边界
+
+- **为什么不能一开始并行查详情和评价**：`get_shop`、`list_shop_blogs` 的 `shop_id` 必须来自本轮 `search_shops`。第一轮先搜索；候选注册后，同一批候选的详情和评价才形成可并行的 DAG 就绪前沿。
+- **如何继续检查评价**：每次评论工具返回服务端签发的 `next_cursor`。Evidence Gap 仍未满足且 cursor 非空时，下一轮 Controller 才能继续翻页；客户端或模型不能伪造偏移量。
+- **长期偏好是否需要单独 Agent**：不需要。应用层从 PostgreSQL 加载版本化结构化画像、从 Redis 加载有界会话摘要，Harness 只注入与本轮有关的事实；显式偏好变更走确定性补丁，推断出的偏好只有在运行完成且回答通过校验后才以 CAS 更新。
+- **运行恢复**：完整 `AgentState` 按 `run_id + revision` 写入 Redis checkpoint，使用事务 CAS 防止旧 revision 覆盖新状态，TTL 为 30 分钟；它与长期用户记忆分离。
+- **执行追踪**：HTTP 上下文中的 W3C Trace ID 贯穿 `agent.run -> agent.controller / agent.action -> tool.execute`；SSE 的 `run_started`、最终响应和 PostgreSQL `agent_runs` 使用同一 `trace_id`。`agent_tool_calls` 仅保存参数摘要/哈希、状态、错误码、耗时和结果数，不保存原始问句或评价正文。
+- **跨实例定位**：客户端先从 SSE 获得 trace id；Jaeger 按同一 id 展示跨 Nginx、Go 实例和工具 span，PostgreSQL 审计表补充运行终态、预算、Token、证据摘要和工具尝试，Redis 检查点用于故障恢复，三者职责不混用。
+
+关键实现：
+
+- 请求理解与查询改写：`internal/agent/understanding.go`
+- 自适应三路路由：`internal/logic/adaptive_recommend_router.go`
+- ReAct 状态机与预算：`internal/agent/react_runtime.go`、`internal/agent/react_types.go`
+- Harness 边界：`internal/agent/harness.go`、`internal/agent/react_harness.go`
+- DAG 并行执行：`internal/agent/react_executor.go`
+- 证据缺口与逐条事实校验：`internal/agent/evidence_gap.go`、`internal/agent/claims.go`、`internal/agent/claim_entailment.go`
+- 上下文、画像与运行审计编排：`internal/logic/recommend_agent_logic.go`
+
+### 4.8 评测结果
+
+评测使用固定种子生成的 200 家店和 1000 条评价；检索连接真实 PostgreSQL/pgvector，Agent 评测连接真实 DeepSeek API、PostgreSQL 与 Redis。v4 是旧工具循环的历史冻结结果；当前有界并行 ReAct 必须看 v6/v6.1 报告，不能沿用 v4 数字冒充新架构效果。
 
 | 数据集 | 结果 |
 |--------|------|
-| Retrieval v2（60 题） | HitRate@5 100%，Recall@5 81.63%，Precision@5 83.21%，MRR 0.9732，NDCG@5 0.9802，过滤准确率 100%，基础设施错误率 0% |
+| Retrieval v2（60 题，固定过滤条件） | 任务成功率/HitRate@5 100%，Recall@5 81.6%，Precision@5 83.2%，MRR/NDCG@5 1.0，P50/P95 2/17 ms，基础设施错误率 0% |
 | Retrieval v3 challenge（120 题） | HitRate@5 70.54%，task success 64.17%，no-result accuracy 12.50% |
-| Agent v4 与 one-shot Hybrid RAG 同任务对照 | scenario-macro task success 96.43% vs 46.43%，相差 50.00 个百分点；trial-micro 97.92% vs 52.08% |
-| Agent v4 | 成功回答 groundedness 100%，trajectory 100%，P50/P95 6.043s/10.049s，平均 2.56 次工具调用、5292 Token，基础设施错误率 0% |
-| Router v2 challenge（52 题） | Accuracy 和 macro-F1 均为 100%；旧策略为 55.77% |
+| Agent v4（历史旧 runtime）与 one-shot Hybrid RAG 同任务对照 | scenario-macro task success 96.43% vs 46.43%；该数字不代表当前 V2 Agent |
+| Router E2E v6.1 首轮诊断（修复前） | trial-micro task success 60.71%，scenario-macro 56.67%，成功任务 groundedness 97.06%，P50/P95 3.741s/13.849s，infra error 0% |
+| Router E2E v6.1（当前 V2，本次实测） | 逐次任务成功率 92.86%、综合通过率 91.07%，场景宏平均任务成功率 90.00%，成功回答有据率 100%，P50/P95 7.208s/21.629s，56 次执行、基础设施错误率 0% |
+| 三路 Router v2 challenge（52 题） | Accuracy 和 macro-F1 均为 100%；旧策略为 55.77% |
 
-Agent v4 对照固定使用 `agent_multistep`，不包含 Router 的收益。场景主要覆盖多轮记忆、纠正、评价核验、无结果和提示注入，因此结果只反映这组冻结任务，不代表线上整体效果。详细口径和失败记录见 [Agent 与评测说明](doc/AGENT_AND_EVAL.md) 与 [实践问题与修复日志](doc/EVAL_PRACTICE_LOG.md)。
+v6.1 通过真实生产入口执行“请求理解 → 三路路由 → 澄清/单轮检索/完整 Agent”，不强制路由，也不跑对照组。报告只说明固定数据集上的离线结果，不能外推为线上准确率。详细口径见 [Agent 与评测说明](doc/AGENT_AND_EVAL.md)。
 
 ---
 
@@ -273,11 +319,11 @@ local-review-go/
 │   └── generate-*/               # 固定种子数据与 golden 生成器
 ├── internal/
 │   ├── agent/                    # 有界循环、工具、证据账本、事实校验
-│   ├── config/                   # MySQL、Redis、RocketMQ、OTel、env
+│   ├── config/                   # PostgreSQL、Redis、RocketMQ、OTel、env
 │   ├── handler/                  # HTTP 与 SSE 接口
 │   ├── logic/                    # 业务逻辑层
-│   ├── memory/                   # 结构化画像与会话记忆
-│   ├── rag/                      # Hybrid 检索与向量存储
+│   ├── memory/                   # 结构化画像与有界会话上下文
+│   ├── rag/                      # 检索文档构建
 │   ├── repository/               # 数据访问（含 interface/）
 │   ├── model/                    # GORM 实体
 │   ├── middleware/               # JWT、UV、限流

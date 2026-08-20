@@ -3,6 +3,7 @@ package logic
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 
 	repoInterfaces "local-review-go/internal/repository/interface"
@@ -11,6 +12,16 @@ import (
 type stubEmbed struct {
 	vec []float32
 	err error
+}
+
+type countingVector struct {
+	stubVector
+	textCalls atomic.Int32
+}
+
+func (s *countingVector) SearchText(ctx context.Context, query string, filter *repoInterfaces.VectorSearchFilter, k int) ([]repoInterfaces.ShopSearchResult, error) {
+	s.textCalls.Add(1)
+	return s.stubVector.SearchText(ctx, query, filter, k)
 }
 
 func (s *stubEmbed) Embed(ctx context.Context, text string) ([]float32, error) {
@@ -108,13 +119,40 @@ func TestShopSearchLogic_HybridFuses(t *testing.T) {
 	}
 }
 
+func TestShopSearchLogic_MultiQueryRetrievesEveryUniqueRewrite(t *testing.T) {
+	t.Parallel()
+	vec := &countingVector{stubVector: stubVector{
+		dense: []repoInterfaces.ShopSearchResult{{ShopID: 1}, {ShopID: 2}},
+		text:  []repoInterfaces.ShopSearchResult{{ShopID: 2}, {ShopID: 3}},
+	}}
+	base := NewShopSearchLogic(ShopSearchLogicDeps{
+		EmbeddingClient: &stubEmbed{vec: []float32{0.1}}, VectorRepo: vec,
+	})
+	multi, ok := base.(MultiQueryShopSearchLogic)
+	if !ok {
+		t.Fatal("shop search does not implement MultiQueryShopSearchLogic")
+	}
+	out, err := multi.SearchMultiWithMeta(context.Background(),
+		[]string{"原问题", "同义改写", "原问题", "第二改写"}, nil,
+		RetrieverHybrid, 3, SearchModeStrict)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if vec.textCalls.Load() != 3 {
+		t.Fatalf("text calls=%d want=3 unique queries", vec.textCalls.Load())
+	}
+	if len(out.Results) != 3 || out.Results[0].ShopID != 2 {
+		t.Fatalf("unexpected multi-query fusion: %+v", out.Results)
+	}
+}
+
 func TestShopSearchLogic_HybridTextFailureNoSilentDense(t *testing.T) {
 	t.Parallel()
 	l := NewShopSearchLogic(ShopSearchLogicDeps{
 		EmbeddingClient: &stubEmbed{vec: []float32{0.1}},
 		VectorRepo: &stubVector{
 			dense: []repoInterfaces.ShopSearchResult{{ShopID: 1}},
-			tErr:  errors.New("redis text down"),
+			tErr:  errors.New("text index down"),
 		},
 	})
 	_, err := l.Search(context.Background(), "火锅", nil, RetrieverHybrid, 5)
@@ -129,7 +167,7 @@ func TestShopSearchLogic_HybridDegradedExplicit(t *testing.T) {
 		EmbeddingClient: &stubEmbed{vec: []float32{0.1}},
 		VectorRepo: &stubVector{
 			dense: []repoInterfaces.ShopSearchResult{{ShopID: 1, Name: "A"}},
-			tErr:  errors.New("redis text down"),
+			tErr:  errors.New("text index down"),
 		},
 	})
 	out, err := l.SearchWithMeta(context.Background(), "火锅", nil, RetrieverHybrid, 5, SearchModeDegraded)
@@ -167,6 +205,26 @@ func TestShopSearchLogic_OrderedIDsConsistency(t *testing.T) {
 		if a[i].ShopID != b[i].ShopID {
 			t.Fatalf("order mismatch at %d: %d vs %d", i, a[i].ShopID, b[i].ShopID)
 		}
+	}
+}
+
+func TestShopSearchLogic_PinsExactNameMatchAheadOfRRF(t *testing.T) {
+	t.Parallel()
+	l := NewShopSearchLogic(ShopSearchLogicDeps{
+		EmbeddingClient: &stubEmbed{vec: []float32{0.1}},
+		VectorRepo: &stubVector{
+			dense: []repoInterfaces.ShopSearchResult{{ShopID: 2}, {ShopID: 3}, {ShopID: 4}},
+			text: []repoInterfaces.ShopSearchResult{
+				{ShopID: 9, ExactNameMatch: true}, {ShopID: 2}, {ShopID: 3},
+			},
+		},
+	})
+	got, err := l.Search(context.Background(), "找「精确店名」", nil, RetrieverHybrid, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 || got[0].ShopID != 9 {
+		t.Fatalf("exact match was not pinned: %+v", got)
 	}
 }
 

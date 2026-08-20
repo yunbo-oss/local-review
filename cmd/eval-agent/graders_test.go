@@ -34,6 +34,85 @@ func TestGradeTrajectory_OverMaxSteps(t *testing.T) {
 	}
 }
 
+func TestApplyExperimentTrajectoryContractUsesMeasuredRuntime(t *testing.T) {
+	got := applyExperimentTrajectoryContract(Expected{MaxSteps: 3, MaxToolCalls: 5}, ExperimentMeta{
+		AgentMaxSteps: 4, AgentMaxTools: 10, AgentRuntimeVersion: "v2_react",
+		AgentMaxSearchRounds: 2, AgentMaxReviewPages: 2,
+	})
+	if got.MaxSteps != 4 || got.MaxToolCalls != 10 || got.RuntimeVersion != "v2_react" ||
+		got.MaxSearchRounds != 2 || got.MaxReviewPagesPerShop != 2 || !got.RequireAnswerVerified {
+		t.Fatalf("runtime contract was not applied: %+v", got)
+	}
+}
+
+func TestGradeTrajectorySkipsAgentOnlyContractForRoutedRAG(t *testing.T) {
+	t.Parallel()
+	actual := OutcomeActual{
+		Route: logicRouteRAGForTest, Steps: 0, ToolTraceAvailable: true,
+		RuntimeVersion: "", AnswerVerified: true,
+	}
+	expected := Expected{
+		RequiredTools:  []string{"search_shops", "list_shop_blogs"},
+		RuntimeVersion: "v2_react", RequireAnswerVerified: true,
+	}
+	got := GradeTrajectory(actual, expected)
+	if !got.Pass || len(got.Deferred) != 1 {
+		t.Fatalf("RAG route must be judged by task outcome, not Agent tool/runtime conformance: %+v", got)
+	}
+}
+
+const logicRouteRAGForTest = "rag_oneshot"
+
+func TestV2RuntimeAndEvidenceBudgetsAreGraded(t *testing.T) {
+	actual := OutcomeActual{
+		Steps: 4, ToolCalls: 8, MaxToolCallsInTurn: 8,
+		RuntimeVersion: "v2_react", SearchRounds: 2, MaxReviewPages: 2,
+		AnswerVerified: true,
+	}
+	expected := Expected{
+		MaxSteps: 4, MaxToolCalls: 10, RuntimeVersion: "v2_react",
+		MaxSearchRounds: 2, MaxReviewPagesPerShop: 2, RequireAnswerVerified: true,
+	}
+	if got := GradeOutcome(actual, expected); !got.Pass {
+		t.Fatalf("outcome=%+v", got)
+	}
+	if got := GradeTrajectory(actual, expected); !got.Pass {
+		t.Fatalf("trajectory=%+v", got)
+	}
+	actual.MaxReviewPages = 3
+	actual.AnswerVerified = false
+	if got := GradeOutcome(actual, expected); !got.Pass {
+		t.Fatalf("runtime conformance must not contaminate task outcome: %+v", got)
+	}
+	if got := GradeTrajectory(actual, expected); got.Pass {
+		t.Fatal("review-page overflow and unverified answer must fail conformance")
+	}
+}
+
+func TestGradeOutcomeIgnoresAgentOnlyConformance(t *testing.T) {
+	t.Parallel()
+	actual := OutcomeActual{
+		RecommendationHeaderFound: true,
+		RuntimeVersion:            "",
+		AnswerVerified:            false,
+		Steps:                     99,
+		ToolCalls:                 99,
+	}
+	expected := Expected{
+		RequireRecommendationHeader: true,
+		RuntimeVersion:              "v2_react",
+		RequireAnswerVerified:       true,
+		MaxSteps:                    4,
+		MaxToolCalls:                10,
+	}
+	if got := GradeOutcome(actual, expected); !got.Pass {
+		t.Fatalf("task outcome must contain only user-visible assertions: %+v", got)
+	}
+	if got := GradeTrajectory(actual, expected); got.Pass {
+		t.Fatal("agent-only conformance must still be graded separately")
+	}
+}
+
 func TestGradeTrajectory_MultiTurnUsesPerTurnToolBound(t *testing.T) {
 	t.Parallel()
 	actual := OutcomeActual{Steps: 3, ToolCalls: 7, MaxToolCallsInTurn: 3}

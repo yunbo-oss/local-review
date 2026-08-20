@@ -2,11 +2,8 @@ package repository
 
 import (
 	"context"
-	"fmt"
 	"local-review-go/internal/model"
 	"local-review-go/internal/repository/interface"
-	"strconv"
-	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -54,17 +51,23 @@ func (r *userRepo) GetByIDs(ctx context.Context, ids []int64) ([]model.User, err
 	if len(ids) == 0 {
 		return []model.User{}, nil
 	}
-	idStrs := make([]string, len(ids))
-	for i, id := range ids {
-		idStrs[i] = strconv.FormatInt(id, 10)
-	}
-	order := fmt.Sprintf("FIELD(id,%s)", strings.Join(idStrs, ","))
-
 	var users []model.User
 	err := r.db.WithContext(ctx).
 		Table((&model.User{}).TableName()).
 		Where("id IN ?", ids).
-		Order(order).
 		Find(&users).Error
-	return users, err
+	if err != nil {
+		return nil, err
+	}
+	byID := make(map[int64]model.User, len(users))
+	for _, user := range users {
+		byID[user.Id] = user
+	}
+	ordered := make([]model.User, 0, len(users))
+	for _, id := range ids {
+		if user, ok := byID[id]; ok {
+			ordered = append(ordered, user)
+		}
+	}
+	return ordered, nil
 }

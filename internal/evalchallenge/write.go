@@ -93,8 +93,17 @@ func GenerateAgentSuite(root, suite string, check bool) ([]string, error) {
 	case "v4":
 		built = BuildAgentChallengeV4(hash(sourceRaw))
 		agentName, manifestName = "agent.v4.json", "manifest.agent.v4.json"
+	case "v5":
+		built = BuildAgentChallengeV5(hash(sourceRaw))
+		agentName, manifestName = "agent.v5.json", "manifest.agent.v5.json"
+	case "v6":
+		built = BuildAgentChallengeV6(hash(sourceRaw))
+		agentName, manifestName = "agent.v6.json", "manifest.agent.v6.json"
+	case "v61":
+		built = BuildAgentRegressionV61(hash(sourceRaw))
+		agentName, manifestName = "agent.v6.1.json", "manifest.agent.v6.1.json"
 	default:
-		return nil, fmt.Errorf("unknown agent suite %q (want v31 or v4)", suite)
+		return nil, fmt.Errorf("unknown agent suite %q (want v31, v4, v5, v6, or v61)", suite)
 	}
 	files := []struct {
 		name string

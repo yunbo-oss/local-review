@@ -17,14 +17,24 @@ import (
 )
 
 type fakeRecommendLogic struct {
-	answer  string
-	err     error
-	status  []agent.ToolStatus
-	history bool
+	answer           string
+	err              error
+	status           []agent.ToolStatus
+	history          bool
+	recordedSession  string
+	recordedQuestion string
+	recordedAnswer   string
 }
 
 func (f *fakeRecommendLogic) HasSessionHistory(context.Context, int64, string) (bool, error) {
 	return f.history, nil
+}
+
+func (f *fakeRecommendLogic) RecordRecommendationTurn(_ context.Context, _ int64, sessionID, question, answer string) error {
+	f.recordedSession = sessionID
+	f.recordedQuestion = question
+	f.recordedAnswer = answer
+	return nil
 }
 
 func (f *fakeRecommendLogic) Recommend(ctx context.Context, userID int64, sessionID, question, forceRoute string, onStatus func(agent.ToolStatus)) (logic.RecommendResult, error) {

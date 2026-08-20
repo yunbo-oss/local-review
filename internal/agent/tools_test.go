@@ -94,3 +94,27 @@ func TestToolExecutor_NormalizesShopScoreForModel(t *testing.T) {
 		t.Fatalf("score should be user-facing 4.7: %s", out)
 	}
 }
+
+func TestToolExecutorStructuredPreservesFailureAndMetadata(t *testing.T) {
+	t.Parallel()
+	exec := &ToolExecutor{Ledger: NewEvidenceLedger()}
+	result := exec.ExecuteStructured(context.Background(), ToolGetShop, `{"shop_id":7}`)
+	if result.Status != ActionFailed || result.ErrorCode != ErrToolNotAllowed {
+		t.Fatalf("structured result=%+v", result)
+	}
+	if result.Tool != ToolGetShop || result.ArgsHash == "" || result.LatencyMs < 0 {
+		t.Fatalf("missing audit metadata: %+v", result)
+	}
+}
+
+func TestToolExecutorStructuredReportsCandidatesAndCount(t *testing.T) {
+	t.Parallel()
+	exec := &ToolExecutor{Search: normalizedScoreSearch{}, Ledger: NewEvidenceLedger()}
+	result := exec.ExecuteStructured(context.Background(), ToolSearchShops, `{"query":"无界餐厅"}`)
+	if result.Status != ActionSucceeded || result.ResultCount != 1 {
+		t.Fatalf("structured result=%+v", result)
+	}
+	if len(result.CandidateIDs) != 1 || result.CandidateIDs[0] != 29 {
+		t.Fatalf("candidate metadata=%v", result.CandidateIDs)
+	}
+}

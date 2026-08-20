@@ -61,6 +61,10 @@ type AgentExpected struct {
 	RequiredClaimRegex          []string       `json:"required_claim_regex,omitempty"`
 	ExpectNoResults             bool           `json:"expect_no_results"`
 	ExpectGroundedness          *bool          `json:"expect_groundedness"`
+	RuntimeVersion              string         `json:"runtime_version,omitempty"`
+	MaxSearchRounds             int            `json:"max_search_rounds,omitempty"`
+	MaxReviewPagesPerShop       int            `json:"max_review_pages_per_shop,omitempty"`
+	RequireAnswerVerified       bool           `json:"require_answer_verified,omitempty"`
 }
 
 type AgentTurn struct {

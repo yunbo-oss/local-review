@@ -2,12 +2,9 @@ package repository
 
 import (
 	"context"
-	"fmt"
 	"local-review-go/internal/model"
 	"local-review-go/internal/repository/interface"
 	"local-review-go/pkg/utils/redisx"
-	"strconv"
-	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -35,18 +32,24 @@ func (r *shopRepo) GetByIDs(ctx context.Context, ids []int64) ([]model.Shop, err
 	if len(ids) == 0 {
 		return []model.Shop{}, nil
 	}
-	idStrs := make([]string, len(ids))
-	for i, id := range ids {
-		idStrs[i] = strconv.FormatInt(id, 10)
-	}
-	order := fmt.Sprintf("FIELD(id,%s)", strings.Join(idStrs, ","))
-
 	var shops []model.Shop
 	err := r.db.WithContext(ctx).
 		Where("id IN ?", ids).
-		Order(order).
 		Find(&shops).Error
-	return shops, err
+	if err != nil {
+		return nil, err
+	}
+	byID := make(map[int64]model.Shop, len(shops))
+	for _, shop := range shops {
+		byID[shop.Id] = shop
+	}
+	ordered := make([]model.Shop, 0, len(shops))
+	for _, id := range ids {
+		if shop, ok := byID[id]; ok {
+			ordered = append(ordered, shop)
+		}
+	}
+	return ordered, nil
 }
 
 func (r *shopRepo) Create(ctx context.Context, shop *model.Shop) error {

@@ -12,7 +12,7 @@ import (
 
 	"local-review-go/internal/agent"
 	"local-review-go/internal/config"
-	"local-review-go/internal/config/mysql"
+	"local-review-go/internal/config/postgres"
 	"local-review-go/internal/config/redis"
 	"local-review-go/internal/evalmeta"
 	"local-review-go/internal/llm"
@@ -29,6 +29,7 @@ func main() {
 	compareBaseline := flag.String("compare-baseline", "", "same-task Hybrid RAG task report path")
 	forceRoute := flag.String("force-route", "", "force route for all cases")
 	mode := flag.String("mode", "inprocess", "inprocess|fake")
+	entrypoint := flag.String("entrypoint", "agent_direct", "agent_direct|router_e2e (agent system only)")
 	limit := flag.Int("limit", 0, "max cases (0=all); smoke helper")
 	caseID := flag.String("case-id", "", "run one exact case id; empty runs the selected split")
 	userID := flag.Int64("user-id", 900001, "eval user id for memory isolation")
@@ -65,12 +66,13 @@ func main() {
 	var runner TrialRunner
 	exp := ExperimentMeta{
 		System:                *system,
+		EntryPoint:            *entrypoint,
 		Split:                 *split,
 		AgentMaxSteps:         agent.DefaultMaxSteps,
 		AgentMaxTools:         agent.DefaultMaxToolCalls,
 		ForceRoute:            *forceRoute,
 		Mode:                  *mode,
-		PolicyVersion:         "agent-policy-v1",
+		PolicyVersion:         "agent-policy-v2-plan-claim",
 		Retriever:             "hybrid",
 		TopK:                  5,
 		InputPriceUSDPerMTok:  *inputPrice,
@@ -85,6 +87,14 @@ func main() {
 		}
 		runner = &FakeRunner{}
 		exp.ChatModel = "fake"
+		if runtimeVersion := cases[0].Expected.RuntimeVersion; runtimeVersion != "" {
+			exp.AgentRuntimeVersion = runtimeVersion
+			exp.AgentMaxSteps = cases[0].Expected.MaxSteps
+			exp.AgentMaxTools = cases[0].Expected.MaxToolCalls
+			exp.AgentMaxSearchRounds = cases[0].Expected.MaxSearchRounds
+			exp.AgentMaxReviewPages = cases[0].Expected.MaxReviewPagesPerShop
+			exp.PolicyVersion = "agent-policy-v3-parallel-react"
+		}
 	case "inprocess":
 		config.Init()
 		if os.Getenv("LLM_API_KEY") == "" {
@@ -100,7 +110,7 @@ func main() {
 		exp.EmbeddingDim = cfg.EmbeddingDim
 		baseSearch := logic.NewShopSearchLogic(logic.ShopSearchLogicDeps{
 			EmbeddingClient: emb,
-			VectorRepo:      repository.NewVectorRepo(redis.GetRedisClient()),
+			VectorRepo:      repository.NewVectorRepo(postgres.GetPostgresDB()),
 		})
 		switch *system {
 		case "hybrid_rag":
@@ -116,24 +126,57 @@ func main() {
 			}
 			capSearch := &capturingSearch{inner: baseSearch}
 			mem := repository.NewHybridMemoryRepo(redis.GetRedisClient(),
-				repository.NewAgentProfileRepo(mysql.GetMysqlDB(), redis.GetRedisClient()))
-			shopRepo := repository.NewShopRepo(mysql.GetMysqlDB())
-			blogRepo := repository.NewBlogRepo(mysql.GetMysqlDB())
+				repository.NewAgentProfileRepo(postgres.GetPostgresDB(), redis.GetRedisClient()))
+			shopRepo := repository.NewShopRepo(postgres.GetPostgresDB())
+			blogRepo := repository.NewBlogRepo(postgres.GetPostgresDB())
 			runCfg := agent.DefaultRunConfig()
+			runtimeVersion := agent.RuntimeVersionFromEnv()
+			baseRouter := logic.NewRecommendRouter()
+			adaptiveRouter := logic.NewAdaptiveRecommendRouter(
+				baseRouter, agent.NewLLMQueryUnderstander(chat),
+			)
+			exp.AgentRuntimeVersion = runtimeVersion
 			exp.AgentMaxSteps = runCfg.MaxSteps
 			exp.AgentMaxTools = runCfg.MaxToolCalls
 			exp.AgentMaxToolAttempts = runCfg.MaxToolAttempts
 			exp.AgentMaxToolsPerTurn = runCfg.MaxToolsPerTurn
+			if runtimeVersion == agent.RuntimeVersionV2React {
+				budget := agent.RuntimeBudgetFromEnv()
+				exp.AgentMaxSteps = budget.MaxTurns
+				exp.AgentMaxTools = budget.MaxToolCalls
+				exp.AgentMaxToolAttempts = budget.MaxToolAttempts
+				exp.AgentMaxToolsPerTurn = budget.MaxParallelTools
+				exp.AgentMaxSearchRounds = budget.MaxSearchRounds
+				exp.AgentMaxReviewPages = budget.MaxReviewPagesPerShop
+				exp.PolicyVersion = "agent-policy-v3-parallel-react"
+			}
 			exp.AgentRunTimeout = runCfg.RunTimeout.String()
 			exp.AgentToolTimeout = runCfg.ToolTimeout.String()
 			agentLogic := logic.NewRecommendAgentLogic(logic.RecommendAgentLogicDeps{
 				ToolChat: toolChat, ChatClient: chat, Memory: mem,
 				Search: capSearch, ShopRepo: shopRepo, BlogRepo: blogRepo,
-				RunRepo: repository.NewAgentRunRepo(mysql.GetMysqlDB()),
-				Router:  logic.NewRecommendRouter(),
-				Config:  runCfg,
+				RunRepo:        repository.NewAgentRunRepo(postgres.GetPostgresDB()),
+				Router:         baseRouter,
+				AdaptiveRouter: adaptiveRouter,
+				Reranker:       logic.NewLLMCandidateReranker(chat),
+				Planner:        agent.NewLLMPlanner(chat),
+				Controller:     agent.NewLLMDecisionController(toolChat),
+				Checkpointer:   repository.NewRedisAgentCheckpointer(redis.GetRedisClient()),
+				RuntimeVersion: runtimeVersion,
+				Summarizer:     agent.NewLLMSessionSummarizer(chat),
+				Config:         runCfg,
 			})
-			runner = &InProcessRunner{Logic: agentLogic, Memory: mem, Search: capSearch, UserID: *userID}
+			inProcess := &InProcessRunner{Logic: agentLogic, Memory: mem, Search: capSearch, UserID: *userID}
+			switch strings.TrimSpace(*entrypoint) {
+			case "agent_direct":
+			case "router_e2e":
+				inProcess.Router = adaptiveRouter
+				inProcess.RAG = &HybridRAGRunner{Search: capSearch, Chat: chat}
+				exp.ForceRoute = ""
+			default:
+				log.Fatalf("unknown entrypoint %q", *entrypoint)
+			}
+			runner = inProcess
 		default:
 			log.Fatalf("unknown system %q", *system)
 		}
@@ -175,7 +218,7 @@ func main() {
 				log.Printf("[%s trial=%d] infra: %s", c.ID, t, td.InfraError)
 				continue
 			}
-			gradeTrial(&td, c.Expected)
+			gradeTrial(&td, c.Expected, exp)
 			outN++
 			gN++
 			tN++

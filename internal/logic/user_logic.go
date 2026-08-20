@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"local-review-go/internal/config/mysql"
+	"local-review-go/internal/config/postgres"
 	"local-review-go/internal/config/redis"
 	"local-review-go/internal/middleware"
 	"local-review-go/internal/model"
@@ -46,11 +46,11 @@ type UserLogicDeps struct {
 func NewUserLogic(deps UserLogicDeps) UserLogic {
 	userRepo := deps.UserRepo
 	if userRepo == nil {
-		userRepo = repository.NewUserRepo(mysql.GetMysqlDB())
+		userRepo = repository.NewUserRepo(postgres.GetPostgresDB())
 	}
 	userInfoRepo := deps.UserInfoRepo
 	if userInfoRepo == nil {
-		userInfoRepo = repository.NewUserInfoRepo(mysql.GetMysqlDB())
+		userInfoRepo = repository.NewUserInfoRepo(postgres.GetPostgresDB())
 	}
 	return &userLogic{
 		userRepo:     userRepo,

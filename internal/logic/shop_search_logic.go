@@ -54,6 +54,13 @@ type ShopSearchLogic interface {
 	SearchWithMeta(ctx context.Context, query string, filter *repoInterfaces.VectorSearchFilter, strategy RetrieverStrategy, topK int, mode SearchMode) (SearchOutcome, error)
 }
 
+// MultiQueryShopSearchLogic is an optional extension used by the adaptive
+// Agent/RAG path. Each rewrite is retrieved independently and fused so a weak
+// rewrite cannot erase the original user query.
+type MultiQueryShopSearchLogic interface {
+	SearchMultiWithMeta(ctx context.Context, queries []string, filter *repoInterfaces.VectorSearchFilter, strategy RetrieverStrategy, topK int, mode SearchMode) (SearchOutcome, error)
+}
+
 // FilterExtractor 从自然语言抽取过滤条件
 type FilterExtractor interface {
 	Extract(ctx context.Context, question string) (*repoInterfaces.VectorSearchFilter, error)
@@ -223,6 +230,89 @@ func (l *shopSearchLogic) SearchWithMeta(ctx context.Context, query string, filt
 	}
 }
 
+func (l *shopSearchLogic) SearchMultiWithMeta(ctx context.Context, queries []string, filter *repoInterfaces.VectorSearchFilter, strategy RetrieverStrategy, topK int, mode SearchMode) (SearchOutcome, error) {
+	queries = normalizeRetrievalQueries(queries)
+	if len(queries) == 0 {
+		return SearchOutcome{}, fmt.Errorf("multi-query retrieval requires at least one query")
+	}
+	if len(queries) == 1 {
+		return l.SearchWithMeta(ctx, queries[0], filter, strategy, topK, mode)
+	}
+	if topK <= 0 {
+		topK = 5
+	}
+	armTopK := l.candidateK
+	if armTopK < topK {
+		armTopK = topK
+	}
+	type queryArm struct {
+		out SearchOutcome
+		err error
+	}
+	arms := make([]queryArm, len(queries))
+	g, gctx := errgroup.WithContext(ctx)
+	for i := range queries {
+		i := i
+		g.Go(func() error {
+			arms[i].out, arms[i].err = l.SearchWithMeta(gctx, queries[i], filter, strategy, armTopK, mode)
+			return nil
+		})
+	}
+	_ = g.Wait()
+
+	out := SearchOutcome{Strategy: strategy, Mode: mode}
+	var rankedLists [][]int64
+	var resultLists [][]repoInterfaces.ShopSearchResult
+	for i, arm := range arms {
+		if arm.err != nil {
+			if mode == SearchModeStrict {
+				return out, fmt.Errorf("multi-query arm %d failed: %w", i, arm.err)
+			}
+			out.Degraded = true
+			out.DegradedReason = strings.TrimSpace(out.DegradedReason + ";query_arm_failed:" + queries[i])
+			continue
+		}
+		if arm.out.Degraded {
+			out.Degraded = true
+			out.DegradedReason = strings.TrimSpace(out.DegradedReason + ";" + arm.out.DegradedReason)
+		}
+		rankedLists = append(rankedLists, shopIDs(arm.out.Results))
+		resultLists = append(resultLists, arm.out.Results)
+	}
+	if len(rankedLists) == 0 {
+		return out, fmt.Errorf("all multi-query retrieval arms failed")
+	}
+	fused := rag.FuseRRF(rankedLists, l.rrfK, topK)
+	byID := mergeShopMeta(resultLists...)
+	out.Results = make([]repoInterfaces.ShopSearchResult, 0, len(fused))
+	for _, id := range fused {
+		if item, ok := byID[id]; ok {
+			out.Results = append(out.Results, item)
+		}
+	}
+	return out, nil
+}
+
+func normalizeRetrievalQueries(values []string) []string {
+	seen := map[string]struct{}{}
+	var out []string
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+		if len(out) >= 4 {
+			break
+		}
+	}
+	return out
+}
+
 func (l *shopSearchLogic) searchDense(ctx context.Context, query string, filter *repoInterfaces.VectorSearchFilter, topK int) ([]repoInterfaces.ShopSearchResult, error) {
 	queryVec, err := l.embedding.Embed(ctx, query)
 	if err != nil {
@@ -279,6 +369,7 @@ func (l *shopSearchLogic) searchHybridMeta(ctx context.Context, query string, fi
 	denseIDs := shopIDs(denseArm.res)
 	textIDs := shopIDs(textArm.res)
 	fused := rag.FuseRRF([][]int64{denseIDs, textIDs}, l.rrfK, topK)
+	fused = pinExactNameMatch(fused, textArm.res, topK)
 	byID := mergeShopMeta(denseArm.res, textArm.res)
 	res := make([]repoInterfaces.ShopSearchResult, 0, len(fused))
 	for _, id := range fused {
@@ -288,6 +379,30 @@ func (l *shopSearchLogic) searchHybridMeta(ctx context.Context, query string, fi
 	}
 	out.Results = res
 	return out, nil
+}
+
+func pinExactNameMatch(fused []int64, textResults []repoInterfaces.ShopSearchResult, topK int) []int64 {
+	var exactID int64
+	for _, item := range textResults {
+		if item.ExactNameMatch {
+			exactID = item.ShopID
+			break
+		}
+	}
+	if exactID == 0 {
+		return fused
+	}
+	ordered := make([]int64, 0, len(fused)+1)
+	ordered = append(ordered, exactID)
+	for _, id := range fused {
+		if id != exactID {
+			ordered = append(ordered, id)
+		}
+	}
+	if topK > 0 && len(ordered) > topK {
+		ordered = ordered[:topK]
+	}
+	return ordered
 }
 
 func truncateShopResults(in []repoInterfaces.ShopSearchResult, topK int) []repoInterfaces.ShopSearchResult {
@@ -334,6 +449,9 @@ func mergeShopMeta(lists ...[]repoInterfaces.ShopSearchResult) map[int64]repoInt
 				}
 				if s.Sold != 0 {
 					prev.Sold = s.Sold
+				}
+				if s.ExactNameMatch {
+					prev.ExactNameMatch = true
 				}
 				m[s.ShopID] = prev
 			} else {

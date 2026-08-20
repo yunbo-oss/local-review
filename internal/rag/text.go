@@ -36,8 +36,9 @@ func extractBlogSummary(blogs []model.Blog) string {
 			text += " "
 		}
 		text += strings.TrimSpace(b.Content)
-		if len(text) > maxBlogExcerptLen {
-			text = text[:maxBlogExcerptLen] + "..."
+		runes := []rune(text)
+		if len(runes) > maxBlogExcerptLen {
+			text = string(runes[:maxBlogExcerptLen]) + "..."
 		}
 		if text != "" {
 			parts = append(parts, text)
